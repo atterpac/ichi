@@ -5,12 +5,38 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/atterpac/dado/components"
 )
 
-// LoadGraph loads the commit graph for visualization.
-func (r *Repository) LoadGraph(limit int) (*components.GitGraphData, error) {
+// Commit is a plain-data commit record, free of any UI/layout state.
+type Commit struct {
+	Hash      string
+	ShortHash string
+	Message   string
+	Author    string
+	Date      time.Time
+	Parents   []string
+	Refs      []string
+	Branch    string
+	IsMerge   bool
+	IsStash   bool
+	Ahead     int
+	Behind    int
+}
+
+// Graph is the commit graph as plain data (newest first) with a hash lookup.
+type Graph struct {
+	Commits       []*Commit
+	CommitMap     map[string]*Commit
+	CurrentBranch string
+}
+
+func (g *Graph) addCommit(c *Commit) {
+	g.Commits = append(g.Commits, c)
+	g.CommitMap[c.Hash] = c
+}
+
+// LoadGraph loads the commit graph as plain data.
+func (r *Repository) LoadGraph(limit int) (*Graph, error) {
 	headHash := r.HEAD()
 
 	// Format: hash|short_hash|subject|author|timestamp|parents|refs
@@ -26,9 +52,7 @@ func (r *Repository) LoadGraph(limit int) (*components.GitGraphData, error) {
 		return nil, err
 	}
 
-	graph := components.NewGitGraphData()
-
-	// Set current branch so it gets priority (column 0) in layout
+	graph := &Graph{CommitMap: make(map[string]*Commit)}
 	graph.CurrentBranch = r.CurrentBranch()
 
 	for _, line := range strings.Split(out, "\n") {
@@ -58,7 +82,7 @@ func (r *Repository) LoadGraph(limit int) (*components.GitGraphData, error) {
 			}
 		}
 
-		commit := &components.GitCommit{
+		commit := &Commit{
 			Hash:      parts[0],
 			ShortHash: parts[1],
 			Message:   parts[2],
@@ -84,19 +108,18 @@ func (r *Repository) LoadGraph(limit int) (*components.GitGraphData, error) {
 			}
 		}
 
-		graph.AddCommit(commit)
+		graph.addCommit(commit)
 	}
 
 	// Populate ahead/behind counts for branch tips
 	r.populateAheadBehind(graph)
 
-	graph.LayoutGraph()
 	return graph, nil
 }
 
 // populateAheadBehind sets ahead/behind counts for local branch tips. One
 // for-each-ref resolves all branches, vs spawning a rev-list process per branch.
-func (r *Repository) populateAheadBehind(graph *components.GitGraphData) {
+func (r *Repository) populateAheadBehind(graph *Graph) {
 	// %00 (NUL) delimits name from track; nobracket yields "ahead 2, behind 1".
 	out, err := r.run("for-each-ref",
 		"--format=%(refname:short)%00%(upstream:track,nobracket)", "refs/heads/")
@@ -352,7 +375,7 @@ type ChangedFile struct {
 }
 
 // SearchCommits searches commits by message, author, or hash.
-func (r *Repository) SearchCommits(query string, limit int) ([]*components.GitCommit, error) {
+func (r *Repository) SearchCommits(query string, limit int) ([]*Commit, error) {
 	format := "%H|%h|%s|%an|%at|%P"
 	out, err := r.run("log", "--all",
 		"--max-count="+strconv.Itoa(limit),
@@ -369,7 +392,7 @@ func (r *Repository) SearchCommits(query string, limit int) ([]*components.GitCo
 		}
 	}
 
-	var commits []*components.GitCommit
+	var commits []*Commit
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
@@ -383,7 +406,7 @@ func (r *Repository) SearchCommits(query string, limit int) ([]*components.GitCo
 		timestamp, _ := strconv.ParseInt(parts[4], 10, 64)
 		parents := strings.Fields(parts[5])
 
-		commit := &components.GitCommit{
+		commit := &Commit{
 			Hash:      parts[0],
 			ShortHash: parts[1],
 			Message:   parts[2],
@@ -400,14 +423,14 @@ func (r *Repository) SearchCommits(query string, limit int) ([]*components.GitCo
 }
 
 // LoadStashes loads stash entries as GitCommits.
-func (r *Repository) LoadStashes() ([]*components.GitCommit, error) {
+func (r *Repository) LoadStashes() ([]*Commit, error) {
 	// Get all stash info in a single command
 	out, err := r.run("stash", "list", "--format=%gd|%H|%s|%at|%an")
 	if err != nil {
 		return nil, nil // No stashes or stash not supported
 	}
 
-	var stashes []*components.GitCommit
+	var stashes []*Commit
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
@@ -429,7 +452,7 @@ func (r *Repository) LoadStashes() ([]*components.GitCommit, error) {
 			shortHash = hash[:7]
 		}
 
-		stash := &components.GitCommit{
+		stash := &Commit{
 			Hash:      hash,
 			ShortHash: shortHash,
 			Message:   message,

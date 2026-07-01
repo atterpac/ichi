@@ -1,0 +1,35 @@
+/* Sandbox-global styles. Theme CSS vars are injected onto :root by the store
+   (see themes.ts / applyTheme). Defaults below keep things sane before the
+   first applyTheme() call. */
+:root {
+  --bg: #000000;
+  --bg-soft: #0c0c0f;
+  --fg: #e6e6e6;
+  --fg-muted: #666666;
+  --accent: #3b82f6;
+  --accent-2: #22d3ee;
+  --border: #1c1c22;
+  --grid: rgba(255, 255, 255, 0.045);
+  --grid-size: 32px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#sandbox {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}

@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "Atterpac",
+			"FileDescription": "A keyboard focused email client",
+			"LegalCopyright": "(c) 2026, Atterpac",
+			"ProductName": "Pigeon",
+			"Comments": "Pigeon email client"
+		}
+	}
+}

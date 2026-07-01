@@ -25,12 +25,42 @@ type PreloadedGraph struct {
 	HasChanges bool
 }
 
+// toGitCommit maps a plain git.Commit onto the dado render type.
+func toGitCommit(c *git.Commit) *components.GitCommit {
+	return &components.GitCommit{
+		Hash:      c.Hash,
+		ShortHash: c.ShortHash,
+		Message:   c.Message,
+		Author:    c.Author,
+		Date:      c.Date,
+		Parents:   c.Parents,
+		Refs:      c.Refs,
+		Branch:    c.Branch,
+		IsMerge:   c.IsMerge,
+		IsStash:   c.IsStash,
+		Ahead:     c.Ahead,
+		Behind:    c.Behind,
+	}
+}
+
+// toGraphData builds a laid-out dado graph from plain git data.
+func toGraphData(g *git.Graph) *components.GitGraphData {
+	data := components.NewGitGraphData()
+	data.CurrentBranch = g.CurrentBranch
+	for _, c := range g.Commits {
+		data.AddCommit(toGitCommit(c))
+	}
+	data.LayoutGraph()
+	return data
+}
+
 // PreloadGraph loads graph data in the background (called before UI is ready).
 func PreloadGraph(repo *git.Repository) (*PreloadedGraph, error) {
-	graph, err := repo.LoadGraph(500)
+	g, err := repo.LoadGraph(500)
 	if err != nil {
 		return nil, err
 	}
+	graph := toGraphData(g)
 
 	// Check for working changes
 	hasChanges := false
@@ -213,16 +243,18 @@ func (v *GraphView) refresh() {
 	// Drop cached details; a refresh may have moved branches/refs.
 	v.detailCache = nil
 
-	graph, err := v.repo.LoadGraph(500)
+	g, err := v.repo.LoadGraph(500)
 	if err != nil {
 		v.showError(err)
 		return
 	}
+	graph := toGraphData(g)
 
 	// Add stashes to graph if enabled - insert chronologically
 	if v.showStashes {
 		stashes, _ := v.repo.LoadStashes()
-		for _, stash := range stashes {
+		for _, st := range stashes {
+			stash := toGitCommit(st)
 			graph.CommitMap[stash.Hash] = stash
 			// Find correct chronological position (commits are newest first)
 			inserted := false
