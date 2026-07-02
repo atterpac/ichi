@@ -1,1 +1,5 @@
 docs-site/public/images/*
+
+# built frontend assets
+desktop/dist/*
+!desktop/dist/.gitkeep
