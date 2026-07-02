@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "gen:themes": "node scripts/generate-themes.mjs",
     "sandbox": "vite --open /sandbox.html",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",

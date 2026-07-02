@@ -1,19 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, type Component } from 'vue'
+import { computed, ref, type Component } from 'vue'
 import { useShellSettings } from '../../composables/useShellSettings'
-import { notify } from '../../composables/useToasts'
-import ContextMenu, { type ContextMenuItem } from './ContextMenu.vue'
+import { THEMES } from '../../theme/themes'
 import {
-  PhBellRinging,
-  PhCheck,
-  PhCopy,
-  PhGitBranch,
   PhGitFork,
   PhKeyboard,
   PhPalette,
   PhSlidersHorizontal,
-  PhTag,
-  PhTrash,
   PhX,
 } from '@phosphor-icons/vue'
 
@@ -77,67 +70,8 @@ const detailHashOptions = [
   { id: 'short', label: 'Short hash' },
   { id: 'full', label: 'Full hash' },
 ] as const
-const fileChipOptions = [
-  { id: 'plain', label: 'Plain row' },
-  { id: 'soft', label: 'Soft chip' },
-  { id: 'outline', label: 'Outline chip' },
-  { id: 'pill', label: 'Pill row' },
-  { id: 'compact', label: 'Compact chip' },
-  { id: 'split', label: 'Split chip' },
-] as const
-
-const contextMenuStyles = [
-  { id: 'default', label: 'Default', note: 'Rounded, balanced spacing' },
-  { id: 'compact', label: 'Compact', note: 'Dense rows, minimal padding' },
-  { id: 'spacious', label: 'Spacious', note: 'Roomy rows with icon chips' },
-  { id: 'glass', label: 'Glass', note: 'Translucent, blurred surface' },
-  { id: 'terminal', label: 'Terminal', note: 'Monospace with accent bar' },
-  { id: 'pill', label: 'Pill', note: 'Floating rounded rows' },
-] as const
-
-const keybindStyles = [
-  { id: 'minimal', label: 'Minimal', note: 'Quiet mono text' },
-  { id: 'outline', label: 'Outline', note: 'Hairline pill' },
-  { id: 'solid', label: 'Solid', note: 'Filled chip, base edge' },
-  { id: 'keycap', label: 'Keycap', note: 'Raised physical key' },
-  { id: 'accent', label: 'Accent', note: 'Tinted, high presence' },
-  { id: 'bracket', label: 'Bracket', note: 'Terminal [key] style' },
-] as const
-const toastStyles = [
-  { id: 'stack', label: 'Stack', note: 'Default card with clear action area' },
-  { id: 'compact', label: 'Compact', note: 'Dense one-line workflow notice' },
-  { id: 'glass', label: 'Glass', note: 'Floating translucent notification' },
-  { id: 'rail', label: 'Rail', note: 'Status color stripe and strong icon' },
-  { id: 'banner', label: 'Banner', note: 'Wide system-style alert' },
-  { id: 'terminal', label: 'Terminal', note: 'Monospace command feedback' },
-] as const
 
 const activeLabel = computed(() => categories.find((category) => category.id === active.value)?.label ?? 'Settings')
-
-const previewMenu = ref<InstanceType<typeof ContextMenu> | null>(null)
-const previewItems: ContextMenuItem[] = [
-  { label: 'Copy SHA', icon: PhCopy, shortcut: 'y' },
-  { label: 'Checkout', icon: PhCheck },
-  { label: 'Create branch here…', icon: PhGitBranch },
-  { label: 'Create tag…', icon: PhTag },
-  { separator: true },
-  { label: 'Delete branch', icon: PhTrash, danger: true },
-]
-
-function previewContextMenu(event: MouseEvent, id: (typeof contextMenuStyles)[number]['id']) {
-  settings.contextMenuStyle = id
-  void nextTick(() => previewMenu.value?.open(event, previewItems))
-}
-
-function previewToast(id: (typeof toastStyles)[number]['id']) {
-  settings.toastStyle = id
-  notify({
-    tone: id === 'terminal' ? 'info' : id === 'rail' ? 'warning' : 'success',
-    title: id === 'terminal' ? 'git fetch complete' : 'Changes stashed',
-    message: id === 'compact' ? '3 files saved for later.' : 'Saved working changes before switching branches.',
-    actionLabel: id === 'banner' || id === 'stack' ? 'Undo' : 'View',
-  })
-}
 
 function close() {
   emit('close')
@@ -200,10 +134,7 @@ function close() {
                 <small>Applies immediately and persists locally.</small>
               </span>
               <select v-model="settings.theme" class="select">
-                <option value="night">night</option>
-                <option value="storm">storm</option>
-                <option value="moon">moon</option>
-                <option value="day">day</option>
+                <option v-for="theme in THEMES" :key="theme.id" :value="theme.id">{{ theme.label }}</option>
               </select>
             </label>
 
@@ -224,78 +155,6 @@ function close() {
                 <i />
               </button>
             </label>
-            <label class="set-row">
-              <span>
-                <b>Roundness</b>
-                <small>Adjust corner radius across panels, rows, buttons, and controls.</small>
-              </span>
-              <span class="range-control">
-                <input v-model.number="settings.roundness" type="range" min="0" max="18" step="1" />
-                <b>{{ settings.roundness }}</b>
-              </span>
-            </label>
-
-            <p class="set-section">Context menu</p>
-            <p class="set-note">Click a style to select it and preview the live right-click menu.</p>
-            <div class="graph-style-grid">
-              <button
-                v-for="style in contextMenuStyles"
-                :key="style.id"
-                class="graph-style-card"
-                :class="{ active: settings.contextMenuStyle === style.id }"
-                type="button"
-                @click="previewContextMenu($event, style.id)"
-              >
-                <span class="ctx-style-preview" :class="`ctx-${style.id}`">
-                  <i class="ctx-style-row active"><em /><s /></i>
-                  <i class="ctx-style-row"><em /><s /></i>
-                  <i class="ctx-style-row"><em /><s /></i>
-                </span>
-                <b>{{ style.label }}</b>
-                <small>{{ style.note }}</small>
-              </button>
-            </div>
-
-            <p class="set-section">Keybinds</p>
-            <p class="set-note">How keyboard shortcuts render everywhere — menus, hints, and the command bar.</p>
-            <div class="graph-style-grid">
-              <button
-                v-for="style in keybindStyles"
-                :key="style.id"
-                class="graph-style-card"
-                :class="{ active: settings.keybindStyle === style.id }"
-                type="button"
-                @click="settings.keybindStyle = style.id"
-              >
-                <span class="kbd-sample" :class="`kbd-${style.id}`">
-                  <kbd>⌘</kbd>
-                  <kbd>K</kbd>
-                </span>
-                <b>{{ style.label }}</b>
-                <small>{{ style.note }}</small>
-              </button>
-            </div>
-
-            <p class="set-section">Toasts</p>
-            <p class="set-note">Click a style to select it and show a live notification.</p>
-            <div class="graph-style-grid">
-              <button
-                v-for="style in toastStyles"
-                :key="style.id"
-                class="graph-style-card"
-                :class="{ active: settings.toastStyle === style.id }"
-                type="button"
-                @click="previewToast(style.id)"
-              >
-                <span class="toast-style-preview" :class="`toast-preview-${style.id}`">
-                  <PhBellRinging class="toast-preview-icon" :size="14" weight="bold" />
-                  <i><em /><s /></i>
-                  <u />
-                </span>
-                <b>{{ style.label }}</b>
-                <small>{{ style.note }}</small>
-              </button>
-            </div>
           </template>
 
           <template v-else-if="active === 'graph'">
@@ -342,15 +201,6 @@ function close() {
               >
                 <i />
               </button>
-            </label>
-            <label class="set-row">
-              <span>
-                <b>File row chip</b>
-                <small>Change how each changed file row is framed in the detail panel.</small>
-              </span>
-              <select v-model="settings.graphFileChipStyle" class="select">
-                <option v-for="option in fileChipOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
-              </select>
             </label>
             <p class="set-section">Canvas</p>
             <div class="graph-style-grid">
@@ -445,7 +295,5 @@ function close() {
         </div>
       </div>
     </section>
-
-    <ContextMenu ref="previewMenu" :variant="settings.contextMenuStyle" />
   </div>
 </template>

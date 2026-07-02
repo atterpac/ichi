@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
 import { useShellSettings } from '../../composables/useShellSettings'
+import { isLightTheme } from '../../theme/themes'
 import {
   PhArrowsClockwise,
   PhCloud,
@@ -42,7 +43,7 @@ const emit = defineEmits<{
 }>()
 
 const settings = useShellSettings()
-const logoSrc = computed(() => (settings.theme === 'day' ? '/pigeon_dark.svg' : '/pigeon_light.svg'))
+const logoSrc = computed(() => (isLightTheme(settings.theme) ? '/pigeon_dark.svg' : '/pigeon_light.svg'))
 
 const navGroups: NavGroup[] = [
   {

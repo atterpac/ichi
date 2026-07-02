@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { type Component } from 'vue'
 import { dismissToast, type Toast, useToasts } from '../../composables/useToasts'
 import {
   PhCheckCircle,
@@ -10,7 +9,6 @@ import {
   PhX,
 } from '@phosphor-icons/vue'
 
-const settings = useShellSettings()
 const { toasts } = useToasts()
 
 const toneIcons: Record<Toast['tone'], Component> = {
@@ -20,8 +18,6 @@ const toneIcons: Record<Toast['tone'], Component> = {
   danger: PhWarningCircle,
 }
 
-const viewportClass = computed(() => `toast-${settings.toastStyle}`)
-
 function runAction(toast: Toast) {
   toast.onAction?.()
   dismissToast(toast.id)
@@ -30,7 +26,7 @@ function runAction(toast: Toast) {
 
 <template>
   <Teleport to="body">
-    <TransitionGroup name="toast-move" tag="section" class="toast-viewport" :class="viewportClass" aria-live="polite">
+    <TransitionGroup name="toast-move" tag="section" class="toast-viewport" aria-live="polite">
       <article v-for="toast in toasts" :key="toast.id" class="toast" :class="`tone-${toast.tone}`">
         <component :is="toneIcons[toast.tone]" class="toast-icon" :size="18" weight="bold" />
         <div class="toast-copy">

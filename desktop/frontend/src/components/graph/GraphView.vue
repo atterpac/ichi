@@ -55,14 +55,12 @@ const commitBody = computed(() => {
 const detailFileLimit = computed(() => 10)
 
 const pills = computed(() => {
-  if (!repo.value) return ['loading']
-  const status = repo.value.HasUncommitted ? 'dirty' : 'clean'
-  return [
-    repo.value.Branch || 'detached',
-    `${repo.value.Ahead} ahead`,
-    `${repo.value.Behind} behind`,
-    status,
-  ]
+  if (!repo.value) return []
+  const parts = [repo.value.Branch || 'detached']
+  if (repo.value.Ahead) parts.push(`${repo.value.Ahead} ahead`)
+  if (repo.value.Behind) parts.push(`${repo.value.Behind} behind`)
+  if (repo.value.HasUncommitted) parts.push('dirty')
+  return parts
 })
 
 async function loadGraph() {
@@ -353,19 +351,13 @@ onMounted(() => {
 
 <template>
   <div class="graph-view">
-    <header class="graph-toolbar">
-      <div>
-        <p class="placeholder-kicker">{{ repo?.Path || 'current repository' }}</p>
-        <h2>Commit Graph</h2>
-      </div>
-      <div class="repo-pills">
-        <span v-for="pill in pills" :key="pill">{{ pill }}</span>
-        <button class="graph-toolbar-action" type="button" title="Push current branch" @click="openPushConfirm">
-          <PhArrowLineUp :size="14" weight="bold" />
-          Push
-        </button>
-      </div>
-    </header>
+    <Teleport defer to="#view-header-context">
+      <span v-for="pill in pills" :key="pill" class="header-meta">{{ pill }}</span>
+      <button class="graph-toolbar-action" type="button" title="Push current branch" @click="openPushConfirm">
+        <PhArrowLineUp :size="14" weight="bold" />
+        Push
+      </button>
+    </Teleport>
 
     <div v-if="loading" class="graph-state">Loading graph...</div>
     <div v-else-if="error" class="graph-state error">
@@ -424,7 +416,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <aside v-if="detailVisible" class="commit-detail" :class="`file-chip-${settings.graphFileChipStyle}`">
+      <aside v-if="detailVisible" class="commit-detail">
         <p class="placeholder-kicker">{{ detailHash }}</p>
         <h3>{{ selected?.Message }}</h3>
         <div v-if="detailLoading" class="detail-state">Loading commit details...</div>
@@ -519,7 +511,7 @@ onMounted(() => {
       </aside>
     </div>
 
-    <ContextMenu ref="menu" :variant="settings.contextMenuStyle" />
+    <ContextMenu ref="menu" />
     <OperationConfirmModal
       v-if="pendingOperation"
       :request="pendingOperation"

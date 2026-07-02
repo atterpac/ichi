@@ -1,8 +1,6 @@
 <script lang="ts">
 import type { Component } from 'vue'
 
-export type ContextMenuVariant = 'default' | 'compact' | 'spacious' | 'glass' | 'terminal' | 'pill'
-
 export interface ContextMenuItem {
   /** stable id (optional, useful for @select handlers) */
   id?: string
@@ -25,10 +23,7 @@ export interface ContextMenuItem {
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 
-const props = withDefaults(
-  defineProps<{ items?: ContextMenuItem[]; variant?: ContextMenuVariant }>(),
-  { variant: 'default' },
-)
+const props = defineProps<{ items?: ContextMenuItem[] }>()
 const emit = defineEmits<{ select: [item: ContextMenuItem] }>()
 
 const visible = ref(false)
@@ -158,7 +153,6 @@ defineExpose({ open, close })
         v-if="visible"
         ref="menuEl"
         class="ctx-menu"
-        :class="`ctx-${props.variant}`"
         role="menu"
         tabindex="-1"
         :style="style"
