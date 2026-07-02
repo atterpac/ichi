@@ -14,6 +14,10 @@ export interface ShellSettings {
   graphBendStyle: 'elbow' | 'rounded' | 'curve' | 'diagonal'
   graphCollisionStyle: 'cross' | 'bridge' | 'gap' | 'fade'
   graphNodeGlyph: 'semantic' | 'circle' | 'diamond' | 'square' | 'ring' | 'terminal'
+  diffLayout: 'unified' | 'split' | 'inline' | 'changes' | 'result'
+  diffWordHighlights: boolean
+  diffDensity: 'compact' | 'comfortable' | 'relaxed'
+  changesGroupByDir: 'auto' | 'always' | 'never'
   confirmDestructiveActions: boolean
 }
 
@@ -40,6 +44,10 @@ const defaults: ShellSettings = {
   graphBendStyle: 'elbow',
   graphCollisionStyle: 'cross',
   graphNodeGlyph: 'semantic',
+  diffLayout: 'unified',
+  diffWordHighlights: true,
+  diffDensity: 'comfortable',
+  changesGroupByDir: 'auto',
   confirmDestructiveActions: true,
 }
 
@@ -50,6 +58,10 @@ function load(): Partial<ShellSettings> {
       stored.theme = LEGACY_THEMES[stored.theme]
     }
     if (!isThemeId(stored.theme)) delete stored.theme
+    // retired layout values (e.g. 'fluid') fall back to the default
+    if (typeof stored.diffLayout === 'string' && !['unified', 'split', 'inline', 'changes', 'result'].includes(stored.diffLayout)) {
+      delete stored.diffLayout
+    }
     // drop keys from retired settings so they stop round-tripping through storage
     return Object.fromEntries(Object.entries(stored).filter(([key]) => key in defaults)) as Partial<ShellSettings>
   } catch {
@@ -75,7 +87,13 @@ function clearRetiredStyling() {
 applyTheme()
 clearRetiredStyling()
 watch(() => settings.theme, applyTheme)
-watch(settings, () => localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)), { deep: true })
+watch(settings, () => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+  } catch {
+    /* storage unavailable — settings just won't persist */
+  }
+}, { deep: true })
 
 export function useShellSettings(): ShellSettings {
   return settings

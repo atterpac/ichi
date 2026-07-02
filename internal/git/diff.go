@@ -1,6 +1,8 @@
 package git
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -91,14 +93,15 @@ func (r *Repository) FileContent(ref, file string) (string, error) {
 // WorkingFileContent returns the content of a file in the working directory.
 func (r *Repository) WorkingFileContent(file string) (string, error) {
 	out, err := r.run("show", ":"+file)
-	if err != nil {
-		// File might not be staged, try reading from working tree
-		out, err = r.run("show", "HEAD:"+file)
-		if err != nil {
-			return "", err
-		}
+	if err == nil {
+		return out, nil
 	}
-	return out, nil
+	// Not in the index (untracked or newly added) — read from the worktree.
+	data, readErr := os.ReadFile(filepath.Join(r.path, file))
+	if readErr != nil {
+		return "", readErr
+	}
+	return string(data), nil
 }
 
 // Blame returns blame information for a file.

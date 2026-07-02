@@ -9,6 +9,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as git$0 from "../../internal/git/models.js";
 
+export function ApplyHunkEdit(path: string, hunk: git$0.DiffHunk | null, replacement: string[]): $CancellablePromise<void> {
+    return $Call.ByID(2609341442, path, hunk, replacement);
+}
+
 export function CommitDiff(hash: string): $CancellablePromise<string> {
     return $Call.ByID(4241559888, hash);
 }

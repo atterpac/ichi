@@ -2,14 +2,17 @@
 import { computed, ref } from 'vue'
 import IchiSidebar from './IchiSidebar.vue'
 import GraphView from '../graph/GraphView.vue'
+import ChangesView from '../status/ChangesView.vue'
 import SettingsModal from '../overlays/SettingsModal.vue'
 import ToastViewport from '../overlays/ToastViewport.vue'
 import { useShellSettings } from '../../composables/useShellSettings'
+import { useModeline } from '../../composables/useModeline'
 import { THEMES } from '../../theme/themes'
 import { notify } from '../../composables/useToasts'
 import { PhBellRinging, PhGearSix } from '@phosphor-icons/vue'
 
 const settings = useShellSettings()
+const modeline = useModeline()
 const activeView = ref('graph')
 const settingsOpen = ref(false)
 
@@ -30,7 +33,7 @@ const views: Record<string, ViewMeta> = {
     ...graphMeta,
   },
   status: {
-    title: 'Status',
+    title: 'Changes',
     group: 'Worktree',
     description: 'Stage, unstage, discard, and jump into line-level staging from the current worktree.',
   },
@@ -154,6 +157,12 @@ function previewToast() {
 
         <GraphView v-if="activeView === 'graph'" />
 
+        <ChangesView
+          v-else-if="activeView === 'status' || activeView === 'commit'"
+          :focus-commit="activeView === 'commit'"
+          @navigate="setView"
+        />
+
         <div v-else class="view-placeholder">
           <div class="graph-lines" aria-hidden="true">
             <span />
@@ -171,10 +180,10 @@ function previewToast() {
     </div>
 
     <footer class="modeline">
-      <span class="ml-mode">NORMAL</span>
+      <span class="ml-mode">{{ modeline.mode }}</span>
       <span class="ml-focus">{{ activeView }}</span>
       <span class="ml-buffer">{{ path }}</span>
-      <span class="ml-hints">: command · / search · ? help</span>
+      <span class="ml-hints">{{ modeline.hints }}</span>
       <span class="ml-branch">main</span>
       <span class="ml-pct">0%</span>
     </footer>

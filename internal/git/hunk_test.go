@@ -1,6 +1,11 @@
 package git
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestParseDiffRoundTrip(t *testing.T) {
 	diff := "diff --git a/f.go b/f.go\n" +
@@ -28,5 +33,64 @@ func TestParseDiffRoundTrip(t *testing.T) {
 	// computeLineNumbers must have run.
 	if h.Lines[0].OldLineNo != 1 || h.Lines[0].NewLineNo != 1 {
 		t.Errorf("line numbers wrong: %+v", h.Lines[0])
+	}
+}
+
+func TestApplyHunkEditSplicesResultSideLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.go")
+	if err := os.WriteFile(path, []byte("top\nnew two\nbottom\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := &Repository{path: dir}
+	hunk := &DiffHunk{
+		NewStart: 1,
+		NewCount: 3,
+		Lines: []*DiffLine{
+			{Type: LineContext, Content: "top"},
+			{Type: LineRemoved, Content: "old two"},
+			{Type: LineAdded, Content: "new two"},
+			{Type: LineContext, Content: "bottom"},
+		},
+	}
+
+	if err := repo.ApplyHunkEdit("f.go", hunk, []string{"top", "edited two", "inserted", "bottom"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "top\nedited two\ninserted\nbottom\n" {
+		t.Fatalf("content = %q", string(got))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestApplyHunkEditRejectsStaleHunk(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f.go"), []byte("top\nchanged elsewhere\nbottom\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repo := &Repository{path: dir}
+	hunk := &DiffHunk{
+		NewStart: 1,
+		NewCount: 3,
+		Lines: []*DiffLine{
+			{Type: LineContext, Content: "top"},
+			{Type: LineAdded, Content: "new two"},
+			{Type: LineContext, Content: "bottom"},
+		},
+	}
+
+	err := repo.ApplyHunkEdit("f.go", hunk, []string{"top", "edited", "bottom"})
+	if err == nil || !strings.Contains(err.Error(), "no longer matches") {
+		t.Fatalf("err = %v, want stale hunk error", err)
 	}
 }

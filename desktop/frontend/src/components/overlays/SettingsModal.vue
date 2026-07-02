@@ -3,6 +3,7 @@ import { computed, ref, type Component } from 'vue'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { THEMES } from '../../theme/themes'
 import {
+  PhGitDiff,
   PhGitFork,
   PhKeyboard,
   PhPalette,
@@ -15,7 +16,7 @@ const emit = defineEmits<{
 }>()
 
 type Category = {
-  id: 'general' | 'appearance' | 'graph' | 'keybindings'
+  id: 'general' | 'appearance' | 'graph' | 'diff' | 'keybindings'
   label: string
   icon: Component
 }
@@ -26,8 +27,26 @@ const categories: Category[] = [
   { id: 'general', label: 'General', icon: PhSlidersHorizontal },
   { id: 'appearance', label: 'Appearance', icon: PhPalette },
   { id: 'graph', label: 'Graph', icon: PhGitFork },
+  { id: 'diff', label: 'Diff', icon: PhGitDiff },
   { id: 'keybindings', label: 'Keybindings', icon: PhKeyboard },
 ]
+const diffLayoutOptions = [
+  { id: 'unified', label: 'Unified' },
+  { id: 'split', label: 'Side by side' },
+  { id: 'inline', label: 'Inline edits' },
+  { id: 'changes', label: 'Changes only' },
+  { id: 'result', label: 'Result file' },
+] as const
+const diffDensityOptions = [
+  { id: 'compact', label: 'Compact' },
+  { id: 'comfortable', label: 'Comfortable' },
+  { id: 'relaxed', label: 'Relaxed' },
+] as const
+const groupByDirOptions = [
+  { id: 'auto', label: 'Auto (15+ files)' },
+  { id: 'always', label: 'Always' },
+  { id: 'never', label: 'Never' },
+] as const
 const graphStyles = [
   { id: 'classic', label: 'Classic', note: 'Balanced colored rails' },
   { id: 'fine', label: 'Fine', note: 'Thin, quiet strokes' },
@@ -279,6 +298,55 @@ function close() {
               >
                 <i />
               </button>
+            </label>
+          </template>
+
+          <template v-else-if="active === 'diff'">
+            <p class="set-section">Layout</p>
+            <label class="set-row">
+              <span>
+                <b>Diff layout</b>
+                <small>How diffs read: unified, side by side, merged inline edits, changes only, or the resulting file. Line-level staging works in unified.</small>
+              </span>
+              <select v-model="settings.diffLayout" class="select">
+                <option v-for="option in diffLayoutOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
+              </select>
+            </label>
+            <label class="set-row">
+              <span>
+                <b>Row density</b>
+                <small>Line height of diff rows.</small>
+              </span>
+              <select v-model="settings.diffDensity" class="select">
+                <option v-for="option in diffDensityOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
+              </select>
+            </label>
+            <label class="set-row">
+              <span>
+                <b>Word highlights</b>
+                <small>Mark the changed span inside modified line pairs.</small>
+              </span>
+              <button
+                class="toggle"
+                :class="{ on: settings.diffWordHighlights }"
+                type="button"
+                role="switch"
+                :aria-checked="settings.diffWordHighlights"
+                @click="settings.diffWordHighlights = !settings.diffWordHighlights"
+              >
+                <i />
+              </button>
+            </label>
+
+            <p class="set-section">Changes list</p>
+            <label class="set-row">
+              <span>
+                <b>Group by directory</b>
+                <small>Fold the changed-files list into collapsible directory groups.</small>
+              </span>
+              <select v-model="settings.changesGroupByDir" class="select">
+                <option v-for="option in groupByDirOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
+              </select>
             </label>
           </template>
 

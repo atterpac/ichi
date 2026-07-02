@@ -1,6 +1,9 @@
 package git
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -404,6 +407,88 @@ func GenerateLinesPatch(file string, hunk *DiffHunk, selectedLines []*DiffLine) 
 	}
 
 	return sb.String()
+}
+
+func hunkResultLines(hunk *DiffHunk) []string {
+	lines := make([]string, 0, hunk.NewCount)
+	for _, line := range hunk.Lines {
+		if line.Type == LineRemoved {
+			continue
+		}
+		lines = append(lines, line.Content)
+	}
+	return lines
+}
+
+func splitFileContent(content string) ([]string, string) {
+	newline := ""
+	if strings.HasSuffix(content, "\r\n") {
+		newline = "\r\n"
+	} else if strings.HasSuffix(content, "\n") {
+		newline = "\n"
+	}
+	content = strings.TrimSuffix(content, "\n")
+	content = strings.TrimSuffix(content, "\r")
+	if content == "" {
+		return []string{}, newline
+	}
+	return strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n"), newline
+}
+
+func equalLines(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func joinFileContent(lines []string, newline string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	content := strings.Join(lines, "\n")
+	if newline == "\r\n" {
+		content = strings.ReplaceAll(content, "\n", "\r\n")
+	}
+	return content + newline
+}
+
+// ApplyHunkEdit replaces the worktree result-side lines covered by hunk.
+func (r *Repository) ApplyHunkEdit(file string, hunk *DiffHunk, replacement []string) error {
+	if hunk == nil {
+		return fmt.Errorf("missing hunk")
+	}
+	path := filepath.Join(r.path, file)
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	lines, newline := splitFileContent(string(content))
+	start := hunk.NewStart - 1
+	expected := hunkResultLines(hunk)
+	end := start + len(expected)
+	if start < 0 || end > len(lines) {
+		return fmt.Errorf("hunk no longer applies")
+	}
+	if !equalLines(lines[start:end], expected) {
+		return fmt.Errorf("hunk no longer matches the worktree")
+	}
+
+	next := make([]string, 0, len(lines)-len(expected)+len(replacement))
+	next = append(next, lines[:start]...)
+	next = append(next, replacement...)
+	next = append(next, lines[end:]...)
+	return os.WriteFile(path, []byte(joinFileContent(next, newline)), info.Mode().Perm())
 }
 
 // StageHunk stages a single hunk using git apply.

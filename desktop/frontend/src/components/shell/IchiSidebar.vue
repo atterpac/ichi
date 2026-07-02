@@ -50,7 +50,7 @@ const navGroups: NavGroup[] = [
     label: 'Worktree',
     items: [
       { id: 'graph', label: 'Graph', icon: PhGitFork, hint: 'g' },
-      { id: 'status', label: 'Status', icon: PhListChecks, hint: 's', count: '3' },
+      { id: 'status', label: 'Changes', icon: PhListChecks, hint: 's' },
       { id: 'staging', label: 'Staging', icon: PhGitCommit, hint: 'Enter' },
       { id: 'conflicts', label: 'Conflicts', icon: PhWarningDiamond, hint: ':conflicts', tone: 'warn' },
     ],
@@ -60,14 +60,14 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'branches', label: 'Branches', icon: PhGitBranch, hint: 'b' },
       { id: 'tags', label: 'Tags', icon: PhTag, hint: ':tag' },
-      { id: 'stashes', label: 'Stash', icon: PhStack, hint: 'S', count: '1' },
+      { id: 'stashes', label: 'Stash', icon: PhStack, hint: 'S' },
     ],
   },
   {
     label: 'Remote',
     items: [
       { id: 'sync', label: 'Sync', icon: PhArrowsClockwise, hint: ':fetch', tone: 'sync' },
-      { id: 'prs', label: 'Pull Requests', icon: PhGitPullRequest, hint: 'p', count: '2' },
+      { id: 'prs', label: 'Pull Requests', icon: PhGitPullRequest, hint: 'p' },
       { id: 'remotes', label: 'Remotes', icon: PhCloud, hint: ':remote' },
     ],
   },

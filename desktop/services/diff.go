@@ -82,6 +82,10 @@ func (s *DiffService) StageLines(path string, hunk *git.DiffHunk, lines []*git.D
 	return s.mutate(func(repo *git.Repository) error { return repo.StageLines(path, hunk, lines) })
 }
 
+func (s *DiffService) ApplyHunkEdit(path string, hunk *git.DiffHunk, replacement []string) error {
+	return s.mutate(func(repo *git.Repository) error { return repo.ApplyHunkEdit(path, hunk, replacement) })
+}
+
 func (s *DiffService) UnstageHunk(path string, hunk *git.DiffHunk) error {
 	return s.mutate(func(repo *git.Repository) error { return repo.UnstageHunk(path, hunk) })
 }
