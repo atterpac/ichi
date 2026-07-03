@@ -18,6 +18,8 @@ export interface ShellSettings {
   diffWordHighlights: boolean
   diffDensity: 'compact' | 'comfortable' | 'relaxed'
   changesGroupByDir: 'auto' | 'always' | 'never'
+  branchesGrouped: boolean
+  branchesDetailVisible: boolean
   confirmDestructiveActions: boolean
 }
 
@@ -48,6 +50,8 @@ const defaults: ShellSettings = {
   diffWordHighlights: true,
   diffDensity: 'comfortable',
   changesGroupByDir: 'auto',
+  branchesGrouped: false,
+  branchesDetailVisible: true,
   confirmDestructiveActions: true,
 }
 

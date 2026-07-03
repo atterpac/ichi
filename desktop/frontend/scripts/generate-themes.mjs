@@ -54,6 +54,40 @@ function isLight(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b > 128
 }
 
+function luminance(hex) {
+  const [r, g, b] = rgb(hex).map((c) => {
+    c /= 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+// Smallest mix of `from` toward `to` that satisfies `ok`.
+function mixUntil(from, to, ok) {
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2
+    if (ok(mix(from, to, mid))) hi = mid
+    else lo = mid
+  }
+  return mix(from, to, hi)
+}
+
+// Muted text should sit at ~4–5.5:1 against the surface: below that it's
+// illegible (nord), above it stops reading as muted (atterpac).
+function tuneMut(mut, surface, text) {
+  const c = contrast(mut, surface)
+  if (c < 4) return mixUntil(mut, text, (h) => contrast(h, surface) >= 4)
+  if (c > 5.5) return mixUntil(mut, surface, (h) => contrast(h, surface) <= 5.5)
+  return mut
+}
+
 function label(id) {
   if (LABEL_OVERRIDES[id]) return LABEL_OVERRIDES[id]
   return id
@@ -75,16 +109,26 @@ if (!themes.some((t) => t.name === DEFAULT_THEME)) {
 function cssBlock({ name, colors: c }) {
   const light = isLight(c.bg)
   const selector = name === DEFAULT_THEME ? `:root,\n.theme-${name}` : `.theme-${name}`
-  const head = light ? mix(c.fg, '#000000', 0.35) : mix(c.fg, '#ffffff', 0.15)
-  const accentInk = light ? c.bg : c.bg_dark
+  // Layering must be monotonic regardless of how the def orders its bg tones
+  // (rosepine ships surface darker than bg): dark stacks lightest-on-top,
+  // light keeps the lightest tone for cards with the page slightly darker.
+  const layers = [c.bg_dark, c.bg, c.bg_light].sort((a, b) => luminance(a) - luminance(b))
+  const [bg, surface, surface2] = light ? [layers[1], layers[2], layers[0]] : layers
+  const head = light ? mix(c.fg, '#000000', 0.35) : mix(c.fg, '#ffffff', 0.3)
+  const accentInk = light ? surface : bg
+  const mut = tuneMut(c.fg_dim, surface, c.fg)
   const vars = [
-    `--bg:${c.bg_dark};--surface:${c.bg};--surface-2:${c.bg_light};`,
-    `--text:${c.fg};--text-mut:${c.fg_dim};--head:${head};`,
+    `--bg:${bg};--surface:${surface};--surface-2:${surface2};`,
+    `--text:${c.fg};--text-mut:${mut};--head:${head};`,
     `--accent:${c.accent};--accent-ink:${accentInk};`,
     `--green:${c.success};--orange:${c.warning};--red:${c.error};--purple:${c.accent_dim};--cyan:${c.info};--star:${c.warning};`,
   ]
   if (light) {
     vars.push('--shadow-1: 0 1px 2px rgba(30,35,60,.1);--shadow-2: 0 8px 24px -4px rgba(30,35,60,.18);')
+  } else {
+    // Black-on-black shadows carry no elevation cue; a faint inset top
+    // highlight does the work on dark surfaces.
+    vars.push('--shadow-1: 0 1px 2px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);--shadow-2: 0 8px 24px -4px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);')
   }
   return `${selector} {\n  ${vars.join('\n  ')}\n}`
 }

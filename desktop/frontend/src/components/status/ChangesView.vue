@@ -335,6 +335,10 @@ function onListKey(event: KeyboardEvent) {
     if (vim.handleKey(event)) event.preventDefault()
     return
   }
+  // 'g' belongs to global nav (graph) — let it bubble to the shell instead of
+  // feeding vim's gg motion. G still jumps to the bottom of the list.
+  if (event.key === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey) return
+
   const row = currentRow.value
   switch (event.key) {
     case 's':

@@ -117,3 +117,27 @@ func (s *RefService) mutate(fn func(*git.Repository) error) error {
 	s.state.emitStatusChanged()
 	return nil
 }
+
+func (s *RefService) BranchDivergence(a, b string) (*git.Divergence, error) {
+	repo, err := s.state.Repo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.BranchDivergence(a, b)
+}
+
+func (s *RefService) LogRef(ref string, limit int) ([]git.RefCommit, error) {
+	repo, err := s.state.Repo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.LogRef(ref, limit)
+}
+
+func (s *RefService) DiffFiles(a, b string) ([]git.FileChurn, error) {
+	repo, err := s.state.Repo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.DiffFiles(a, b)
+}

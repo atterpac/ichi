@@ -1,6 +1,8 @@
 package git
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -311,4 +313,97 @@ func (r *Repository) DeleteTag(name string) error {
 func (r *Repository) PushTag(remote, tag string) error {
 	_, err := r.run("push", remote, tag)
 	return err
+}
+
+// Divergence describes how two refs relate through their merge base.
+type Divergence struct {
+	Base    string // short hash of the merge base
+	BaseMsg string // subject of the merge-base commit
+	AheadA  int    // commits unique to ref a since the base
+	AheadB  int    // commits unique to ref b since the base
+}
+
+// BranchDivergence locates the merge base of two refs and counts the commits
+// each side has accumulated since it.
+func (r *Repository) BranchDivergence(a, b string) (*Divergence, error) {
+	out, err := r.run("rev-list", "--left-right", "--count", a+"..."+b)
+	if err != nil {
+		return nil, err
+	}
+	counts := strings.Fields(strings.TrimSpace(out))
+	if len(counts) != 2 {
+		return nil, fmt.Errorf("unexpected rev-list output: %q", out)
+	}
+	aheadA, err := strconv.Atoi(counts[0])
+	if err != nil {
+		return nil, err
+	}
+	aheadB, err := strconv.Atoi(counts[1])
+	if err != nil {
+		return nil, err
+	}
+
+	div := &Divergence{AheadA: aheadA, AheadB: aheadB}
+	if base, err := r.run("merge-base", a, b); err == nil {
+		baseHash := strings.TrimSpace(base)
+		if short, err := r.run("rev-parse", "--short", baseHash); err == nil {
+			div.Base = strings.TrimSpace(short)
+		}
+		if msg, err := r.run("log", "-1", "--format=%s", baseHash); err == nil {
+			div.BaseMsg = strings.TrimSpace(msg)
+		}
+	}
+	return div, nil
+}
+
+// RefCommit is a compact log row for a single ref.
+type RefCommit struct {
+	Hash    string
+	Subject string
+	When    string // relative committer date, e.g. "2 hours ago"
+}
+
+// LogRef returns the most recent commits reachable from ref, newest first.
+func (r *Repository) LogRef(ref string, limit int) ([]RefCommit, error) {
+	out, err := r.run("log", ref, "-n", strconv.Itoa(limit), "--format=%h%x00%s%x00%cr")
+	if err != nil {
+		return nil, err
+	}
+	var commits []RefCommit
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "\x00", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		commits = append(commits, RefCommit{Hash: parts[0], Subject: parts[1], When: parts[2]})
+	}
+	return commits, nil
+}
+
+// FileChurn summarizes per-file additions and deletions.
+type FileChurn struct {
+	Path    string
+	Added   int
+	Deleted int
+}
+
+// DiffFiles returns per-file numstat for the full tree difference between two
+// refs (git diff a b): additions are lines b has that a lacks. Binary files
+// report zero counts.
+func (r *Repository) DiffFiles(a, b string) ([]FileChurn, error) {
+	out, err := r.run("diff", "--numstat", a, b)
+	if err != nil {
+		return nil, err
+	}
+	var churn []FileChurn
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		added, _ := strconv.Atoi(parts[0])   // "-" for binary → 0
+		deleted, _ := strconv.Atoi(parts[1]) // "-" for binary → 0
+		churn = append(churn, FileChurn{Path: parts[2], Added: added, Deleted: deleted})
+	}
+	return churn, nil
 }

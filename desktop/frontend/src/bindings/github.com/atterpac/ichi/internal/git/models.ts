@@ -766,6 +766,89 @@ export class DiffLine {
 }
 
 /**
+ * Divergence describes how two refs relate through their merge base.
+ */
+export class Divergence {
+    /**
+     * short hash of the merge base
+     */
+    "Base": string;
+
+    /**
+     * subject of the merge-base commit
+     */
+    "BaseMsg": string;
+
+    /**
+     * commits unique to ref a since the base
+     */
+    "AheadA": number;
+
+    /**
+     * commits unique to ref b since the base
+     */
+    "AheadB": number;
+
+    /** Creates a new Divergence instance. */
+    constructor($$source: Partial<Divergence> = {}) {
+        if (!("Base" in $$source)) {
+            this["Base"] = "";
+        }
+        if (!("BaseMsg" in $$source)) {
+            this["BaseMsg"] = "";
+        }
+        if (!("AheadA" in $$source)) {
+            this["AheadA"] = 0;
+        }
+        if (!("AheadB" in $$source)) {
+            this["AheadB"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Divergence instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Divergence {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Divergence($$parsedSource as Partial<Divergence>);
+    }
+}
+
+/**
+ * FileChurn summarizes per-file additions and deletions.
+ */
+export class FileChurn {
+    "Path": string;
+    "Added": number;
+    "Deleted": number;
+
+    /** Creates a new FileChurn instance. */
+    constructor($$source: Partial<FileChurn> = {}) {
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Added" in $$source)) {
+            this["Added"] = 0;
+        }
+        if (!("Deleted" in $$source)) {
+            this["Deleted"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileChurn instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FileChurn {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FileChurn($$parsedSource as Partial<FileChurn>);
+    }
+}
+
+/**
  * FileDiff represents all changes to a single file.
  */
 export class FileDiff {
@@ -1056,6 +1139,42 @@ export enum LineType {
      */
     LineHeader = 3,
 };
+
+/**
+ * RefCommit is a compact log row for a single ref.
+ */
+export class RefCommit {
+    "Hash": string;
+    "Subject": string;
+
+    /**
+     * relative committer date, e.g. "2 hours ago"
+     */
+    "When": string;
+
+    /** Creates a new RefCommit instance. */
+    constructor($$source: Partial<RefCommit> = {}) {
+        if (!("Hash" in $$source)) {
+            this["Hash"] = "";
+        }
+        if (!("Subject" in $$source)) {
+            this["Subject"] = "";
+        }
+        if (!("When" in $$source)) {
+            this["When"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RefCommit instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RefCommit {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RefCommit($$parsedSource as Partial<RefCommit>);
+    }
+}
 
 /**
  * Stash represents a stash entry.

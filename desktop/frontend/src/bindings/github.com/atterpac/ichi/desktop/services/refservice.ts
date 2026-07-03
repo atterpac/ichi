@@ -9,6 +9,12 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as git$0 from "../../internal/git/models.js";
 
+export function BranchDivergence(a: string, b: string): $CancellablePromise<git$0.Divergence | null> {
+    return $Call.ByID(548010150, a, b).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
 export function Checkout(ref: string): $CancellablePromise<void> {
     return $Call.ByID(4159343680, ref);
 }
@@ -45,27 +51,39 @@ export function DeleteTag(name: string): $CancellablePromise<void> {
     return $Call.ByID(3749695349, name);
 }
 
+export function DiffFiles(a: string, b: string): $CancellablePromise<git$0.FileChurn[]> {
+    return $Call.ByID(880416602, a, b).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 export function ListBranches(): $CancellablePromise<git$0.Branch[]> {
     return $Call.ByID(1923967296).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType5($result);
     });
 }
 
 export function ListLocalBranches(): $CancellablePromise<git$0.Branch[]> {
     return $Call.ByID(3104167103).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType5($result);
     });
 }
 
 export function ListRemoteBranches(): $CancellablePromise<git$0.Branch[]> {
     return $Call.ByID(2266018530).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType5($result);
     });
 }
 
 export function ListTags(): $CancellablePromise<git$0.Tag[]> {
     return $Call.ByID(2626891877).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType7($result);
+    });
+}
+
+export function LogRef(ref: string, limit: number): $CancellablePromise<git$0.RefCommit[]> {
+    return $Call.ByID(3230632743, ref, limit).then(($result: any) => {
+        return $$createType9($result);
     });
 }
 
@@ -102,7 +120,13 @@ export function SetUpstream(local: string, remote: string): $CancellablePromise<
 }
 
 // Private type creation functions
-const $$createType0 = git$0.Branch.createFrom;
-const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = git$0.Tag.createFrom;
+const $$createType0 = git$0.Divergence.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = git$0.FileChurn.createFrom;
 const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = git$0.Branch.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = git$0.Tag.createFrom;
+const $$createType7 = $Create.Array($$createType6);
+const $$createType8 = git$0.RefCommit.createFrom;
+const $$createType9 = $Create.Array($$createType8);

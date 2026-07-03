@@ -4,21 +4,21 @@
 
 :root {
   /* derived text + chrome tones */
-  --text-dim: color-mix(in oklab, var(--text) 70%, var(--text-mut));
-  --border: color-mix(in oklab, var(--text) 9%, var(--surface));
-  --border-2: color-mix(in oklab, var(--text) 18%, var(--surface));
+  --text-dim: color-mix(in oklab, var(--text) 80%, var(--text-mut));
+  --border: color-mix(in oklab, var(--text) 15%, var(--surface));
+  --border-2: color-mix(in oklab, var(--text) 28%, var(--surface));
   --read-bg: var(--surface);
   --read-text: var(--text-dim);
 
-  /* accent tints */
-  --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+  /* accent tints — opaque oklch mixes so the accent hue survives on dark surfaces */
+  --accent-soft: color-mix(in oklch, var(--accent) 16%, var(--surface));
   --accent-line: color-mix(in oklab, var(--accent) 40%, transparent);
   --grid: color-mix(in oklab, var(--accent) 6%, transparent);
 
   /* state overlays — translucent so they read the same on every theme */
-  --hover: color-mix(in oklab, var(--text) 5%, transparent);
-  --selected: color-mix(in oklab, var(--accent) 10%, transparent);
-  --focus-ring: 0 0 0 2px var(--accent-soft);
+  --hover: color-mix(in oklab, var(--text) 7%, transparent);
+  --selected: color-mix(in oklch, var(--accent) 20%, var(--surface));
+  --focus-ring: 0 0 0 2px color-mix(in oklch, var(--accent) 55%, var(--surface));
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .18);
   --shadow-2: 0 8px 24px -4px rgba(0, 0, 0, .38);

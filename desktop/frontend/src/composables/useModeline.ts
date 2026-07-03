@@ -7,7 +7,7 @@ export interface ModelineState {
 
 const DEFAULTS: ModelineState = {
   mode: 'NORMAL',
-  hints: ': command · / search · ? help',
+  hints: '␣ go · : command · / search · ? help',
 }
 
 const state = reactive<ModelineState>({ ...DEFAULTS })

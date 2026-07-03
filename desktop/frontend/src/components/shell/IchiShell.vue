@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import IchiSidebar from './IchiSidebar.vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import GraphView from '../graph/GraphView.vue'
 import ChangesView from '../status/ChangesView.vue'
+import BranchesView from '../refs/BranchesView.vue'
 import SettingsModal from '../overlays/SettingsModal.vue'
 import ToastViewport from '../overlays/ToastViewport.vue'
+import WhichKey from './WhichKey.vue'
+import { NAV_KEY_MAP } from './nav'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { useModeline } from '../../composables/useModeline'
 import { THEMES } from '../../theme/themes'
@@ -107,11 +109,72 @@ const views: Record<string, ViewMeta> = {
 const activeMeta = computed<ViewMeta>(() => views[activeView.value] ?? graphMeta)
 const viewTitle = computed(() => activeMeta.value.title)
 
+// Mock counts until the git backend feeds real ones (same values the dock had).
+const modelineCounts = [
+  { id: 'status', label: 'changes', count: '12', tone: 'warn' },
+  { id: 'commit', label: 'staged', count: '5', tone: 'good' },
+  { id: 'sync', label: 'sync', count: '↑1', tone: 'sync' },
+  { id: 'prs', label: 'prs', count: '4', tone: '' },
+]
+
 const path = computed(() => `~/ichi/${activeView.value}`)
+const leaderOpen = ref(false)
 
 function setView(view: string) {
   activeView.value = view
 }
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+}
+
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta'])
+
+function handleShellKeydown(event: KeyboardEvent) {
+  // Views consume their own keys (element handlers run before this window
+  // listener in the bubble phase) — a handled key must not also navigate.
+  if (event.defaultPrevented) return
+  if (isEditableTarget(event.target)) return
+  if (MODIFIER_KEYS.has(event.key)) return
+
+  if (leaderOpen.value) {
+    // Any key resolves the chord: matching key jumps, everything else dismisses.
+    event.preventDefault()
+    leaderOpen.value = false
+    if (event.key === 'Escape' || event.key === ' ') return
+    const view = NAV_KEY_MAP.get(event.key.toLowerCase())
+    if (view) setView(view)
+    return
+  }
+
+  if (event.key === ' ') {
+    event.preventDefault()
+    leaderOpen.value = true
+    return
+  }
+
+  if (event.ctrlKey && event.key.toLowerCase() === 'p') {
+    event.preventDefault()
+    setView('finder')
+    return
+  }
+
+  // Direct single-key jumps mirror the leader chords for muscle memory.
+  if (event.ctrlKey || event.metaKey || event.altKey) return
+  const view = NAV_KEY_MAP.get(event.key.toLowerCase())
+  if (!view) return
+  event.preventDefault()
+  setView(view)
+}
+
+function selectFromPanel(view: string) {
+  leaderOpen.value = false
+  setView(view)
+}
+
+onMounted(() => window.addEventListener('keydown', handleShellKeydown))
+onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
 
 function previewToast() {
   notify({
@@ -142,8 +205,7 @@ function previewToast() {
       </div>
     </header>
 
-    <div class="body-shell" :class="{ 'nav-collapsed': settings.navCollapsed }">
-      <IchiSidebar :active-view="activeView" @select="setView" />
+    <div class="body-shell">
 
       <section class="main-island" aria-live="polite">
         <header class="island-header">
@@ -163,6 +225,8 @@ function previewToast() {
           @navigate="setView"
         />
 
+        <BranchesView v-else-if="activeView === 'branches'" />
+
         <div v-else class="view-placeholder">
           <div class="graph-lines" aria-hidden="true">
             <span />
@@ -179,12 +243,34 @@ function previewToast() {
       </section>
     </div>
 
+    <WhichKey v-if="leaderOpen" @select="selectFromPanel" @close="leaderOpen = false" />
+
     <footer class="modeline">
       <span class="ml-mode">{{ modeline.mode }}</span>
+      <button
+        class="ml-go"
+        type="button"
+        :aria-expanded="leaderOpen"
+        aria-label="Go to view"
+        @click="leaderOpen = !leaderOpen"
+      >
+        <kbd>␣</kbd> go
+      </button>
       <span class="ml-focus">{{ activeView }}</span>
       <span class="ml-buffer">{{ path }}</span>
       <span class="ml-hints">{{ modeline.hints }}</span>
       <span class="ml-branch">main</span>
+      <button
+        v-for="seg in modelineCounts"
+        :key="seg.id"
+        class="ml-count"
+        :class="seg.tone"
+        type="button"
+        :title="`Go to ${seg.id}`"
+        @click="setView(seg.id)"
+      >
+        {{ seg.label }} {{ seg.count }}
+      </button>
       <span class="ml-pct">0%</span>
     </footer>
 
