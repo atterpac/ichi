@@ -16,6 +16,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
+        switcherLab: fileURLToPath(new URL('./switcher-lab.html', import.meta.url)),
         avatarLab: fileURLToPath(new URL('./avatar-lab.html', import.meta.url)),
         reviewLab: fileURLToPath(new URL('./review-lab.html', import.meta.url)),
         workingTreeHeatmap: fileURLToPath(new URL('./working-tree-heatmap.html', import.meta.url)),
