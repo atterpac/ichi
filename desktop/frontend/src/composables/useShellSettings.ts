@@ -6,7 +6,6 @@ export interface ShellSettings {
   theme: ThemeId
   graphLimit: number
   graphShowAuthor: boolean
-  graphAuthorAvatars: boolean
   avatarPlaceholder: PlaceholderStyle
   graphRowDensity: 'compact' | 'comfortable' | 'spacious'
   graphDetailPosition: 'right' | 'bottom' | 'hidden'
@@ -26,7 +25,6 @@ export interface ShellSettings {
   branchesGrouped: boolean
   branchesDetailVisible: boolean
   stashesDetailVisible: boolean
-  finderUnified: boolean
   confirmDestructiveActions: boolean
 }
 
@@ -44,7 +42,6 @@ const defaults: ShellSettings = {
   theme: DEFAULT_THEME,
   graphLimit: 120,
   graphShowAuthor: true,
-  graphAuthorAvatars: false,
   avatarPlaceholder: 'spore',
   graphRowDensity: 'comfortable',
   graphDetailPosition: 'right',
@@ -64,7 +61,6 @@ const defaults: ShellSettings = {
   branchesGrouped: false,
   branchesDetailVisible: true,
   stashesDetailVisible: true,
-  finderUnified: false,
   confirmDestructiveActions: true,
 }
 
@@ -74,7 +70,6 @@ function load(): Partial<ShellSettings> {
     if (typeof stored.theme === 'string' && stored.theme in LEGACY_THEMES) {
       stored.theme = LEGACY_THEMES[stored.theme]
     }
-    if (typeof stored.graphAuthorAvatars !== 'boolean') delete stored.graphAuthorAvatars
     if (!isPlaceholderStyle(stored.avatarPlaceholder)) delete stored.avatarPlaceholder
     if (!isThemeId(stored.theme)) delete stored.theme
     // retired layout values (e.g. 'fluid') fall back to the default

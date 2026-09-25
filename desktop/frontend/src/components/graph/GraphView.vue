@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 import AuthorAvatar from '../common/AuthorAvatar.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { setModeline, resetModeline } from '../../composables/useModeline'
@@ -307,7 +308,10 @@ async function copy(text: string) {
   }
 }
 
+const activeOperations = ref(0)
+useRepoSwitchGuard(() => activeOperations.value ? 'Wait for the Git operation to finish.' : '')
 async function runRef(fn: () => Promise<void>) {
+  activeOperations.value++
   try {
     await fn()
     await loadGraph()
@@ -315,7 +319,7 @@ async function runRef(fn: () => Promise<void>) {
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
     throw err
-  }
+  } finally { activeOperations.value-- }
 }
 
 function openOperation(request: OperationConfirmRequest) {
@@ -323,6 +327,7 @@ function openOperation(request: OperationConfirmRequest) {
 }
 
 async function pushCurrentBranch(values?: Record<string, string>) {
+  activeOperations.value++
   try {
     const remote = values?.remote?.trim()
     const branch = values?.branch?.trim()
@@ -337,7 +342,7 @@ async function pushCurrentBranch(values?: Record<string, string>) {
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
     throw err
-  }
+  } finally { activeOperations.value-- }
 }
 
 async function openPushConfirm() {

@@ -8,15 +8,26 @@ import type { RepoInfo } from '../bindings/github.com/atterpac/ichi/desktop/serv
 // git:status-changed / git:repo-changed events — the same signals every mutating
 // service emits. Views that mutate state don't need to poke it; the event does.
 
-const state = reactive<{ info: RepoInfo | null; error: string }>({ info: null, error: '' })
+const state = reactive<{ info: RepoInfo | null; error: string; switching: boolean; revision: number }>({
+  info: null,
+  error: '',
+  switching: false,
+  revision: 0,
+})
+let generation = 0
 
 let started = false
 
 export async function refreshRepoStatus() {
+  if (state.switching) return
+  const request = ++generation
   try {
-    state.info = await RepoService.Info()
+    const info = await RepoService.Info()
+    if (request !== generation) return
+    state.info = info
     state.error = ''
   } catch (err) {
+    if (request !== generation) return
     state.error = err instanceof Error ? err.message : String(err)
   }
 }
@@ -30,4 +41,21 @@ export function useRepoStatus() {
     void refreshRepoStatus()
   }
   return readonly(state)
+}
+
+/** Replace status only after Open succeeds; older refreshes cannot overwrite the new repo. */
+export async function switchRepository(path: string): Promise<RepoInfo> {
+  if (state.switching) throw new Error('A repository is already opening.')
+  state.switching = true
+  generation++
+  try {
+    const info = await RepoService.Open(path)
+    if (!info) throw new Error('The repository could not be opened.')
+    state.info = info
+    state.revision++
+    state.error = ''
+    return info
+  } finally {
+    state.switching = false
+  }
 }

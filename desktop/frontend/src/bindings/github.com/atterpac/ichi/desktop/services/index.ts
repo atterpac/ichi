@@ -28,6 +28,8 @@ export {
 
 export {
     ConflictFile,
+    GitProfile,
+    GitProfileCatalog,
     GraphGlyph,
     GraphLane,
     GraphLayout,

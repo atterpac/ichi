@@ -23,15 +23,21 @@ export function Info(): $CancellablePromise<$models.RepoInfo | null> {
     });
 }
 
+export function ListGitProfiles(extraFiles: string[]): $CancellablePromise<$models.GitProfileCatalog> {
+    return $Call.ByID(2663258313, extraFiles).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function ListRemotes(): $CancellablePromise<string[]> {
     return $Call.ByID(366738476).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function ListSavedRepos(): $CancellablePromise<config$0.Repo[]> {
     return $Call.ByID(2145046829).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType5($result);
     });
 }
 
@@ -45,6 +51,15 @@ export function RemoteURL(name: string): $CancellablePromise<string> {
     return $Call.ByID(2402022628, name);
 }
 
+/**
+ * RepositoryProfile reports the effective identity and the selected source.
+ */
+export function RepositoryProfile(): $CancellablePromise<$models.GitProfile | null> {
+    return $Call.ByID(3829588318).then(($result: any) => {
+        return $$createType7($result);
+    });
+}
+
 export function SaveRepo(oldName: string, repo: config$0.Repo): $CancellablePromise<void> {
     return $Call.ByID(1702464948, oldName, repo);
 }
@@ -55,9 +70,20 @@ export function SetPath(path: string): $CancellablePromise<$models.RepoInfo | nu
     });
 }
 
+/**
+ * SyncWorkspaceProfiles persists the repo-to-profile projection. It never edits
+ * .gitconfig or .git/config, and rejects unavailable identities before saving.
+ */
+export function SyncWorkspaceProfiles(assignments: { [_ in string]?: string }): $CancellablePromise<void> {
+    return $Call.ByID(3931598085, assignments);
+}
+
 // Private type creation functions
 const $$createType0 = $models.RepoInfo.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = $Create.Array($Create.Any);
-const $$createType3 = config$0.Repo.createFrom;
-const $$createType4 = $Create.Array($$createType3);
+const $$createType2 = $models.GitProfileCatalog.createFrom;
+const $$createType3 = $Create.Array($Create.Any);
+const $$createType4 = config$0.Repo.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = $models.GitProfile.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);

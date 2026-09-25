@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 // Stash surface — a ranger list of saved worktree snapshots. The detail pane is a
 // navigable file list (parsed numstat, not raw diff): step into it with `l`, select
 // files with space, and restore just those into the worktree with `a` — a partial
@@ -24,6 +25,7 @@ const settings = useShellSettings()
 const loading = ref(true)
 const error = ref('')
 const busy = ref(false)
+useRepoSwitchGuard(() => busy.value ? 'Wait for the Git operation to finish.' : '')
 const stashes = ref<Stash[]>([])
 const pendingOperation = ref<OperationConfirmRequest | null>(null)
 const listEl = ref<HTMLElement | null>(null)

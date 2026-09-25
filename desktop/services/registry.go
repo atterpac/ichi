@@ -22,13 +22,17 @@ type EventEmitter interface {
 }
 
 type State struct {
-	mu      sync.RWMutex
-	repo    *git.Repository
-	emitter EventEmitter
+	mu           sync.RWMutex
+	repo         *git.Repository
+	emitter      EventEmitter
+	profiles     map[string]string
+	profileError error
+	profileSync  sync.Mutex
 }
 
 func NewState(repo *git.Repository, emitter EventEmitter) *State {
-	return &State{repo: repo, emitter: emitter}
+	profiles, err := loadProfileAssignments()
+	return &State{repo: repo, emitter: emitter, profiles: profiles, profileError: err}
 }
 
 func (s *State) Repo() (*git.Repository, error) {
@@ -36,6 +40,16 @@ func (s *State) Repo() (*git.Repository, error) {
 	defer s.mu.RUnlock()
 	if s.repo == nil {
 		return nil, fmt.Errorf("no repository is open")
+	}
+	if s.profileError != nil {
+		return nil, fmt.Errorf("cannot load workspace profiles: %w", s.profileError)
+	}
+	if id := s.profiles[s.repo.Path()]; id != "" {
+		values, err := profileValues(id)
+		if err != nil {
+			return nil, err
+		}
+		return s.repo.WithConfig(values), nil
 	}
 	return s.repo, nil
 }

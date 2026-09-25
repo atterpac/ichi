@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+vi.mock('../composables/useGitProfiles', () => ({ useGitProfiles: () => ({ state: { profiles: [], warnings: [], syncing: false, syncError: '', error: '', loading: false }, refresh: async () => {}, ready: async () => {}, sync: async () => {}, effective: async () => {} }) }))
 import { nextTick } from 'vue'
 
 import { mount } from '@vue/test-utils'
@@ -42,7 +43,7 @@ describe('App', () => {
   })
 
   it('mounts renders properly', () => {
-    const wrapper = mount(App)
+    const wrapper = mount(App, { attachTo: document.body })
     expect(wrapper.text()).toContain('Commit Graph')
     expect(wrapper.find('.main-island').exists()).toBe(true)
     expect(wrapper.find('.modeline').exists()).toBe(true)
@@ -52,7 +53,7 @@ describe('App', () => {
   it('navigates with header buttons and restores the inspector position', async () => {
     const settings = useShellSettings()
     settings.graphDetailPosition = 'bottom'
-    const wrapper = mount(App)
+    const wrapper = mount(App, { attachTo: document.body })
     const toggle = wrapper.find('[aria-controls="commit-inspector"]')
     await toggle.trigger('click')
     expect(settings.graphDetailPosition).toBe('hidden')
@@ -69,17 +70,17 @@ describe('App', () => {
   })
 
   it('submits the header search and keeps the settings cog', async () => {
-    const wrapper = mount(App)
+    const wrapper = mount(App, { attachTo: document.body })
     await wrapper.find('.titlebar-search input').setValue('graph')
     await wrapper.find('form[role="search"]').trigger('submit')
     expect(wrapper.find('.finderbar').exists()).toBe(true)
-    expect(wrapper.find('.fb-query').text()).toBe('graph')
+    expect((wrapper.find('.fb-query').element as HTMLInputElement).value).toBe('graph')
     expect(wrapper.find('.topbar [aria-label="Settings"]').exists()).toBe(true)
     wrapper.unmount()
   })
 
   it('opens which-key on space and jumps to the chorded view', async () => {
-    const wrapper = mount(App)
+    const wrapper = mount(App, { attachTo: document.body })
     expect(wrapper.find('.whichkey').exists()).toBe(false)
 
     pressKey(' ')
@@ -94,7 +95,7 @@ describe('App', () => {
   })
 
   it('opens the finder omnibar on ctrl+p and closes on escape', async () => {
-    const wrapper = mount(App)
+    const wrapper = mount(App, { attachTo: document.body })
     expect(wrapper.find('.finderbar').exists()).toBe(false)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, cancelable: true }))
     await nextTick()
@@ -106,7 +107,7 @@ describe('App', () => {
   })
 
   it('dismisses which-key on escape without changing views', async () => {
-    const wrapper = mount(App)
+    const wrapper = mount(App, { attachTo: document.body })
     pressKey(' ')
     await nextTick()
     pressKey('Escape')
@@ -115,4 +116,15 @@ describe('App', () => {
     expect(wrapper.text()).toContain('Commit Graph')
     wrapper.unmount()
   })
+  it('opens Pocket with Ctrl+R and opens workspace settings from its footer', async () => {
+    const wrapper = mount(App, { attachTo: document.body })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', ctrlKey: true, cancelable: true }))
+    await nextTick()
+    expect(wrapper.find('.pocket-panel').exists()).toBe(true)
+    await wrapper.find('.pocket-panel footer button:last-child').trigger('click')
+    expect(wrapper.find('.workspace-settings').exists()).toBe(true)
+    expect(wrapper.find('.pocket-panel').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
 })

@@ -5,6 +5,7 @@ import { EditorView, lineNumbers, drawSelection, highlightActiveLine, highlightA
 import { history, defaultKeymap, historyKeymap } from '@codemirror/commands'
 import { vim, Vim, getCM } from '@replit/codemirror-vim'
 import UiButton from '../common/UiButton.vue'
+import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 
 const props = defineProps<{ content: string; line: number; lineOffset?: number; save: (original: string, content: string) => Promise<void> }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -18,6 +19,7 @@ let view: EditorView | undefined
 let alive = true
 const newline = props.content.includes('\r\n') ? '\r\n' : '\n'
 const normalized = props.content.replace(/\r\n/g, '\n')
+useRepoSwitchGuard(() => saving.value ? 'Wait for the file to finish saving.' : view && view.state.doc.toString() !== normalized ? 'Save or close your edited file before switching repositories.' : '')
 function close(force = false) {
   if (saving.value) return
   if (!force && view?.state.doc.toString() !== normalized) { discardPrompt.value = true; return }

@@ -11,12 +11,17 @@ import SettingsModal from '../overlays/SettingsModal.vue'
 import ToastViewport from '../overlays/ToastViewport.vue'
 import WhichKey from './WhichKey.vue'
 import FinderBar from './FinderBar.vue'
+import RepoSwitcher from './RepoSwitcher.vue'
+import { useGitProfiles } from '../../composables/useGitProfiles'
 import { NAV_GROUPS, NAV_KEY_MAP } from './nav'
 import { useModeline } from '../../composables/useModeline'
 import { useRepoStatus } from '../../composables/useRepoStatus'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { PhGitBranch, PhGearSix, PhMagnifyingGlass, PhSidebarSimple } from '@phosphor-icons/vue'
 
+const profiles = useGitProfiles()
+const settingsProfile = ref('')
+function openProfileSettings(id: string) { openWorkspaceSettings(id) }
 const settings = useShellSettings()
 const primaryViews = NAV_GROUPS.flatMap(group => group.items).filter(item => ['graph', 'status', 'branches', 'stashes'].includes(item.id))
 const previousDetailPosition = ref<'right' | 'bottom'>(settings.graphDetailPosition === 'bottom' ? 'bottom' : 'right')
@@ -31,6 +36,13 @@ const modeline = useModeline()
 const repo = useRepoStatus()
 const activeView = ref('graph')
 const settingsOpen = ref(false)
+const settingsCategory = ref<'appearance' | 'workspaces'>('appearance')
+function openWorkspaceSettings(profile = '') { settingsProfile.value = profile; settingsCategory.value = 'workspaces'; settingsOpen.value = true; finderOpen.value = false }
+function openSettings() { settingsProfile.value = ''; settingsCategory.value = 'appearance'; settingsOpen.value = true; finderOpen.value = false }
+function switcherOpened() { finderOpen.value = false; leaderOpen.value = false }
+watch(() => repo.info?.Path, (path, previous) => {
+  if (previous && path !== previous) { focusRef.value = ''; viewHistory.length = 0; finderOpen.value = false; leaderOpen.value = false }
+})
 // Commit/ref to land on when the next view mounts (finder commit-enter, branches
 // `o`). Read once by the target view, then cleared so a plain re-nav doesn't jump.
 const focusRef = ref('')
@@ -143,7 +155,6 @@ const modelineCounts = computed(() => {
   return segs
 })
 const branchLabel = computed(() => repo.info?.Branch || 'detached')
-const repoName = computed(() => repo.info?.Name || 'ichi')
 const repoPath = computed(() => repo.info?.Path || 'Repository')
 const worktreeCount = computed(() => {
   const info = repo.info
@@ -279,7 +290,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
       <div class="repo-context" :title="repoPath">
         <span class="app-wordmark">ichi</span>
         <span class="repo-divider" aria-hidden="true">/</span>
-        <span class="repo-name">{{ repoName }}</span>
+        <RepoSwitcher :disabled="settingsOpen" @settings="openWorkspaceSettings" @opened="switcherOpened" />
         <span class="repo-divider" aria-hidden="true">/</span>
         <span class="repo-branch"><PhGitBranch :size="16" weight="bold" />{{ branchLabel }}</span>
         <span v-if="worktreeCount" class="repo-dirty" :title="`${worktreeCount} changed files`">
@@ -301,15 +312,16 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
           />
           <button type="submit" aria-label="Search" title="Search (Enter)"><kbd>↵</kbd></button>
         </form>
-        <UiIconButton class="titlebar-icon" size="sm" label="Settings" @click="finderOpen = false; settingsOpen = true">
+        <UiIconButton class="titlebar-icon" size="sm" label="Settings" @click="openSettings">
           <PhGearSix :size="16" weight="bold" />
         </UiIconButton>
       </div>
     </header>
 
+    <div v-if="profiles.state.syncError" class="profile-sync-error" role="alert">Could not apply workspace identity: {{ profiles.state.syncError }} <button @click="openWorkspaceSettings()">Manage profiles</button><button @click="profiles.sync().catch(() => {})">Retry</button></div>
     <div class="body-shell">
 
-      <section class="main-island" aria-live="polite">
+      <section class="main-island" aria-live="polite" :inert="repo.switching || profiles.state.syncing || !!profiles.state.syncError || undefined" :aria-busy="repo.switching">
         <header class="island-header">
           <h1 class="sr-only">{{ viewTitle }}</h1>
           <nav class="primary-nav" aria-label="Repository views">
@@ -326,20 +338,20 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
           <div id="view-header-context" class="header-context" aria-label="Repository status" />
         </header>
 
-        <GraphView v-if="activeView === 'graph'" :focus-hash="focusRef" @navigate="setView" />
+        <GraphView :key="repo.revision" v-if="activeView === 'graph'" :focus-hash="focusRef" @navigate="setView" />
 
-        <ChangesView
+        <ChangesView :key="repo.revision"
           v-else-if="activeView === 'status' || activeView === 'commit'"
           :focus-commit="activeView === 'commit'"
           :focus-key="focusRef"
           @navigate="setView"
         />
 
-        <BranchesView v-else-if="activeView === 'branches'" @navigate="setView" />
+        <BranchesView :key="repo.revision" v-else-if="activeView === 'branches'" @navigate="setView" />
 
-        <StashesView v-else-if="activeView === 'stashes'" />
+        <StashesView :key="repo.revision" v-else-if="activeView === 'stashes'" />
 
-        <FileInspectView
+        <FileInspectView :key="repo.revision"
           v-else-if="activeView === 'file-log' || activeView === 'blame'"
           :focus-file="focusRef"
           :mode-hint="activeView"
@@ -363,7 +375,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
     </div>
 
     <WhichKey v-if="leaderOpen" @select="selectFromPanel" @close="leaderOpen = false" />
-    <FinderBar v-if="finderOpen" :initial-query="finderInitialQuery" @close="finderOpen = false" @navigate="setView" />
+    <FinderBar v-if="finderOpen" :initial-query="finderInitialQuery" @close="finderOpen = false" @navigate="setView" @profile="openProfileSettings" />
 
     <footer class="modeline">
       <span class="ml-mode">{{ modeline.mode }}</span>
@@ -393,7 +405,12 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
       </button>
     </footer>
 
-    <SettingsModal v-if="settingsOpen" @close="settingsOpen = false" />
+    <SettingsModal v-if="settingsOpen" :initial-category="settingsCategory" :initial-profile="settingsProfile" @close="settingsOpen = false" />
     <ToastViewport />
   </main>
 </template>
+
+<style scoped>
+.profile-sync-error { position:absolute; top:36px; left:0; right:0; z-index:12; padding:10px; background:var(--surface-overlay); color:var(--text); border-bottom:1px solid var(--border); font-size:12px; }
+.profile-sync-error button { margin-left:10px; }
+</style>

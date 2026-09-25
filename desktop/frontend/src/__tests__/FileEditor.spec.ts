@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { EditorView } from '@codemirror/view'
 import { getCM, Vim } from '@replit/codemirror-vim'
 import FileEditor from '../components/diff/FileEditor.vue'
+import { repoSwitchBlocker } from '../composables/useRepoSwitchGuard'
 
 // jsdom has no text layout; CodeMirror measures DOM ranges on animation frames.
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList
@@ -28,6 +29,7 @@ describe('Vim file editor', () => {
     expect(wrapper.text()).toContain('Selection active')
     Vim.handleKey(cm, 'd', 'user')
     expect(view.state.doc.toString()).toBe('one\nthree')
+    expect(repoSwitchBlocker()).toContain('Save or close')
     Vim.handleKey(cm, 'i', 'user')
     await flushPromises()
     expect(wrapper.text()).toContain('INSERT')
@@ -46,6 +48,7 @@ describe('Vim file editor', () => {
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('changed on disk')
     expect(view.state.doc.toString()).toBe('one\nthree')
+    expect(repoSwitchBlocker()).toContain('Save or close')
     expect(wrapper.emitted('saved')).toBeUndefined()
     Vim.handleEx(cm, 'q')
     await flushPromises()

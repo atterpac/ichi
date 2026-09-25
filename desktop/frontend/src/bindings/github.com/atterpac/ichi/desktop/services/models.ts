@@ -42,6 +42,91 @@ export class ConflictFile {
     }
 }
 
+/**
+ * GitProfile describes identity settings, never credentials or private key material.
+ */
+export class GitProfile {
+    "ID": string;
+    "Label": string;
+    "Name": string;
+    "Email": string;
+    "SigningKey": string;
+    "SigningEnabled": string;
+    "SigningFormat": string;
+    "Source": string;
+
+    /** Creates a new GitProfile instance. */
+    constructor($$source: Partial<GitProfile> = {}) {
+        if (!("ID" in $$source)) {
+            this["ID"] = "";
+        }
+        if (!("Label" in $$source)) {
+            this["Label"] = "";
+        }
+        if (!("Name" in $$source)) {
+            this["Name"] = "";
+        }
+        if (!("Email" in $$source)) {
+            this["Email"] = "";
+        }
+        if (!("SigningKey" in $$source)) {
+            this["SigningKey"] = "";
+        }
+        if (!("SigningEnabled" in $$source)) {
+            this["SigningEnabled"] = "";
+        }
+        if (!("SigningFormat" in $$source)) {
+            this["SigningFormat"] = "";
+        }
+        if (!("Source" in $$source)) {
+            this["Source"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitProfile instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitProfile {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GitProfile($$parsedSource as Partial<GitProfile>);
+    }
+}
+
+export class GitProfileCatalog {
+    "Profiles": GitProfile[];
+    "Warnings": string[];
+
+    /** Creates a new GitProfileCatalog instance. */
+    constructor($$source: Partial<GitProfileCatalog> = {}) {
+        if (!("Profiles" in $$source)) {
+            this["Profiles"] = [];
+        }
+        if (!("Warnings" in $$source)) {
+            this["Warnings"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GitProfileCatalog instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GitProfileCatalog {
+        const $$createField0_0 = $$createType5;
+        const $$createField1_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Profiles" in $$parsedSource) {
+            $$parsedSource["Profiles"] = $$createField0_0($$parsedSource["Profiles"]);
+        }
+        if ("Warnings" in $$parsedSource) {
+            $$parsedSource["Warnings"] = $$createField1_0($$parsedSource["Warnings"]);
+        }
+        return new GitProfileCatalog($$parsedSource as Partial<GitProfileCatalog>);
+    }
+}
+
 export class GraphGlyph {
     "Kind": string;
     "ColorID": number;
@@ -103,7 +188,7 @@ export class GraphLane {
      * Creates a new GraphLane instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLane {
-        const $$createField0_0 = $$createType5;
+        const $$createField0_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Glyphs" in $$parsedSource) {
             $$parsedSource["Glyphs"] = $$createField0_0($$parsedSource["Glyphs"]);
@@ -136,7 +221,7 @@ export class GraphLayout {
      * Creates a new GraphLayout instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLayout {
-        const $$createField0_0 = $$createType7;
+        const $$createField0_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Rows" in $$parsedSource) {
             $$parsedSource["Rows"] = $$createField0_0($$parsedSource["Rows"]);
@@ -165,8 +250,8 @@ export class GraphLayoutRow {
      * Creates a new GraphLayoutRow instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLayoutRow {
-        const $$createField0_0 = $$createType9;
-        const $$createField1_0 = $$createType11;
+        const $$createField0_0 = $$createType11;
+        const $$createField1_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Commit" in $$parsedSource) {
             $$parsedSource["Commit"] = $$createField0_0($$parsedSource["Commit"]);
@@ -308,9 +393,9 @@ export class RepoInfo {
      * Creates a new RepoInfo instance from a string or object.
      */
     static createFrom($$source: any = {}): RepoInfo {
-        const $$createField10_0 = $$createType12;
-        const $$createField11_0 = $$createType12;
-        const $$createField13_0 = $$createType14;
+        const $$createField10_0 = $$createType14;
+        const $$createField11_0 = $$createType14;
+        const $$createField13_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Staged" in $$parsedSource) {
             $$parsedSource["Staged"] = $$createField10_0($$parsedSource["Staged"]);
@@ -330,14 +415,16 @@ const $$createType0 = git$0.ConflictRegion.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
 const $$createType2 = $Create.Array($$createType1);
 const $$createType3 = $Create.Array($Create.Any);
-const $$createType4 = GraphGlyph.createFrom;
+const $$createType4 = GitProfile.createFrom;
 const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = GraphLayoutRow.createFrom;
+const $$createType6 = GraphGlyph.createFrom;
 const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = git$0.Commit.createFrom;
-const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = GraphLane.createFrom;
-const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = git$0.ChangeStats.createFrom;
-const $$createType13 = RemoteInfo.createFrom;
-const $$createType14 = $Create.Array($$createType13);
+const $$createType8 = GraphLayoutRow.createFrom;
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = git$0.Commit.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);
+const $$createType12 = GraphLane.createFrom;
+const $$createType13 = $Create.Array($$createType12);
+const $$createType14 = git$0.ChangeStats.createFrom;
+const $$createType15 = RemoteInfo.createFrom;
+const $$createType16 = $Create.Array($$createType15);

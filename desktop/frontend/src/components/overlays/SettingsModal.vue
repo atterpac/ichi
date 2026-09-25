@@ -5,6 +5,7 @@ import { useShellSettings } from '../../composables/useShellSettings'
 import { useDialogFocus } from '../../composables/useDialogFocus'
 import { THEMES } from '../../theme/themes'
 import GraphPreview from './GraphPreview.vue'
+import WorkspaceSettings from './WorkspaceSettings.vue'
 import UiButton from '../common/UiButton.vue'
 import {
   PhGitDiff,
@@ -20,7 +21,7 @@ const emit = defineEmits<{
 }>()
 
 type Category = {
-  id: 'general' | 'appearance' | 'graph' | 'diff' | 'keybindings'
+  id: 'workspaces' | 'general' | 'appearance' | 'graph' | 'diff' | 'keybindings'
   label: string
   icon: Component
 }
@@ -29,7 +30,8 @@ const dialog = ref<HTMLElement | null>(null)
 useDialogFocus(dialog, () => emit('close'))
 
 const settings = useShellSettings()
-const active = ref<Category['id']>('appearance')
+const props = defineProps<{ initialCategory?: Category['id']; initialProfile?: string }>()
+const active = ref<Category['id']>(props.initialCategory || 'appearance')
 const showAllThemes = ref(false)
 const essentialThemeIds = new Set(['atterpac', 'tokyonight-night', 'onelight'])
 const visibleThemes = computed(() => {
@@ -38,6 +40,7 @@ const visibleThemes = computed(() => {
 })
 const hiddenThemeCount = computed(() => THEMES.length - visibleThemes.value.length)
 const categories: Category[] = [
+  { id: 'workspaces', label: 'Workspaces', icon: PhGitFork },
   { id: 'general', label: 'General', icon: PhSlidersHorizontal },
   { id: 'appearance', label: 'Appearance', icon: PhPalette },
   { id: 'graph', label: 'Graph', icon: PhGitFork },
@@ -139,7 +142,8 @@ function close() {
         </header>
 
         <div class="set-content">
-          <template v-if="active === 'general'">
+          <WorkspaceSettings v-if="active === 'workspaces'" :initial-profile="initialProfile" />
+          <template v-else-if="active === 'general'">
             <p class="set-section">Safety</p>
             <label class="set-row">
               <span>
@@ -158,34 +162,17 @@ function close() {
               </button>
             </label>
 
-            <p class="set-section">Finder</p>
-            <label class="set-row">
-              <span>
-                <b>Unified search</b>
-                <small>Search everything the moment you type — no mode key first. Results group by type; b: c: f: v: still narrows to one kind.</small>
-              </span>
-              <button
-                class="toggle"
-                :class="{ on: settings.finderUnified }"
-                type="button"
-                role="switch"
-                :aria-checked="settings.finderUnified"
-                @click="settings.finderUnified = !settings.finderUnified"
-              >
-                <i />
-              </button>
-            </label>
           </template>
 
           <template v-else-if="active === 'appearance'">
             <p class="set-section">Avatar placeholders</p>
-            <p class="set-note">Used when an author photo is unavailable. Each author gets a consistent creature.</p>
+            <p class="set-note">Used when an author photo is unavailable. Each author gets a consistent portrait.</p>
             <div class="avatar-placeholder-options" role="group" aria-label="Avatar placeholder style">
               <button v-for="style in placeholderStyles" :key="style.id" type="button"
                 :aria-pressed="settings.avatarPlaceholder === style.id"
                 @click="settings.avatarPlaceholder = style.id">
                 <span class="avatar-placeholder-preview" aria-hidden="true" v-html="placeholderSvg('Alex Chen', style.id)" />
-                <b>{{ style.name }}</b><small>{{ style.id === 'spore' ? 'Default' : style.id === 'relay' ? 'Robot' : style.id === 'lumen' ? 'Moth' : 'Cat' }}</small>
+                <b>{{ style.name }}</b><small>{{ style.id === 'spore' ? 'Default' : style.id === 'relay' ? 'Robot' : style.id === 'lumen' ? 'Moth' : style.id === 'aurora' ? 'Lights' : 'Cat' }}</small>
               </button>
             </div>
             <p class="set-section">Theme</p>
@@ -296,14 +283,6 @@ function close() {
                 <b>{{ option.label }}</b>
               </button>
             </div>
-
-            <label class="set-row">
-              <span>
-                <b>Author avatars on nodes</b>
-                <small>Replace commit markers with author pictures. Author details elsewhere use Gravatar, with your chosen creature as a fallback.</small>
-              </span>
-              <button class="toggle" :class="{ on: settings.graphAuthorAvatars }" type="button" role="switch" :aria-checked="settings.graphAuthorAvatars" aria-label="Author avatars" @click="settings.graphAuthorAvatars = !settings.graphAuthorAvatars"><i /></button>
-            </label>
 
             <p class="set-section">Node glyphs</p>
             <p class="set-note">Commit marker shape used on the canvas rail. Semantic keeps circles for commits and diamonds for merges.</p>
@@ -468,6 +447,7 @@ function close() {
               <span><kbd>s</kbd><b>Status</b></span>
               <span><kbd>c</kbd><b>Commit</b></span>
               <span><kbd>Ctrl+P</kbd><b>Finder</b></span>
+              <span><kbd>Ctrl+R</kbd><b>Switch repository</b></span>
             </div>
             <p class="set-note">Keybinding editing is not wired yet; this panel is a placeholder for command-map preferences.</p>
           </template>

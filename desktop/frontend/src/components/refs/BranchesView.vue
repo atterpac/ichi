@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 import { isEditable, isModified, returnFromPane } from '../../composables/keyboard'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { PhCaretRight, PhArrowsClockwise, PhGitBranch } from '@phosphor-icons/vue'
@@ -19,6 +20,7 @@ const settings = useShellSettings()
 const loading = ref(true)
 const error = ref('')
 const busy = ref(false)
+useRepoSwitchGuard(() => busy.value ? 'Wait for the Git operation to finish.' : '')
 const locals = ref<Branch[]>([])
 const remotes = ref<Branch[]>([])
 const pendingOperation = ref<OperationConfirmRequest | null>(null)

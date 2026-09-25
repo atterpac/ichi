@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import FinderBar from '../components/shell/FinderBar.vue'
-import { useShellSettings } from '../composables/useShellSettings'
+import { useWorkspaces } from '../composables/useWorkspaces'
+import { useGitProfiles } from '../composables/useGitProfiles'
+import { finderHistory } from '../components/shell/finderHistory'
 
+vi.mock('@wailsio/runtime', () => ({ Events: { On: vi.fn() } }))
+vi.mock('../composables/useGitProfiles', () => { const state = { profiles: [], error: '' }; return { useGitProfiles: () => ({ state, ready: async () => {}, effective: async () => {} }) } })
+const openRepo = vi.fn(async (path: string) => ({ Path: path, Name: path.split('/').pop() }))
 const checkoutBranch = vi.fn<(name: string, create: boolean) => Promise<void>>(() => Promise.resolve())
 const searchCommits = vi.fn(() =>
   Promise.resolve([{ Hash: '0ba44b3aaaa', ShortHash: '0ba44b3', Message: 'first iteration of the diff view' }]),
@@ -23,6 +28,7 @@ const branch = (over: Record<string, unknown>) => ({
 })
 
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
+  RepoService: { Info: async () => null, Open: (path: string) => openRepo(path) },
   RefService: {
     ListBranches: () =>
       Promise.resolve([
@@ -33,7 +39,7 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     DeleteBranch: () => Promise.resolve(),
   },
   GraphService: {
-    SearchCommits: (q: string, n: number) => searchCommits(),
+    SearchCommits: () => searchCommits(),
   },
   CompletionService: {
     ListFiles: () => listFiles(),
@@ -41,167 +47,200 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
 }))
 
 function press(key: string, opts: KeyboardEventInit = {}) {
-  window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true, ...opts }))
+  (document.activeElement ?? window).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts }))
 }
 
-async function type(text: string) {
-  for (const ch of text) press(ch)
-  await flushPromises()
-}
-
-async function mountBar() {
-  const wrapper = mount(FinderBar, { attachTo: document.body })
+async function mountBar(initialQuery = '') {
+  const wrapper = mount(FinderBar, { props: { initialQuery }, attachTo: document.body })
   await flushPromises()
   return wrapper
 }
 
 describe('FinderBar', () => {
   beforeEach(() => {
+    useWorkspaces().state.repos = []
+    useWorkspaces().state.workspaces = [{ id: 'personal', name: 'Personal', color: '#aabbcc' }]
+    useGitProfiles().state.profiles = []
+    openRepo.mockClear()
     checkoutBranch.mockClear()
     searchCommits.mockClear()
     listFiles.mockClear()
+    finderHistory.searches = []
+    finderHistory.files = []
   })
+  afterEach(() => { vi.useRealTimers() })
 
-  afterEach(() => {
-    useShellSettings().finderUnified = false
-  })
-
-  it('searches all sources from a submitted header query without changing the saved mode', async () => {
-    useShellSettings().finderUnified = false
-    vi.useFakeTimers()
-    const wrapper = mount(FinderBar, { props: { initialQuery: 'diff' }, attachTo: document.body })
+  it('opens a focused native input with scope buttons and suggested navigation', async () => {
+    const wrapper = await mountBar()
     try {
-      await flushPromises()
-      await vi.advanceTimersByTimeAsync(200)
-      await flushPromises()
-      expect(wrapper.find('.fb-query').text()).toBe('diff')
-      expect(wrapper.text()).toContain('feature/diff-view')
-      expect(wrapper.text()).toContain('src/components/diff/DiffView.vue')
-      expect(searchCommits).toHaveBeenCalled()
-      expect(useShellSettings().finderUnified).toBe(false)
-    } finally {
-      wrapper.unmount()
-      vi.useRealTimers()
-    }
+      expect(document.activeElement).toBe(wrapper.get('input').element)
+      expect(wrapper.get('[role="dialog"]').attributes('aria-modal')).toBe('true')
+      expect(wrapper.findAll('.fb-scopes button').map(button => button.text())).toEqual(['All', 'Filesf:', 'Commitsc:', 'Branchesb:', 'Viewsv:', 'Reposr:', 'Workspacesw:', 'Profilesp:'])
+      expect(wrapper.findAll('.fb-row').every(row => row.attributes('aria-label')?.startsWith('view:'))).toBe(true)
+      expect(listFiles).toHaveBeenCalled()
+    } finally { wrapper.unmount() }
   })
-
-  it('shows the four modes at root and locks one on its key', async () => {
-    const wrapper = await mountBar()
-    const rows = wrapper.findAll('.fb-row')
-    expect(rows.map((r) => r.find('.fb-label').text())).toEqual(['Branches', 'Commits', 'Files', 'Views'])
-    expect(wrapper.find('.fb-badge').text()).toBe('find›')
-
-    press('b')
-    await flushPromises()
-    expect(wrapper.find('.fb-badge').text()).toBe('branch›')
-    expect(wrapper.findAll('.fb-row').map((r) => r.find('.fb-label').text())).toEqual(['main', 'feature/diff-view'])
-    wrapper.unmount()
-  })
-
-  it('filters branches and checks out on enter', async () => {
-    const wrapper = await mountBar()
-    press('b')
-    await type('di')
-    const rows = wrapper.findAll('.fb-row')
-    expect(rows[0]!.text()).toContain('feature/diff-view')
-    press('Enter')
-    await flushPromises()
-    expect(checkoutBranch).toHaveBeenCalledWith('feature/diff-view', false)
-    expect(wrapper.emitted('close')).toBeTruthy()
-    wrapper.unmount()
-  })
-
-  it('offers create-from-query when nothing matches exactly', async () => {
-    const wrapper = await mountBar()
-    press('b')
-    await type('fix/new-thing')
-    const create = wrapper.findAll('.fb-row').find((r) => r.classes().includes('create'))
-    expect(create).toBeTruthy()
-    expect(create!.text()).toContain('create branch “fix/new-thing”')
-    wrapper.unmount()
-  })
-
-  it('navigates on view mode enter', async () => {
-    const wrapper = await mountBar()
-    press('v')
-    await type('bran')
-    press('Enter')
-    await flushPromises()
-    expect(wrapper.emitted('navigate')?.[0]).toEqual(['branches'])
-    expect(wrapper.emitted('close')).toBeTruthy()
-    wrapper.unmount()
-  })
-
-  it('loads files lazily and backspace returns to root, esc closes', async () => {
-    const wrapper = await mountBar()
-    press('f')
-    await flushPromises()
-    expect(listFiles).toHaveBeenCalled()
-    await type('shell')
-    expect(wrapper.find('.fb-row .fb-label').text()).toContain('shell.css')
-
-    for (let i = 0; i < 'shell'.length; i++) press('Backspace')
-    press('Backspace')
-    await flushPromises()
-    expect(wrapper.find('.fb-badge').text()).toBe('find›')
-
-    press('Escape')
-    await flushPromises()
-    expect(wrapper.emitted('close')).toBeTruthy()
-    wrapper.unmount()
-  })
-
-  it('swallows keys so nothing reaches shell nav while open', async () => {
-    const wrapper = await mountBar()
-    const g = new KeyboardEvent('keydown', { key: 'g', cancelable: true })
-    window.dispatchEvent(g)
-    expect(g.defaultPrevented).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('unified: typing at root searches all kinds grouped by type', async () => {
-    useShellSettings().finderUnified = true
-    const wrapper = await mountBar()
-    // files load eagerly in unified mode
-    expect(listFiles).toHaveBeenCalled()
-    // mode rows still show at empty query, with prefix-style hints
-    expect(wrapper.findAll('.fb-row kbd')[0]!.text()).toBe('b:')
-
-    await type('di')
-    const kinds = wrapper.findAll('.fb-row').map((r) => r.find('.fb-kind').exists() ? r.find('.fb-kind').text() : 'mode')
-    expect(kinds).toContain('view')
-    expect(kinds).toContain('branch')
-    expect(kinds).toContain('file')
-    // grouped: kinds are contiguous, separators mark group starts
-    expect(wrapper.findAll('.fb-row.group-start').length).toBeGreaterThan(0)
-    expect(wrapper.text()).toContain('feature/diff-view')
-    expect(wrapper.text()).toContain('DiffView.vue')
-    wrapper.unmount()
-  })
-
-  it('unified: b: prefix locks branch mode', async () => {
-    useShellSettings().finderUnified = true
-    const wrapper = await mountBar()
-    await type('b:di')
-    expect(wrapper.find('.fb-badge').text()).toBe('branch›')
-    expect(wrapper.findAll('.fb-row')[0]!.text()).toContain('feature/diff-view')
-    wrapper.unmount()
-  })
-
-  it('debounces commit search and jumps to graph on enter', async () => {
+  it('searches all sources from a submitted header query', async () => {
     vi.useFakeTimers()
-    const wrapper = mount(FinderBar, { attachTo: document.body })
-    await vi.runAllTimersAsync()
-    press('c')
-    press('d')
-    press('i')
-    await vi.advanceTimersByTimeAsync(200)
-    expect(searchCommits).toHaveBeenCalledTimes(1)
-    expect(wrapper.find('.fb-row .fb-label').text()).toContain('first iteration')
-    press('Enter')
-    await vi.runAllTimersAsync()
-    expect(wrapper.emitted('navigate')?.[0]).toEqual(['graph', '0ba44b3aaaa'])
-    vi.useRealTimers()
-    wrapper.unmount()
+    const wrapper = await mountBar('diff')
+    try {
+      await vi.advanceTimersByTimeAsync(200)
+      expect((wrapper.get('input').element as HTMLInputElement).value).toBe('diff')
+      expect(wrapper.text()).toContain('feature/diff-view')
+      expect(wrapper.text()).toContain('DiffView.vue')
+      expect(wrapper.text()).toContain('src/components/diff/')
+      expect(searchCommits).toHaveBeenCalled()
+    } finally { wrapper.unmount() }
   })
+  it('accepts a pasted prefix and checks out the filtered branch on Enter', async () => {
+    const wrapper = await mountBar()
+    try {
+      await wrapper.get('input').setValue('b:di')
+      await flushPromises()
+      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Branchesb:')
+      expect((wrapper.get('input').element as HTMLInputElement).value).toBe('di')
+      press('Enter')
+      await flushPromises()
+      expect(checkoutBranch).toHaveBeenCalledWith('feature/diff-view', false)
+      expect(wrapper.emitted('close')).toBeTruthy()
+    } finally { wrapper.unmount() }
+  })
+  it('preserves the query when switching scopes by mouse or Tab', async () => {
+    const wrapper = await mountBar('diff')
+    try {
+      await wrapper.findAll('.fb-scopes button')[1]!.trigger('click')
+      expect((wrapper.get('input').element as HTMLInputElement).value).toBe('diff')
+      expect(wrapper.findAll('.fb-row')).toHaveLength(1)
+      press('Tab')
+      await flushPromises()
+      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Commitsc:')
+      press('Tab', { shiftKey: true })
+      await flushPromises()
+      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Filesf:')
+    } finally { wrapper.unmount() }
+  })
+  it('offers create-from-query when no branch matches exactly', async () => {
+    const wrapper = await mountBar('b:fix/new-thing')
+    try { expect(wrapper.get('.fb-row.create').text()).toContain('create branch “fix/new-thing”') }
+    finally { wrapper.unmount() }
+  })
+  it('moves down through visible results and activates the selected view', async () => {
+    const wrapper = await mountBar()
+    try {
+      const rows = wrapper.findAll('.fb-row')
+      const expectedLabel = rows[1]!.get('.fb-label').text()
+      press('ArrowDown')
+      await flushPromises()
+      expect(wrapper.get('.fb-row.sel .fb-label').text()).toBe(expectedLabel)
+      expect(wrapper.get('input').attributes('aria-activedescendant')).toBe(rows[1]!.attributes('id'))
+      press('ArrowUp')
+      await flushPromises()
+      expect(wrapper.get('.fb-row.sel .fb-label').text()).toBe(rows[0]!.get('.fb-label').text())
+      await wrapper.get('input').setValue('v:bran')
+      await flushPromises()
+      press('Enter')
+      expect(wrapper.emitted('navigate')?.[0]).toEqual(['branches'])
+    } finally { wrapper.unmount() }
+  })
+  it('returns to All on empty Backspace and closes immediately on Escape', async () => {
+    const wrapper = await mountBar('f:')
+    try {
+      press('Backspace')
+      await flushPromises()
+      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('All')
+      await wrapper.get('input').setValue('anything')
+      press('Escape')
+      expect(wrapper.emitted('close')).toBeTruthy()
+    } finally { wrapper.unmount() }
+  })
+  it('keeps native editing shortcuts and IME while blocking shell key handlers', async () => {
+    const wrapper = await mountBar()
+    const shellKey = vi.fn()
+    window.addEventListener('keydown', shellKey)
+    try {
+      const input = wrapper.get('input').element
+      for (const options of [{ key: 'a', ctrlKey: true }, { key: 'v', metaKey: true }, { key: 'ArrowLeft' }, { key: 'Enter', isComposing: true }]) {
+        const event = new KeyboardEvent('keydown', { ...options, bubbles: true, cancelable: true })
+        input.dispatchEvent(event)
+        expect(event.defaultPrevented).toBe(false)
+      }
+      expect(shellKey).not.toHaveBeenCalled()
+      expect(wrapper.emitted('navigate')).toBeFalsy()
+    } finally { window.removeEventListener('keydown', shellKey); wrapper.unmount() }
+  })
+  it('debounces commit search and jumps to graph', async () => {
+    vi.useFakeTimers()
+    const wrapper = await mountBar('c:di')
+    try {
+      await vi.advanceTimersByTimeAsync(200)
+      expect(searchCommits).toHaveBeenCalledTimes(1)
+      expect(wrapper.get('.fb-row .fb-label').text()).toContain('first iteration')
+      press('Enter')
+      expect(wrapper.emitted('navigate')?.[0]).toEqual(['graph', '0ba44b3aaaa'])
+    } finally { wrapper.unmount() }
+  })
+  it('ignores stale commit responses after the query changes', async () => {
+    vi.useFakeTimers()
+    let resolve!: (value: Awaited<ReturnType<typeof searchCommits>>) => void
+    searchCommits.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const wrapper = await mountBar('c:old')
+    try {
+      await vi.advanceTimersByTimeAsync(200)
+      await wrapper.get('input').setValue('new')
+      resolve([{ Hash: 'old', ShortHash: 'old', Message: 'stale result' }])
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('stale result')
+      await vi.advanceTimersByTimeAsync(200)
+      expect(wrapper.text()).toContain('first iteration')
+    } finally { wrapper.unmount() }
+  })
+  it('shows recent searches and files on reopening and restores focus', async () => {
+    const launcher = document.createElement('button')
+    document.body.append(launcher)
+    launcher.focus()
+    const first = await mountBar('f:shell')
+    press('Enter')
+    expect(first.emitted('navigate')?.[0]).toEqual(['file-log', 'src/theme/shell.css'])
+    first.unmount()
+    expect(document.activeElement).toBe(launcher)
+    const second = await mountBar()
+    try {
+      expect(second.text()).toContain('f:shell')
+      expect(second.text()).toContain('shell.css')
+      await second.get('.fb-row').trigger('click')
+      await flushPromises()
+      expect(second.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Filesf:')
+      expect((second.get('input').element as HTMLInputElement).value).toBe('shell')
+    } finally { second.unmount(); launcher.remove() }
+  })
+  it('finds a repository by path and opens it from r: search', async () => {
+    useWorkspaces().saveRepo('/projects/relay', 'Relay API', 'personal')
+    const wrapper = await mountBar('r:projects/relay')
+    try {
+      expect(wrapper.find('.fb-row').text()).toContain('Relay API')
+      press('Enter')
+      await flushPromises()
+      expect(openRepo).toHaveBeenCalledWith('/projects/relay')
+      expect(wrapper.emitted('close')).toHaveLength(1)
+    } finally { wrapper.unmount() }
+  })
+  it('narrows workspace results to repositories and profiles open assignment settings', async () => {
+    const ws = useWorkspaces()
+    ws.saveRepo('/projects/relay', 'Relay', 'personal')
+    const wrapper = await mountBar('w:Personal')
+    try {
+      press('Enter'); await flushPromises()
+      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Reposr:')
+      expect(wrapper.text()).toContain('Workspace: Personal')
+      expect(wrapper.text()).toContain('Relay')
+    } finally { wrapper.unmount() }
+    useGitProfiles().state.profiles = [{ ID: '/work.gitconfig', Label: 'Work', Name: 'Work User', Email: 'work@example.test', Source: '/work.gitconfig', SigningEnabled: 'false', SigningKey: '', SigningFormat: 'openpgp' }]
+    const profile = await mountBar('p:work@example.test')
+    try {
+      expect(profile.text()).toContain('Work User')
+      press('Enter'); await flushPromises()
+      expect(profile.emitted('profile')).toEqual([['/work.gitconfig']])
+    } finally { profile.unmount() }
+  })
+
 })

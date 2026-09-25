@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,8 +13,9 @@ import (
 
 // Repository represents a git repository.
 type Repository struct {
-	path   string
-	branch string
+	path            string
+	branch          string
+	configOverrides map[string]string
 }
 
 // OpenRepository opens a git repository at the given path.
@@ -30,6 +32,36 @@ func OpenRepository(path string) (*Repository, error) {
 	}
 
 	return &Repository{path: absPath}, nil
+}
+
+// WithConfig returns an independent command context without rewriting Git config.
+// Callers own the context; in-flight operations retain their original identity.
+func (r *Repository) WithConfig(values map[string]string) *Repository {
+	clone := *r
+	clone.configOverrides = make(map[string]string, len(values))
+	for key, value := range values {
+		clone.configOverrides[key] = value
+	}
+	return &clone
+}
+
+func (r *Repository) command(args ...string) *exec.Cmd {
+	commandArgs := []string{"-C", r.path}
+	keys := make([]string, 0, len(r.configOverrides))
+	for key := range r.configOverrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		commandArgs = append(commandArgs, "-c", key+"="+r.configOverrides[key])
+	}
+	return exec.Command("git", append(commandArgs, args...)...)
+}
+
+// ConfigValue returns the effective configuration in this command context.
+func (r *Repository) ConfigValue(key string) (string, error) {
+	value, err := r.run("config", "--get", key)
+	return strings.TrimSpace(value), err
 }
 
 // Path returns the repository path.
@@ -346,7 +378,7 @@ func (r *Repository) ListRemotes() []string {
 
 // run executes a git command and returns the output.
 func (r *Repository) run(args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", r.path}, args...)...)
+	cmd := r.command(args...)
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -359,7 +391,7 @@ func (r *Repository) run(args ...string) (string, error) {
 
 // RunWithStdin executes a git command with stdin input.
 func (r *Repository) RunWithStdin(input string, args ...string) error {
-	cmd := exec.Command("git", append([]string{"-C", r.path}, args...)...)
+	cmd := r.command(args...)
 
 	// Use pipes to avoid deadlock with CombinedOutput + stdin
 	stdin, err := cmd.StdinPipe()
@@ -581,7 +613,7 @@ func (r *Repository) rebaseReword(hash, newMessage string) error {
 	msgEditor := fmt.Sprintf(`cat "%s" >`, tmpFile.Name())
 
 	// Run rebase with both editors set
-	cmd := exec.Command("git", "-C", r.path, "rebase", "-i", parent)
+	cmd := r.command("rebase", "-i", parent)
 	cmd.Env = append(os.Environ(),
 		"GIT_SEQUENCE_EDITOR="+seqEditor,
 		"GIT_EDITOR="+msgEditor,
@@ -622,7 +654,7 @@ func (r *Repository) rebaseDrop(hash string) error {
 	// Create sequence editor script to change 'pick' to 'drop'
 	seqEditor := fmt.Sprintf(`sed -i.bak 's/^pick %s/drop %s/' "$1" && rm -f "$1.bak"`, shortHash, shortHash)
 
-	cmd := exec.Command("git", "-C", r.path, "rebase", "-i", parent)
+	cmd := r.command("rebase", "-i", parent)
 	cmd.Env = append(os.Environ(),
 		"GIT_SEQUENCE_EDITOR="+seqEditor,
 	)
