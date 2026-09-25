@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiInput from '../common/UiInput.vue'
+import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DiffView from '../diff/DiffView.vue'
 import SurfaceState from '../common/SurfaceState.vue'
@@ -352,16 +353,19 @@ async function refresh(preferKey?: string) {
 
 // ---- staging actions --------------------------------------------------
 
+const runningOperations = ref(0)
 async function run(op: () => Promise<void>, preferKey?: string) {
+  runningOperations.value++
   try {
     await op()
-    await refresh(preferKey)
   } catch (err) {
     notify({
       tone: 'danger',
       title: 'Operation failed',
       message: err instanceof Error ? err.message : String(err),
     })
+  } finally {
+    try { await refresh(preferKey) } finally { runningOperations.value-- }
   }
 }
 
@@ -953,6 +957,7 @@ const summary = ref('')
 const body = ref('')
 const amend = ref(false)
 const committing = ref(false)
+useRepoSwitchGuard(() => committing.value || treeActionBusy.value || runningOperations.value > 0 ? 'Wait for the Git operation to finish.' : summary.value.trim() || body.value.trim() ? 'Finish or clear your commit message before switching repositories.' : '')
 
 const canCommit = computed(
   () => summary.value.trim().length > 0 && (stagedRows.value.length > 0 || amend.value),

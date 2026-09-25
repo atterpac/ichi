@@ -1,6 +1,14 @@
 package services
 
-import "github.com/atterpac/ichi/internal/git"
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/atterpac/ichi/internal/git"
+)
 
 type WorktreeService struct {
 	state *State
@@ -55,7 +63,7 @@ func (s *WorktreeService) UnstageAll() error {
 }
 
 func (s *WorktreeService) DiscardFileChanges(path string) error {
-	return s.mutate(func(repo *git.Repository) error { return repo.DiscardFileChanges(path) })
+	return s.mutate(func(repo *git.Repository) error { return discardWorktreeFile(repo.Path(), path) })
 }
 
 func (s *WorktreeService) Commit(message string) error {
@@ -76,4 +84,45 @@ func (s *WorktreeService) mutate(fn func(*git.Repository) error) error {
 	}
 	s.state.emitStatusChanged()
 	return nil
+}
+
+// discardWorktreeFile handles one literal path. A folded group invokes this for
+// each displayed descendant, never as a recursive directory-wide clean.
+func discardWorktreeFile(root, path string) error {
+	if !filepath.IsLocal(path) || filepath.Clean(path) == "." {
+		return fmt.Errorf("discard requires a file path inside the worktree")
+	}
+	path = filepath.ToSlash(filepath.Clean(path))
+	if path == ".git" || strings.HasPrefix(path, ".git/") {
+		return fmt.Errorf("cannot discard Git metadata")
+	}
+	info, err := os.Lstat(filepath.Join(root, path))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil && info.IsDir() {
+		return fmt.Errorf("discard requires an individual file, not a directory")
+	}
+	run := func(args ...string) ([]byte, error) {
+		args = append([]string{"-C", root, "--literal-pathspecs"}, args...)
+		out, err := exec.Command("git", args...).CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("discard %s: %w: %s", path, err, strings.TrimSpace(string(out)))
+		}
+		return out, nil
+	}
+	// -z preserves spaces, newlines and quotes without porcelain path escaping.
+	status, err := run("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", path)
+	if err != nil {
+		return err
+	}
+	if string(status) == "?? "+path+"\x00" {
+		// Git clean rechecks the index and respects ignores. Do not use -d, -x or
+		// recursive filesystem removal: siblings and newly tracked files stay safe.
+		_, err = run("clean", "-f", "--", path)
+	} else {
+		// Restore from the index, preserving any staged version of this file.
+		_, err = run("checkout", "--", path)
+	}
+	return err
 }

@@ -341,6 +341,37 @@ describe('ChangesView', () => {
     } finally { wrapper.unmount(); statusEntries = original; useShellSettings().confirmDestructiveActions = confirm }
   })
 
+  it('refreshes the folded group after a partially failed discard', async () => {
+    const original = statusEntries
+    const settings = useShellSettings()
+    const grouping = settings.changesGroupByDir
+    const confirm = settings.confirmDestructiveActions
+    settings.changesGroupByDir = 'always'
+    settings.confirmDestructiveActions = true
+    statusEntries = [
+      entry({ Path: 'src/a.ts', WorkStatus: FileStatus.FileModified }),
+      entry({ Path: 'src/b.ts', IsUntracked: true, WorkStatus: FileStatus.FileUntracked }),
+    ]
+    discardFile.mockImplementationOnce(async () => { statusEntries = statusEntries.slice(1) })
+    discardFile.mockRejectedValueOnce(new Error('file locked'))
+    const wrapper = await mountView()
+    try {
+      const folder = wrapper.get('[data-tree-key="dir:unstaged:src"]')
+      await folder.trigger('click')
+      await folder.trigger('keydown', { key: 'x' })
+      await wrapper.getComponent(OperationConfirmModal).props('request').onConfirm({})
+      await flushPromises()
+      await wrapper.get('[data-tree-key="dir:unstaged:src"]').trigger('click')
+      expect(wrapper.find('[data-tree-key="u:src/a.ts"]').exists()).toBe(false)
+      expect(wrapper.find('[data-tree-key="u:src/b.ts"]').exists()).toBe(true)
+    } finally {
+      wrapper.unmount()
+      statusEntries = original
+      settings.changesGroupByDir = grouping
+      settings.confirmDestructiveActions = confirm
+    }
+  })
+
   it('nests directories before direct files and keeps the correct parent for navigation', async () => {
     const original = statusEntries
     useShellSettings().changesGroupByDir = 'always'
