@@ -79,12 +79,10 @@ function mixUntil(from, to, ok) {
   return mix(from, to, hi)
 }
 
-// Muted text should sit at ~4–5.5:1 against the surface: below that it's
-// illegible (nord), above it stops reading as muted (atterpac).
-function tuneMut(mut, surface, text) {
-  const c = contrast(mut, surface)
-  if (c < 4) return mixUntil(mut, text, (h) => contrast(h, surface) >= 4)
-  if (c > 5.5) return mixUntil(mut, surface, (h) => contrast(h, surface) <= 5.5)
+// Small metadata must remain readable on every elevation, including overlays.
+function tuneMut(mut, surfaces, text) {
+  const readable = (hex) => surfaces.every(surface => contrast(hex, surface) >= 4.5)
+  if (!readable(mut)) return mixUntil(mut, text, readable)
   return mut
 }
 
@@ -113,21 +111,39 @@ function cssBlock({ name, colors: c }) {
   // (rosepine ships surface darker than bg): dark stacks lightest-on-top,
   // light keeps the lightest tone for cards with the page slightly darker.
   const layers = [c.bg_dark, c.bg, c.bg_light].sort((a, b) => luminance(a) - luminance(b))
-  const [bg, surface, surface2] = light ? [layers[1], layers[2], layers[0]] : layers
+  const surface = light ? mix(layers[2], '#000000', .025) : layers[1]
+  const bg = light ? mix(surface, '#000000', .04) : layers[0]
+  const surface2 = light ? layers[0] : layers[2]
+  const raised = light ? mix(layers[2], '#ffffff', .6) : mix(surface, surface2, .65)
+  const overlay = mix(raised, '#ffffff', light ? .65 : .035)
   const head = light ? mix(c.fg, '#000000', 0.35) : mix(c.fg, '#ffffff', 0.3)
-  const accentInk = light ? surface : bg
-  const mut = tuneMut(c.fg_dim, surface, c.fg)
+  const accentInk = contrast(c.accent, '#151515') >= contrast(c.accent, '#ffffff') ? '#151515' : '#ffffff'
+  const textSurfaces = [bg, surface, raised, overlay]
+  const textTarget = light ? '#000000' : '#ffffff'
+  const readableText = tuneMut(c.fg, textSurfaces, textTarget)
+  const accentText = tuneMut(c.accent, textSurfaces, textTarget)
+  const positiveText = tuneMut(c.success, textSurfaces, textTarget)
+  const negativeText = tuneMut(c.error, textSurfaces, textTarget)
+  const warningText = tuneMut(c.warning, textSurfaces, textTarget)
+  const mut = tuneMut(c.fg_dim, [bg, surface, raised, overlay], light ? '#000000' : '#ffffff')
   const vars = [
+    // native chrome (select popups, scrollbars) keys off color-scheme, not CSS vars
+    `color-scheme:${light ? 'light' : 'dark'};`,
     `--bg:${bg};--surface:${surface};--surface-2:${surface2};`,
-    `--text:${c.fg};--text-mut:${mut};--head:${head};`,
+    `--surface-raised-gen:${raised};--surface-overlay-gen:${overlay};`,
+    `--text:${readableText};--text-mut:${mut};--head:${head};`,
+    `--accent-text:${accentText};--positive-text:${positiveText};--negative-text:${negativeText};--warning-text:${warningText};`,
     `--accent:${c.accent};--accent-ink:${accentInk};`,
+    `--lane-0:${c.accent};--lane-1:${c.success};--lane-2:${c.warning};--lane-3:${c.info};--lane-4:${c.accent_dim};`,
     `--green:${c.success};--orange:${c.warning};--red:${c.error};--purple:${c.accent_dim};--cyan:${c.info};--star:${c.warning};`,
   ]
   if (light) {
+    vars.push('--elev-1: 0 1px 2px rgba(30,35,60,.08);--elev-2: -8px 0 20px -16px rgba(30,35,60,.2);--elev-3: 0 12px 32px -8px rgba(30,35,60,.22);')
     vars.push('--shadow-1: 0 1px 2px rgba(30,35,60,.1);--shadow-2: 0 8px 24px -4px rgba(30,35,60,.18);')
   } else {
     // Black-on-black shadows carry no elevation cue; a faint inset top
     // highlight does the work on dark surfaces.
+    vars.push('--elev-1: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.2);--elev-2: -8px 0 20px -16px rgba(0,0,0,.35);--elev-3: inset 0 1px 0 rgba(255,255,255,.05), 0 12px 32px -8px rgba(0,0,0,.5);')
     vars.push('--shadow-1: 0 1px 2px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);--shadow-2: 0 8px 24px -4px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);')
   }
   return `${selector} {\n  ${vars.join('\n  ')}\n}`

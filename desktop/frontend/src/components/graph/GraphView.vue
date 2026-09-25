@@ -1,22 +1,46 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import AuthorAvatar from '../common/AuthorAvatar.vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { setModeline, resetModeline } from '../../composables/useModeline'
 import GraphCanvas from './GraphCanvas.vue'
+import { createCommitDetailCache } from './commitDetailCache'
+import RefCluster from './RefCluster.vue'
+import CommitDetailPanel from './CommitDetail.vue'
+import { rowLaneColorVar } from './laneColors'
+import { GRAPH_ROW_HEIGHTS } from './rowDensity'
+import { tallyWorktreeDiffs, type WorktreeDeltas } from './worktreeHeat'
+import SurfaceState from '../common/SurfaceState.vue'
+import UiButton from '../common/UiButton.vue'
 import ContextMenu, { type ContextMenuItem } from '../overlays/ContextMenu.vue'
-import OperationConfirmModal, { type OperationConfirmRequest } from '../overlays/OperationConfirmModal.vue'
+import OperationConfirmModal, {
+  type OperationConfirmRequest,
+} from '../overlays/OperationConfirmModal.vue'
+import { commitRefActions } from './refMenu'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { notify } from '../../composables/useToasts'
 import { useVimList } from '../../composables/useVimList'
 import {
   GraphService,
-  RefService,
   RemoteService,
   RepoService,
+  WorktreeService,
+  DiffService,
   type GraphLayout,
   type GraphLayoutRow,
   type RepoInfo,
 } from '../../bindings/github.com/atterpac/ichi/desktop/services'
-import { PhArrowLineUp, PhCheck, PhCopy, PhCherries, PhGitBranch, PhGitMerge, PhTag } from '@phosphor-icons/vue'
-import { FileStatus, type ChangedFile, type Commit, type CommitDetail } from '../../bindings/github.com/atterpac/ichi/internal/git'
+import { PhArrowLineUp, PhCopy } from '@phosphor-icons/vue'
+import {
+  Commit,
+  type CommitDetail,
+  type StatusEntry,
+} from '../../bindings/github.com/atterpac/ichi/internal/git'
+
+const props = defineProps<{ focusHash?: string }>()
+
+const emit = defineEmits<{
+  navigate: [view: string, focus?: string]
+}>()
 
 const loading = ref(true)
 const error = ref('')
@@ -26,50 +50,93 @@ const selectedHash = ref('')
 const commitDetail = ref<CommitDetail | null>(null)
 const detailLoading = ref(false)
 const detailError = ref('')
+const workingEntries = ref<StatusEntry[]>([])
+const workingDeltas = ref<WorktreeDeltas>({})
 const settings = useShellSettings()
 const pendingOperation = ref<OperationConfirmRequest | null>(null)
 
 const graphRows = computed(() =>
-  (layout.value?.Rows ?? []).filter((row): row is GraphLayoutRow & { Commit: Commit } => row.Commit !== null),
+  (layout.value?.Rows ?? []).filter(
+    (row): row is GraphLayoutRow & { Commit: Commit } => row.Commit !== null,
+  ),
 )
 const laneCount = computed(() => Math.max(layout.value?.LaneCount ?? 1, 1))
 const railWidth = computed(() => laneCount.value * 3 * 12 + 16)
-const detailVisible = computed(() => settings.graphDetailPosition !== 'hidden')
-const detailHash = computed(() => {
-  if (!selected.value) return ''
-  return settings.graphDetailHash === 'short' ? selected.value.ShortHash : selected.value.Hash
-})
-
-const selected = computed(
-  () => graphRows.value.find((row) => row.Commit.Hash === selectedHash.value)?.Commit ?? graphRows.value[0]?.Commit,
+const rowHeight = computed(
+  () => GRAPH_ROW_HEIGHTS[settings.graphRowDensity] ?? GRAPH_ROW_HEIGHTS.comfortable,
 )
-const isWorkingChangesSelected = computed(() => selected.value?.Hash === '__ichi_working_changes__')
-const selectedStats = computed(() => commitDetail.value?.Stats)
-const shownFiles = computed(() => commitDetail.value?.Files.slice(0, detailFileLimit.value) ?? [])
-const commitBody = computed(() => {
-  const body = commitDetail.value?.Body.trim() ?? ''
-  const subject = commitDetail.value?.Subject.trim() ?? selected.value?.Message.trim() ?? ''
-  if (!body || body === subject) return ''
-  return body.startsWith(subject) ? body.slice(subject.length).trim() : body
+const detailVisible = computed(() => settings.graphDetailPosition !== 'hidden')
+const selected = computed(() => {
+  const row = graphRows.value.find((row) => row.Commit.Hash === selectedHash.value)
+  if (row) return row.Commit
+  if (!selectedHash.value) return graphRows.value[0]?.Commit
+  // Parent/finder targets can fall outside the loaded graph window.
+  return new Commit({
+    Hash: selectedHash.value,
+    ShortHash: commitDetail.value?.ShortHash || selectedHash.value.slice(0, 7),
+    Message: commitDetail.value?.Subject || selectedHash.value.slice(0, 7),
+    Author: commitDetail.value?.Author || '',
+    Parents: commitDetail.value?.Parents || [],
+    IsMerge: (commitDetail.value?.Parents?.length ?? 0) > 1,
+  })
 })
-const detailFileLimit = computed(() => 10)
 
-const pills = computed(() => {
-  if (!repo.value) return []
-  const parts = [repo.value.Branch || 'detached']
-  if (repo.value.Ahead) parts.push(`${repo.value.Ahead} ahead`)
-  if (repo.value.Behind) parts.push(`${repo.value.Behind} behind`)
-  if (repo.value.HasUncommitted) parts.push('dirty')
-  return parts
+const detailCache = createCommitDetailCache((hash) => GraphService.LoadCommit(hash))
+let detailRequest = 0
+let prefetchTimer: ReturnType<typeof setTimeout> | undefined
+let prefetchVersion = 0
+let disposed = false
+function stopPrefetch() {
+  prefetchVersion++
+  clearTimeout(prefetchTimer)
+}
+function schedulePrefetch() {
+  stopPrefetch()
+  if (!detailVisible.value || disposed) return
+  const version = prefetchVersion
+  // Let selection/rendering settle; only one background Git request at a time.
+  prefetchTimer = setTimeout(async () => {
+    const index = Math.max(
+      0,
+      graphRows.value.findIndex((row) => row.Commit.Hash === selectedHash.value),
+    )
+    const nearby = graphRows.value.slice(Math.max(0, index - 2), index + 13)
+    for (const row of nearby) {
+      if (version !== prefetchVersion || disposed) break
+      const hash = row.Commit.Hash
+      if (hash === '__ichi_working_changes__' || hash === selectedHash.value) continue
+      try {
+        await detailCache.get(hash)
+      } catch {
+        /* Retry on explicit selection. */
+      }
+    }
+  }, 250)
+}
+onUnmounted(() => {
+  resetModeline()
+  disposed = true
+  detailRequest++
+  stopPrefetch()
+  detailCache.clear()
+})
+watch(detailVisible, (visible) => {
+  if (visible) schedulePrefetch()
+  else stopPrefetch()
 })
 
 async function loadGraph() {
+  stopPrefetch()
+  detailCache.clear()
+  detailRequest++
   loading.value = true
   error.value = ''
   try {
     repo.value = await RepoService.Info()
     layout.value = await GraphService.LoadGraphLayout(settings.graphLimit)
-    selectedHash.value = graphRows.value[0]?.Commit.Hash ?? ''
+    const firstHash = graphRows.value[0]?.Commit.Hash ?? ''
+    if (selectedHash.value === firstHash) void loadCommitDetail(firstHash)
+    else selectedHash.value = firstHash
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -84,59 +151,74 @@ function formatDate(value: unknown) {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date)
 }
 
-function formatDetailDate(value: unknown) {
-  if (!value) return ''
-  const date = new Date(value as string)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
-function formatSigned(value: number) {
-  return new Intl.NumberFormat(undefined, { signDisplay: 'always' }).format(value)
-}
-
-function fileStatusLabel(status: FileStatus) {
-  switch (status) {
-    case FileStatus.FileAdded:
-      return 'A'
-    case FileStatus.FileDeleted:
-      return 'D'
-    case FileStatus.FileRenamed:
-      return 'R'
-    case FileStatus.FileCopied:
-      return 'C'
-    case FileStatus.FileUntracked:
-      return '?'
-    case FileStatus.FileConflict:
-      return '!'
-    case FileStatus.FileModified:
-    default:
-      return 'M'
-  }
-}
-
 async function loadCommitDetail(hash: string) {
-  if (!hash || hash === '__ichi_working_changes__') {
+  const request = ++detailRequest
+  schedulePrefetch()
+  if (!hash) {
     commitDetail.value = null
     detailError.value = ''
     detailLoading.value = false
     return
   }
+  if (hash === '__ichi_working_changes__') {
+    commitDetail.value = null
+    await loadWorkingEntries()
+    return
+  }
 
   const requestHash = hash
-  detailLoading.value = true
+  const cached = detailCache.peek(hash)
+  detailLoading.value = !cached
   detailError.value = ''
-  commitDetail.value = null
+  commitDetail.value = cached
+  if (cached) return
   try {
-    const detail = await GraphService.LoadCommit(requestHash)
-    if (selectedHash.value === requestHash) commitDetail.value = detail
+    const detail = await detailCache.get(requestHash)
+    if (!detail) throw new Error('Commit details unavailable')
+    if (request === detailRequest && selectedHash.value === requestHash) commitDetail.value = detail
   } catch (err) {
-    if (selectedHash.value === requestHash) {
+    if (request === detailRequest && selectedHash.value === requestHash) {
       commitDetail.value = null
       detailError.value = err instanceof Error ? err.message : String(err)
     }
   } finally {
-    if (selectedHash.value === requestHash) detailLoading.value = false
+    if (request === detailRequest && selectedHash.value === requestHash) detailLoading.value = false
+  }
+}
+
+async function loadWorkingDeltas(): Promise<WorktreeDeltas> {
+  // Reuse the existing batch diff APIs; never fetch every file individually.
+  const read = async (staged: boolean) => {
+    try {
+      const raw = await (staged ? DiffService.StagedDiff() : DiffService.WorkingDiff())
+      return raw ? await DiffService.ParseDiff(raw) : []
+    } catch {
+      return []
+    } // File navigation stays available if counts cannot be read.
+  }
+  const [working, staged] = await Promise.all([read(false), read(true)])
+  return tallyWorktreeDiffs(working, staged)
+}
+
+async function loadWorkingEntries() {
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    const [entries, deltas, info] = await Promise.all([
+      WorktreeService.Status(),
+      loadWorkingDeltas(),
+      RepoService.Info(),
+    ])
+    if (selectedHash.value === '__ichi_working_changes__') {
+      workingEntries.value = entries ?? []
+      workingDeltas.value = deltas
+      repo.value = info
+    }
+  } catch (err) {
+    if (selectedHash.value === '__ichi_working_changes__')
+      detailError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    if (selectedHash.value === '__ichi_working_changes__') detailLoading.value = false
   }
 }
 
@@ -144,14 +226,31 @@ async function loadCommitDetail(hash: string) {
 const listEl = ref<HTMLElement | null>(null)
 const vim = useVimList(graphRows, {
   autoListen: false, // scoped to the list's focus, not the window
-  text: (row) => `${row.Commit.Message} ${row.Commit.Author} ${row.Commit.ShortHash} ${row.Commit.Refs.join(' ')}`,
+  text: (row) =>
+    `${row.Commit.Message} ${row.Commit.Author} ${row.Commit.ShortHash} ${row.Commit.Refs.join(' ')}`,
   onAction(action, payload) {
     const row = payload.items[0]
     if (action === 'open' && row) selectCommit(row.Commit)
   },
 })
 
+// Ref action palette (combo 02 + 06): `r` opens the verbs for the refs on the
+// selected commit; the inline cluster badge opens it by click.
 function onKey(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing) return
+  if (!vim.search.active.value && !event.ctrlKey && !event.metaKey && !event.altKey && ['l', 'ArrowRight', 'Enter'].includes(event.key)) {
+    if (!detailVisible.value) settings.graphDetailPosition = 'right'
+    void nextTick(() => document.getElementById('commit-inspector')?.focus())
+    event.preventDefault()
+    return
+  }
+  if (event.key === 'r' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (selected.value && selected.value.Hash !== '__ichi_working_changes__') {
+      openRowMenuKey()
+      event.preventDefault()
+      return
+    }
+  }
   if (vim.handleKey(event)) event.preventDefault()
 }
 
@@ -185,12 +284,14 @@ watch(
 
 function selectCommit(commit: Commit) {
   const index = graphRows.value.findIndex((row) => row.Commit.Hash === commit.Hash)
-  if (index >= 0) vim.moveTo(index)
-  else selectedHash.value = commit.Hash
+  if (index >= 0) {
+    selectedHash.value = graphRows.value[index]!.Commit.Hash
+    vim.moveTo(index)
+  } else selectedHash.value = commit.Hash
 }
 
 function isSelected(row: GraphLayoutRow & { Commit: Commit }, index: number) {
-  return index === vim.cursor.value || row.Commit.Hash === selectedHash.value || (!selectedHash.value && index === 0)
+  return selectedHash.value ? row.Commit.Hash === selectedHash.value : index === vim.cursor.value
 }
 
 // right-click context menu over commit rows.
@@ -198,9 +299,11 @@ const menu = ref<InstanceType<typeof ContextMenu> | null>(null)
 
 async function copy(text: string) {
   try {
-    await navigator.clipboard?.writeText(text)
+    if (!navigator.clipboard) throw new Error('Clipboard unavailable')
+    await navigator.clipboard.writeText(text)
+    notify({ tone: 'success', title: 'Copied to clipboard' })
   } catch {
-    /* clipboard unavailable */
+    notify({ tone: 'danger', title: 'Unable to copy to clipboard' })
   }
 }
 
@@ -219,11 +322,6 @@ function openOperation(request: OperationConfirmRequest) {
   pendingOperation.value = request
 }
 
-function refBranch(commit: Commit) {
-  if (commit.Branch) return commit.Branch
-  return commit.Refs.find((ref) => !ref.startsWith('tag:') && !ref.startsWith('origin/') && !ref.includes('/')) ?? ''
-}
-
 async function pushCurrentBranch(values?: Record<string, string>) {
   try {
     const remote = values?.remote?.trim()
@@ -231,7 +329,11 @@ async function pushCurrentBranch(values?: Record<string, string>) {
     if (remote && branch) await RemoteService.PushSetUpstream(remote, branch)
     else await RemoteService.Push()
     await loadGraph()
-    notify({ tone: 'success', title: 'Push complete', message: repo.value?.Branch ? `Pushed ${repo.value.Branch}` : undefined })
+    notify({
+      tone: 'success',
+      title: 'Push complete',
+      message: repo.value?.Branch ? `Pushed ${repo.value.Branch}` : undefined,
+    })
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
     throw err
@@ -249,8 +351,14 @@ async function openPushConfirm() {
     confirmLabel: hasUpstream ? 'Push' : 'Push with upstream',
     target: branch || 'detached HEAD',
     details: [
-      { label: 'Ahead', value: `${repo.value?.Ahead ?? 0} commit${repo.value?.Ahead === 1 ? '' : 's'}` },
-      { label: 'Behind', value: `${repo.value?.Behind ?? 0} commit${repo.value?.Behind === 1 ? '' : 's'}` },
+      {
+        label: 'Ahead',
+        value: `${repo.value?.Ahead ?? 0} commit${repo.value?.Ahead === 1 ? '' : 's'}`,
+      },
+      {
+        label: 'Behind',
+        value: `${repo.value?.Behind ?? 0} commit${repo.value?.Behind === 1 ? '' : 's'}`,
+      },
     ],
     inputs: hasUpstream
       ? undefined
@@ -264,109 +372,131 @@ async function openPushConfirm() {
   })
 }
 
-function openRowMenu(event: MouseEvent, commit: Commit) {
-  selectCommit(commit)
-  const mergeBranch = refBranch(commit)
+// Copy rows + (for real commits) the shared branch/reset/ref action set. Same
+// list feeds the right-click menu and the `r` keybind.
+function rowMenuItems(commit: Commit): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
     { id: 'copy-sha', label: 'Copy SHA', icon: PhCopy, action: () => copy(commit.Hash) },
-    { id: 'copy-short', label: 'Copy short SHA', icon: PhCopy, action: () => copy(commit.ShortHash) },
+    {
+      id: 'copy-short',
+      label: 'Copy short SHA',
+      icon: PhCopy,
+      action: () => copy(commit.ShortHash),
+    },
     { id: 'copy-msg', label: 'Copy message', icon: PhCopy, action: () => copy(commit.Message) },
   ]
   if (commit.Hash !== '__ichi_working_changes__') {
     items.push(
       { separator: true },
-      { id: 'checkout', label: 'Checkout', icon: PhCheck, action: () => runRef(() => RefService.Checkout(commit.Hash)) },
-      {
-        id: 'branch',
-        label: 'Create branch here…',
-        icon: PhGitBranch,
-        action: () => openOperation({
-          title: 'Create branch here?',
-          message: 'Create a new local branch at the selected commit.',
-          confirmLabel: 'Create branch',
-          target: `${commit.ShortHash} ${commit.Message}`,
-          inputs: [{ id: 'name', label: 'Branch name', placeholder: 'feature/name', required: true, pattern: '^[^\\s]+$' }],
-          icon: PhGitBranch,
-          onConfirm: (values) => runRef(() => RefService.CreateBranchAt((values.name ?? '').trim(), commit.Hash)),
-        }),
-      },
-      {
-        id: 'cherry',
-        label: 'Cherry-pick',
-        icon: PhCherries,
-        action: () => openOperation({
-          title: 'Cherry-pick this commit?',
-          message: 'Apply the selected commit on top of the current branch.',
-          confirmLabel: 'Cherry-pick',
-          target: `${commit.ShortHash} ${commit.Message}`,
-          details: [
-            { label: 'Author', value: commit.Author },
-            { label: 'Current', value: repo.value?.Branch || 'detached HEAD' },
-          ],
-          icon: PhCherries,
-          tone: 'warning',
-          onConfirm: () => runRef(() => RefService.CherryPick(commit.Hash)),
-        }),
-      },
-      {
-        id: 'tag',
-        label: 'Create tag…',
-        icon: PhTag,
-        action: () => openOperation({
-          title: 'Create tag here?',
-          message: 'Create a lightweight tag at the selected commit.',
-          confirmLabel: 'Create tag',
-          target: `${commit.ShortHash} ${commit.Message}`,
-          inputs: [{ id: 'name', label: 'Tag name', placeholder: 'v1.0.0', required: true, pattern: '^[^\\s]+$' }],
-          icon: PhTag,
-          onConfirm: (values) => runRef(() => RefService.CreateTag((values.name ?? '').trim(), commit.Hash, '')),
-        }),
-      },
+      ...commitRefActions(commit, {
+        currentBranch: repo.value?.Branch ?? '',
+        laneColorForRef: (name) => {
+          const row = graphRows.value.find((row) =>
+            row.Commit.Decorations?.some((ref) => ref.Name === name),
+          )
+          return row
+            ? settings.graphCanvasStyle === 'mono'
+              ? '--accent'
+              : rowLaneColorVar(row)
+            : undefined
+        },
+        run: runRef,
+        confirm: openOperation,
+      }),
     )
-    if (mergeBranch && mergeBranch !== repo.value?.Branch) {
-      items.push({
-        id: 'merge',
-        label: `Merge ${mergeBranch}`,
-        icon: PhGitMerge,
-        action: () => openOperation({
-          title: `Merge ${mergeBranch}?`,
-          message: 'Merge this branch into the current branch.',
-          confirmLabel: 'Merge branch',
-          target: `${mergeBranch} -> ${repo.value?.Branch || 'current branch'}`,
-          details: [{ label: 'Commit', value: `${commit.ShortHash} ${commit.Message}` }],
-          icon: PhGitMerge,
-          tone: 'warning',
-          onConfirm: () => runRef(() => RefService.MergeBranch(mergeBranch)),
-        }),
-      })
-    }
   }
-  menu.value?.open(event, items)
+  return items
 }
 
+function runDetailAction(id: 'branch-here' | 'cherry-pick') {
+  if (!selected.value) return
+  const item = rowMenuItems(selected.value).find((item) => !item.separator && item.id === id)
+  if (item && !item.disabled) void item.action?.()
+}
+
+function openRowMenu(event: MouseEvent, commit: Commit) {
+  selectCommit(commit)
+  menu.value?.open(event, rowMenuItems(commit))
+}
+
+// `r` opens the same menu for the selected commit, anchored to its row so it
+// reads as a commit action and stays keyboard-drivable (j/k, shortcuts, ⏎).
+function openRowMenuKey() {
+  const commit = selected.value
+  if (!commit) return
+  const rows = listEl.value?.querySelectorAll<HTMLElement>('.commit-row')
+  const rect = rows?.[vim.cursor.value]?.getBoundingClientRect()
+  const at = rect
+    ? { clientX: rect.left + 40, clientY: rect.bottom }
+    : { clientX: 200, clientY: 200 }
+  menu.value?.open(at, rowMenuItems(commit))
+}
+
+// Land on an externally-requested commit (finder commit-enter, branches `o`).
+// If the hash is in the loaded window we move the cursor to it; otherwise we still
+// select it so the detail pane loads, even though it isn't a visible row.
+function focusOn(hash: string) {
+  if (!hash) return
+  const index = graphRows.value.findIndex(
+    (row) => row.Commit.Hash === hash || row.Commit.ShortHash === hash,
+  )
+  if (index >= 0) {
+    selectedHash.value = graphRows.value[index]!.Commit.Hash
+    vim.moveTo(index)
+  } else selectedHash.value = hash
+}
+
+watch(
+  () => props.focusHash,
+  (hash) => {
+    if (hash) focusOn(hash)
+  },
+)
+
 onMounted(() => {
-  void loadGraph().then(() => nextTick(() => listEl.value?.focus()))
+  void loadGraph().then(() => {
+    if (props.focusHash) focusOn(props.focusHash)
+    nextTick(() => listEl.value?.focus())
+  })
 })
 </script>
 
 <template>
   <div class="graph-view">
     <Teleport defer to="#view-header-context">
-      <span v-for="pill in pills" :key="pill" class="header-meta">{{ pill }}</span>
-      <button class="graph-toolbar-action" type="button" title="Push current branch" @click="openPushConfirm">
-        <PhArrowLineUp :size="14" weight="bold" />
-        Push
-      </button>
+      <span v-if="repo" class="header-sync" aria-label="Branch sync status"
+        ><span class="sync-ahead">↑{{ repo.Ahead }}</span> ahead
+        <span>↓{{ repo.Behind }}</span> behind</span
+      >
+      <UiButton size="sm" title="Push current branch" @click="openPushConfirm">
+        <PhArrowLineUp :size="16" weight="bold" />
+        Push <span v-if="repo?.Ahead" class="push-count">{{ repo.Ahead }}</span>
+      </UiButton>
     </Teleport>
 
-    <div v-if="loading" class="graph-state">Loading graph...</div>
-    <div v-else-if="error" class="graph-state error">
-      <strong>Unable to load graph</strong>
-      <span>{{ error }}</span>
-    </div>
+    <SurfaceState
+      v-if="loading"
+      tone="loading"
+      title="Loading history"
+      message="Reading commits, refs, and worktree state."
+    />
+    <SurfaceState
+      v-else-if="error"
+      tone="error"
+      title="Unable to load history"
+      :message="error"
+      action-label="Retry"
+      @action="loadGraph"
+    />
+    <SurfaceState
+      v-else-if="!graphRows.length"
+      title="No commits yet"
+      message="Create the first commit to begin this repository's history."
+    />
     <div
       v-else
       class="graph-grid"
+      :style="{ '--detail-width': `${settings.graphDetailWidth}px` }"
       :class="[`detail-${settings.graphDetailPosition}`, { 'detail-hidden': !detailVisible }]"
     >
       <section
@@ -376,18 +506,24 @@ onMounted(() => {
           `density-${settings.graphRowDensity}`,
           { 'no-author-column': !settings.graphShowAuthor },
         ]"
+        :style="{ '--graph-row-height': `${rowHeight}px` }"
         aria-label="Commit graph"
+        data-keyboard-pane
         tabindex="0"
         @keydown="onKey"
+        @focusin="setModeline({ mode: 'GRAPH', hints: 'j/k commit · l inspector · r refs · / search' })"
       >
         <div
           v-if="vim.search.active.value || vim.pending.value || vim.count.value"
           class="vim-cmdline"
         >
-          <template v-if="vim.search.active.value">/{{ vim.search.query.value }}<span class="vim-caret">▌</span></template>
+          <template v-if="vim.search.active.value"
+            >/{{ vim.search.query.value }}<span class="vim-caret">▌</span></template
+          >
           <template v-else>{{ vim.count.value }}{{ vim.pending.value }}</template>
         </div>
         <div class="commit-table-head" :style="{ '--rail-width': `${railWidth}px` }">
+          <span class="th-refs">Refs</span>
           <span>Graph</span>
           <span>Subject</span>
           <span>Hash</span>
@@ -400,115 +536,53 @@ onMounted(() => {
             v-for="(row, index) in graphRows"
             :key="row.Commit.Hash"
             class="commit-row"
+            :data-commit-hash="row.Commit.Hash"
+            :tabindex="isSelected(row, index) ? 0 : -1"
+            :style="{
+              '--row-lane':
+                settings.graphCanvasStyle === 'mono'
+                  ? 'var(--accent)'
+                  : `var(${rowLaneColorVar(row)})`,
+            }"
             :class="{ selected: isSelected(row, index), merge: row.Commit.IsMerge }"
             type="button"
             @click="selectCommit(row.Commit)"
             @contextmenu.prevent="openRowMenu($event, row.Commit)"
           >
+            <span class="commit-refs">
+              <RefCluster
+                v-if="row.Commit.Decorations?.length"
+                :decorations="row.Commit.Decorations"
+                @click.stop="openRowMenu($event, row.Commit)"
+              />
+            </span>
             <span class="commit-rail" aria-hidden="true" />
             <span class="commit-main">
               <span class="commit-subject">{{ row.Commit.Message }}</span>
             </span>
             <span class="commit-hash">{{ row.Commit.ShortHash }}</span>
-            <span v-if="settings.graphShowAuthor" class="commit-table-author">{{ row.Commit.Author }}</span>
+            <span v-if="settings.graphShowAuthor" class="commit-table-author author-identity"><AuthorAvatar v-if="row.Commit.Hash !== '__ichi_working_changes__'" :name="row.Commit.Author" :commit="row.Commit.Hash" :size="18" /><span class="author-name">{{ row.Commit.Author }}</span></span>
             <span class="commit-table-date">{{ formatDate(row.Commit.Date) }}</span>
           </button>
         </div>
       </section>
 
-      <aside v-if="detailVisible" class="commit-detail">
-        <p class="placeholder-kicker">{{ detailHash }}</p>
-        <h3>{{ selected?.Message }}</h3>
-        <div v-if="detailLoading" class="detail-state">Loading commit details...</div>
-        <div v-else-if="detailError" class="detail-state error">{{ detailError }}</div>
-        <dl v-if="isWorkingChangesSelected">
-          <div>
-            <dt>Type</dt>
-            <dd>Uncommitted worktree changes</dd>
-          </div>
-          <div>
-            <dt>Files</dt>
-            <dd>
-              {{ repo?.Staged.Files ?? 0 }} staged,
-              {{ repo?.Unstaged.Files ?? 0 }} unstaged,
-              {{ repo?.Unstaged.Untracked ?? 0 }} untracked
-            </dd>
-          </div>
-          <div>
-            <dt>Diff</dt>
-            <dd>
-              +{{ (repo?.Staged.Insertions ?? 0) + (repo?.Unstaged.Insertions ?? 0) }}
-              -{{ (repo?.Staged.Deletions ?? 0) + (repo?.Unstaged.Deletions ?? 0) }}
-            </dd>
-          </div>
-        </dl>
-        <template v-else>
-          <div class="detail-content content-review">
-            <div v-if="commitBody" class="detail-message">
-              <p class="detail-subhead">Message</p>
-              <p>{{ commitBody }}</p>
-            </div>
-
-            <div v-if="selectedStats" class="detail-stats" aria-label="Commit change summary">
-              <span>
-                <b>{{ selectedStats.FilesChanged }}</b>
-                <small>files</small>
-              </span>
-              <span>
-                <b>+{{ selectedStats.Insertions }}</b>
-                <small>added</small>
-              </span>
-              <span>
-                <b>-{{ selectedStats.Deletions }}</b>
-                <small>removed</small>
-              </span>
-            </div>
-
-            <div v-if="shownFiles.length" class="detail-files">
-              <p class="detail-subhead">Changed files</p>
-              <div v-for="file in shownFiles" :key="`${file.Status}:${file.OldPath}:${file.Path}`" class="detail-file-row">
-                <span class="file-status">{{ fileStatusLabel(file.Status) }}</span>
-                <span class="file-path">
-                  <template v-if="file.OldPath">{{ file.OldPath }} -> </template>{{ file.Path }}
-                </span>
-                <span class="file-delta">
-                  <template v-if="file.Binary">binary</template>
-                  <template v-else>
-                    <span class="delta-add">{{ formatSigned(file.Insertions) }}</span>
-                    <span class="delta-del">{{ formatSigned(file.Deletions > 0 ? -file.Deletions : 0) }}</span>
-                  </template>
-                </span>
-              </div>
-              <p v-if="commitDetail && commitDetail.Files.length > shownFiles.length" class="detail-more">
-                {{ commitDetail.Files.length - shownFiles.length }} more files
-              </p>
-            </div>
-
-            <dl>
-              <div v-if="settings.graphDetailShowAuthorDate">
-                <dt>Author</dt>
-                <dd>{{ commitDetail?.Author || selected?.Author }}<template v-if="commitDetail?.AuthorEmail"> &lt;{{ commitDetail.AuthorEmail }}&gt;</template></dd>
-              </div>
-              <div v-if="settings.graphDetailShowAuthorDate">
-                <dt>Date</dt>
-                <dd>{{ formatDetailDate(commitDetail?.AuthorDate || selected?.Date) }}</dd>
-              </div>
-              <div>
-                <dt>Hash</dt>
-                <dd>{{ detailHash }}</dd>
-              </div>
-              <div v-if="commitDetail?.Branches.length">
-                <dt>Branches</dt>
-                <dd>{{ commitDetail.Branches.join(', ') }}</dd>
-              </div>
-              <div v-if="commitDetail?.GPGStatus.Signed">
-                <dt>Signature</dt>
-                <dd>{{ commitDetail.GPGStatus.Valid ? 'Valid' : 'Invalid' }}<template v-if="commitDetail.GPGStatus.Signer"> - {{ commitDetail.GPGStatus.Signer }}</template></dd>
-              </div>
-            </dl>
-          </div>
-        </template>
-      </aside>
+      <CommitDetailPanel
+        v-if="detailVisible && selected"
+        :commit="selected"
+        :detail="commitDetail"
+        :loading="detailLoading"
+        :error="detailError"
+        :repo="repo"
+        :working-entries="workingEntries"
+        :working-deltas="workingDeltas"
+        @retry="loadCommitDetail(selectedHash)"
+        @copy="copy"
+        @parent="focusOn"
+        @navigate="(view, focus) => emit('navigate', view, focus)"
+        @menu="(event) => selected && openRowMenu(event, selected)"
+        @action="runDetailAction"
+      />
     </div>
 
     <ContextMenu ref="menu" />

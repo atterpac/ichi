@@ -1,11 +1,22 @@
 <script lang="ts">
 import type { Component } from 'vue'
 
+/** A coloured ref pill embedded in a menu label. */
+export interface MenuChip {
+  chip: string
+  kind: 'branch' | 'remote' | 'tag' | 'head'
+  head?: boolean
+  /** CSS var (e.g. "--green") to colour the pill by its graph lane, overriding kind. */
+  colorVar?: string
+}
+
 export interface ContextMenuItem {
   /** stable id (optional, useful for @select handlers) */
   id?: string
   /** row label; omit + set separator for a divider */
   label?: string
+  /** rich label: interleave plain strings with ref chips. Overrides `label`. */
+  labelParts?: Array<string | MenuChip>
   /** phosphor (or any) icon component */
   icon?: Component
   /** right-aligned shortcut hint, e.g. "⌘C" or "yy" */
@@ -22,10 +33,12 @@ export interface ContextMenuItem {
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import RefLabel from '../common/RefLabel.vue'
 
 const props = defineProps<{ items?: ContextMenuItem[] }>()
 const emit = defineEmits<{ select: [item: ContextMenuItem] }>()
 
+let returnFocus: HTMLElement | null = null
 const visible = ref(false)
 const x = ref(0)
 const y = ref(0)
@@ -33,14 +46,18 @@ const active = ref(-1)
 const localItems = ref<ContextMenuItem[]>([])
 const menuEl = ref<HTMLElement | null>(null)
 
-const items = computed(() => (localItems.value.length ? localItems.value : props.items ?? []))
+const items = computed(() => (localItems.value.length ? localItems.value : (props.items ?? [])))
 const selectable = computed(() =>
   items.value.map((it, i) => ({ it, i })).filter(({ it }) => !it.separator && !it.disabled),
 )
 
 const style = computed(() => ({ left: `${x.value}px`, top: `${y.value}px` }))
 
-function open(event: MouseEvent | { clientX: number; clientY: number }, override?: ContextMenuItem[]) {
+function open(
+  event: MouseEvent | { clientX: number; clientY: number },
+  override?: ContextMenuItem[],
+) {
+  returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   if (override) localItems.value = override
   else localItems.value = []
   x.value = event.clientX
@@ -58,6 +75,7 @@ function close() {
   if (!visible.value) return
   visible.value = false
   detach()
+  if (returnFocus?.isConnected) returnFocus.focus()
 }
 
 function clampToViewport() {
@@ -75,18 +93,21 @@ function clampToViewport() {
 
 function choose(item: ContextMenuItem) {
   if (item.disabled || item.separator) return
+  close()
   item.action?.()
   emit('select', item)
-  close()
 }
 
 function move(delta: number) {
   const list = selectable.value
   if (!list.length) return
   const current = list.findIndex(({ i }) => i === active.value)
-  const next = current === -1
-    ? delta > 0 ? 0 : list.length - 1
-    : (current + delta + list.length) % list.length
+  const next =
+    current === -1
+      ? delta > 0
+        ? 0
+        : list.length - 1
+      : (current + delta + list.length) % list.length
   active.value = list[next]!.i
 }
 
@@ -122,6 +143,18 @@ function onKeydown(event: KeyboardEvent) {
       event.preventDefault()
       close()
       break
+    default:
+      // Direct-key activation: a printable key matching an item's shortcut runs
+      // it (case-sensitive, so "H" ≠ "h"). Lets menus double as a keymap.
+      if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const item = items.value.find(
+          (it) => !it.separator && !it.disabled && it.shortcut === event.key,
+        )
+        if (item) {
+          event.preventDefault()
+          choose(item)
+        }
+      }
   }
 }
 
@@ -172,9 +205,24 @@ defineExpose({ open, close })
             @mousemove="active = i"
           >
             <span class="ctx-icon">
-              <component :is="item.icon" v-if="item.icon" :size="15" />
+              <component :is="item.icon" v-if="item.icon" :size="16" weight="bold" />
             </span>
-            <span class="ctx-label">{{ item.label }}</span>
+            <span class="ctx-label">
+              <template v-if="item.labelParts">
+                <template v-for="(part, pi) in item.labelParts" :key="pi">
+                  <RefLabel
+                    v-if="typeof part === 'object'"
+                    class="ctx-ref"
+                    :name="part.chip"
+                    :kind="part.kind"
+                    :current="part.head"
+                    :color-var="part.colorVar"
+                  />
+                  <template v-else>{{ part }}</template>
+                </template>
+              </template>
+              <template v-else>{{ item.label }}</template>
+            </span>
             <kbd v-if="item.shortcut" class="ctx-shortcut">{{ item.shortcut }}</kbd>
           </button>
         </template>

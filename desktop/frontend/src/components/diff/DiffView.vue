@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { isEditable, isModified } from '../../composables/keyboard'
+import FileEditor from './FileEditor.vue'
+import UiButton from '../common/UiButton.vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { useVirtualWindow } from '../../composables/useVirtualWindow'
 import { LineType, type DiffHunk, type DiffLine, type FileDiff } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
 const props = defineProps<{
   diff: FileDiff | null
+  loadEditorFile?: () => Promise<string>
+  saveEditorFile?: (original: string, content: string) => Promise<void>
   staged?: boolean
+  readOnly?: boolean
+  cursorReview?: boolean
   /** whole-file staging only (untracked previews) — hunk/line ops disabled */
   fileLevelOnly?: boolean
   /**
@@ -34,8 +41,8 @@ const MAX_EDIT_CHARS = 30000
 const LARGE_DIFF_LINES = 5000
 const DENSITY_HEIGHTS = { compact: 17, comfortable: 20, relaxed: 24 } as const
 
-const rowHeight = computed(() => DENSITY_HEIGHTS[settings.diffDensity])
-const layout = computed(() => settings.diffLayout)
+const rowHeight = computed(() => props.cursorReview ? 26 : DENSITY_HEIGHTS[settings.diffDensity])
+const layout = computed(() => props.cursorReview ? 'unified' : settings.diffLayout)
 
 const LAYOUT_CYCLE = ['unified', 'split', 'inline', 'changes', 'result'] as const
 
@@ -49,7 +56,19 @@ const hunkIndex = ref(0)
 const lineMode = ref(false)
 const lineCursor = ref(0)
 const lineAnchor = ref(0)
+const cursorRow = ref(0)
+const searchOpen = ref(false)
+const searchQuery = ref('')
+let pendingG = 0
 const forceLarge = ref(false)
+const fileEditor = ref<InstanceType<typeof FileEditor> | null>(null)
+const fileBuffer = ref<string | null>(null)
+const fileEditorLine = ref(1)
+const fileEditorLineOffset = ref(0)
+const editorLoading = ref(false)
+const editorError = ref('')
+let editorRequest = 0
+onBeforeUnmount(() => { editorRequest++ })
 const editMode = ref(false)
 const editValue = ref('')
 const editTextArea = ref<HTMLTextAreaElement | null>(null)
@@ -72,7 +91,8 @@ const totalLines = computed(() => hunks.value.reduce((sum, hunk) => sum + hunkLi
 const gateVisible = computed(() => totalLines.value > LARGE_DIFF_LINES && !forceLarge.value)
 const hasContent = computed(() => hunks.value.length > 0)
 const canEditActive = computed(() => {
-  if (props.staged || props.fileLevelOnly || props.diff?.Deleted || props.diff?.Binary || gateVisible.value) return false
+  if (props.readOnly || props.staged || props.fileLevelOnly || props.diff?.Deleted || props.diff?.Binary || gateVisible.value) return false
+  if (props.loadEditorFile && props.saveEditorFile) return true
   const lines = hunkEditLines(activeHunk.value)
   return lines.length <= MAX_EDIT_LINES && lines.join('\n').length <= MAX_EDIT_CHARS
 })
@@ -82,7 +102,7 @@ const editLineNumbers = computed(() => {
   return Array.from({ length: count }, (_, index) => start + index)
 })
 
-const lineStagingEnabled = computed(() => layout.value === 'unified' && !props.fileLevelOnly)
+const lineStagingEnabled = computed(() => layout.value === 'unified' && !props.readOnly && !props.fileLevelOnly)
 
 /* ---- expandable context between hunks -------------------------------- */
 
@@ -372,7 +392,86 @@ const { window: vwindow, scrollToRow } = useVirtualWindow({
   container,
 })
 
-const slice = computed(() => rowData.value.rows.slice(vwindow.value.start, vwindow.value.end))
+const slice = computed(() => {
+  const window = vwindow.value
+  const rows = rowData.value.rows.slice(window.start, window.end).map((row, offset) => ({ row, index: window.start + offset, pinned: false }))
+  // Keep an active input mounted if its row scrolls outside the virtual window.
+  if (props.cursorReview && editMode.value && (cursorRow.value < window.start || cursorRow.value >= window.end)) {
+    const row = rowData.value.rows[cursorRow.value]
+    if (row) rows.push({ row, index: cursorRow.value, pinned: true })
+  }
+  return rows
+})
+
+const cursorCell = computed(() => {
+  const row = rowData.value.rows[cursorRow.value]
+  return row?.kind === 'line' ? row.cell : null
+})
+const canEditCursor = computed(() => canEditActive.value && !!cursorCell.value &&
+  cursorCell.value.hunkIndex >= 0 && cursorCell.value.line.Type !== LineType.LineRemoved &&
+  !cursorCell.value.truncatedChars)
+
+function openSearch() {
+  searchOpen.value = true
+  void nextTick(() => container.value?.querySelector<HTMLInputElement>('.cursor-search')?.focus())
+}
+function closeSearch() {
+  searchOpen.value = false
+  container.value?.focus({ preventScroll: true })
+}
+function findNext() {
+  if (!searchQuery.value) return
+  const rows = rowData.value.rows
+  for (let step = 1; step <= rows.length; step++) {
+    const index = (cursorRow.value + step) % rows.length
+    const row = rows[index]
+    if (row?.kind === 'line' && row.cell.content.toLowerCase().includes(searchQuery.value.toLowerCase())) {
+      closeSearch()
+      selectCursor(index)
+      return
+    }
+  }
+}
+function selectCursor(index: number) {
+  if (editMode.value) return
+  const row = rowData.value.rows[index]
+  if (row?.kind !== 'line') return
+  if (lineMode.value && row.cell.hunkIndex !== hunkIndex.value) return
+  cursorRow.value = index
+  hunkIndex.value = row.cell.hunkIndex
+  lineCursor.value = row.cell.lineIndex
+  if (!lineMode.value) lineAnchor.value = lineCursor.value
+  container.value?.focus({ preventScroll: true })
+  // Account for the sticky file header when bringing a row into view.
+  const el = container.value
+  const head = (el?.querySelector('.diff-file-head')?.getBoundingClientRect().height ?? 0) + (el?.querySelector('.cursor-review-actions')?.getBoundingClientRect().height ?? 0)
+  if (el) {
+    const top = index * rowHeight.value
+    if (top < el.scrollTop) el.scrollTop = top
+    else if (top + rowHeight.value > el.scrollTop + el.clientHeight - head) {
+      el.scrollTop = Math.max(0, top + rowHeight.value - el.clientHeight + head)
+    }
+  }
+}
+function moveCursor(direction: number) {
+  for (let i = cursorRow.value + direction; i >= 0 && i < rowData.value.rows.length; i += direction) {
+    if (rowData.value.rows[i]?.kind === 'line') { selectCursor(i); return }
+  }
+}
+function jumpHunk(index: number) {
+  if (editMode.value) return
+  if (!props.cursorReview) { hunkIndex.value = index; return }
+  const target = Math.max(0, Math.min(hunks.value.length - 1, index))
+  const row = rowData.value.rows.findIndex(item => item.kind === 'line' && item.cell.hunkIndex === target)
+  if (row >= 0) selectCursor(row)
+}
+watch(rowData, (data) => {
+  if (!props.cursorReview) return
+  const index = data.rows.findIndex(row => row.kind === 'line' && row.cell.hunkIndex === hunkIndex.value && row.cell.lineIndex === lineCursor.value)
+  cursorRow.value = index >= 0 ? index : Math.max(0, data.rows.findIndex(row => row.kind === 'line'))
+  const cell = cursorCell.value
+  if (cell) { hunkIndex.value = cell.hunkIndex; lineCursor.value = cell.lineIndex }
+}, { immediate: true })
 
 /* ---- selection / keyboard ------------------------------------------------ */
 
@@ -392,7 +491,10 @@ function scrollToHunk() {
 }
 
 function scrollToLine() {
-  scrollToRow((rowData.value.hunkRowStart[hunkIndex.value] ?? 0) + 1 + lineCursor.value)
+  if (props.cursorReview) {
+    const index = rowData.value.rows.findIndex(row => row.kind === 'line' && row.cell.hunkIndex === hunkIndex.value && row.cell.lineIndex === lineCursor.value)
+    if (index >= 0) selectCursor(index)
+  } else scrollToRow((rowData.value.hunkRowStart[hunkIndex.value] ?? 0) + 1 + lineCursor.value)
 }
 
 function enterLineMode() {
@@ -401,7 +503,7 @@ function enterLineMode() {
   if (!lines.length) return
   const first = lines.findIndex((line) => stageableTypes.has(line.Type))
   lineMode.value = true
-  lineCursor.value = Math.max(0, first)
+  if (!props.cursorReview) lineCursor.value = Math.max(0, first)
   lineAnchor.value = lineCursor.value
   emit('modechange', 'visual')
 }
@@ -411,37 +513,78 @@ function leaveLineMode() {
   emit('modechange', 'hunk')
 }
 
-function enterEditMode() {
+async function editDiffLine(index: number) {
+  if (editMode.value || editorLoading.value || props.readOnly || props.staged) return
+  if (lineMode.value) leaveLineMode()
+  selectCursor(index)
+  // Let the clicked row's highlight settle before measuring its screen position.
+  await nextTick()
+  await enterEditMode()
+}
+
+async function enterEditMode() {
+  if (props.loadEditorFile && props.saveEditorFile) {
+    if (!canEditActive.value || editorLoading.value || editMode.value) return
+    const request = ++editorRequest
+    editorLoading.value = true
+    editorError.value = ''
+    const selectedRow = container.value?.querySelector('.diff-line.line-cursor') ?? container.value?.querySelector('.diff-hunk.active')
+    const actions = container.value?.querySelector('.cursor-review-actions')
+    const lineOffset = selectedRow && actions ? Math.max(0, selectedRow.getBoundingClientRect().top - actions.getBoundingClientRect().bottom) : 0
+    const line = cursorCell.value?.line.NewLineNo || activeHunk.value?.NewStart || 1
+    try {
+      const content = await props.loadEditorFile()
+      if (request !== editorRequest) return
+      if (new TextEncoder().encode(content).length > 1024 * 1024 || content.split('\n').length > 20000) throw new Error('Editing is limited to 1 MiB and 20,000 lines.')
+      fileBuffer.value = content
+      fileEditorLine.value = line
+      fileEditorLineOffset.value = lineOffset
+      lineMode.value = false
+      editMode.value = true
+      emit('modechange', 'edit')
+      await nextTick()
+      if (container.value) container.value.scrollTop = 0
+    } catch (err) { if (request === editorRequest) editorError.value = String(err) }
+    finally { if (request === editorRequest) editorLoading.value = false }
+    return
+  }
   if (!canEditActive.value || !activeHunk.value) return
+  if (props.cursorReview && !canEditCursor.value) return
   lineMode.value = false
-  editValue.value = hunkEditLines(activeHunk.value).join('\n')
+  searchOpen.value = false
+  editValue.value = props.cursorReview ? cursorCell.value!.line.Content : hunkEditLines(activeHunk.value).join('\n')
   editMode.value = true
   emit('modechange', 'edit')
-  void nextTick(() => editTextArea.value?.focus())
+  void nextTick(focusEditor)
 }
 
 function leaveEditMode() {
+  const wasFile = fileBuffer.value !== null
+  fileBuffer.value = null
   editMode.value = false
   emit('modechange', 'hunk')
-  void nextTick(() => container.value?.focus())
+  void nextTick(() => { container.value?.focus(); if (wasFile) scrollToLine() })
 }
 
 function saveEditMode() {
   const hunk = activeHunk.value
   if (!hunk) return
-  const replacement = editValue.value === '' ? [] : editValue.value.split('\n')
+  if (!canEditActive.value) return
+  const replacement = props.cursorReview ? hunkLines(hunk).filter(line => line.Type !== LineType.LineRemoved).map(line => line === cursorCell.value?.line ? editValue.value : line.Content) : editValue.value === '' ? [] : editValue.value.split('\n')
   editMode.value = false
   emit('modechange', 'hunk')
   emit('editHunk', hunk, replacement)
+  void nextTick(() => container.value?.focus({ preventScroll: true }))
 }
 
 function onEditKey(event: KeyboardEvent) {
+  if (event.isComposing) return
   if (event.key === 'Escape') {
     event.preventDefault()
     leaveEditMode()
     return
   }
-  if ((event.key === 'Enter' && (event.ctrlKey || event.metaKey)) || (event.key.toLowerCase() === 's' && (event.ctrlKey || event.metaKey))) {
+  if ((props.cursorReview && event.key === 'Enter') || (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) || (event.key.toLowerCase() === 's' && (event.ctrlKey || event.metaKey))) {
     event.preventDefault()
     saveEditMode()
   }
@@ -473,8 +616,34 @@ function stageSelectedLines() {
 }
 
 function onKey(event: KeyboardEvent) {
+  if (event.defaultPrevented || isEditable(event.target) || isModified(event)) return
   const key = event.key
+  if (props.readOnly && ['s', 'S', 'v', 'e'].includes(key)) { event.preventDefault(); return }
   if (editMode.value) return
+  if (props.cursorReview && !lineMode.value) {
+    let handled = true
+    switch (key) {
+      case 'j': case 'ArrowDown': moveCursor(1); break
+      case 'k': case 'ArrowUp': moveCursor(-1); break
+      case ']': jumpHunk(hunkIndex.value + 1); break
+      case '[': jumpHunk(hunkIndex.value - 1); break
+      case 'g':
+        if (Date.now() - pendingG < 600) selectCursor(rowData.value.rows.findIndex(row => row.kind === 'line'))
+        pendingG = Date.now(); break
+      case 'G': {
+        let last = rowData.value.rows.length - 1
+        while (last >= 0 && rowData.value.rows[last]?.kind !== 'line') last--
+        selectCursor(last); break
+      }
+      case '/': openSearch(); break
+      case 'n': findNext(); break
+      case 'Escape': if (searchOpen.value) closeSearch(); else emit('exit'); break
+      case 't': break
+      default: handled = false
+    }
+    if (key !== 'g') pendingG = 0
+    if (handled) { event.preventDefault(); return }
+  }
   if (lineMode.value) {
     const max = hunkLines(activeHunk.value).length - 1
     switch (key) {
@@ -489,7 +658,7 @@ function onKey(event: KeyboardEvent) {
       case 's':
         stageSelectedLines()
         break
-      case 'v': case 'Escape':
+      case 'v': case 'Escape': case 'h': case 'ArrowLeft':
         leaveLineMode()
         break
       default:
@@ -522,7 +691,7 @@ function onKey(event: KeyboardEvent) {
     case 't':
       cycleLayout()
       break
-    case 'h': case 'Escape':
+    case 'h': case 'Escape': case 'ArrowLeft':
       emit('exit')
       break
     default:
@@ -532,8 +701,16 @@ function onKey(event: KeyboardEvent) {
 }
 
 // new file under the cursor → reset; same file refreshed → just clamp
-watch(() => props.diff?.Path, () => {
+watch([() => props.diff?.Path, () => props.staged], () => {
+  editorRequest++
+  editorLoading.value = false
+  editorError.value = ''
+  fileBuffer.value = null
+  searchOpen.value = false
+  searchQuery.value = ''
   hunkIndex.value = 0
+  lineCursor.value = 0
+  cursorRow.value = Math.max(0, rowData.value.rows.findIndex(row => row.kind === 'line'))
   lineMode.value = false
   editMode.value = false
   forceLarge.value = false
@@ -543,14 +720,24 @@ watch(() => props.diff?.Path, () => {
 })
 
 watch(hunks, (list) => {
+  if (editMode.value && fileBuffer.value === null) leaveEditMode()
+  if (lineMode.value) leaveLineMode()
+  lineCursor.value = Math.min(lineCursor.value, Math.max(0, hunkLines(list[hunkIndex.value]).length - 1))
   hunkIndex.value = Math.min(hunkIndex.value, Math.max(0, list.length - 1))
 })
 
+function focusEditor() {
+  if (!editMode.value) return
+  if (fileBuffer.value !== null) { fileEditor.value?.focus(); return }
+  if (props.cursorReview) container.value?.querySelector<HTMLInputElement>('.diff-inline-editor')?.focus({ preventScroll: true })
+  else editTextArea.value?.focus()
+}
 function focus() {
   container.value?.focus()
+  focusEditor()
 }
 
-defineExpose({ focus, hasContent })
+defineExpose({ focus, hasContent, getMode: () => editMode.value ? 'edit' as const : lineMode.value ? 'visual' as const : 'hunk' as const })
 
 const stageVerb = computed(() => (props.staged ? 'unstage' : 'stage'))
 const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
@@ -560,14 +747,32 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
   <section
     ref="container"
     class="diff-view"
-    :class="`layout-${layout}`"
+    :class="[`layout-${layout}`, { 'cursor-review': cursorReview, 'editing-file': fileBuffer !== null }]"
     :style="{ '--diff-row-h': `${rowHeight}px` }"
     tabindex="0"
     aria-label="Diff"
-    @keydown="onKey"
+    data-keyboard-pane
+    @keydown="onKey" @focus.self="focusEditor"
   >
     <slot name="head" />
 
+    <FileEditor v-if="fileBuffer !== null && saveEditorFile" ref="fileEditor" :content="fileBuffer" :line="fileEditorLine" :line-offset="fileEditorLineOffset" :save="saveEditorFile" @close="leaveEditMode" @saved="leaveEditMode" />
+    <div v-if="editorError" role="alert" class="diff-state">{{ editorError }}</div>
+    <div v-if="editorLoading" role="status">Opening file…</div>
+    <div v-if="fileBuffer === null && cursorReview && hasContent && !gateVisible" class="cursor-review-actions">
+      <span>{{ editMode ? 'EDIT' : lineMode ? 'VISUAL' : 'NORMAL' }}</span>
+      <template v-if="editMode">
+        <UiButton size="sm" @click="leaveEditMode">Cancel</UiButton>
+        <UiButton size="sm" @click="saveEditMode">Save</UiButton>
+      </template>
+      <template v-else>
+        <form v-if="searchOpen" @submit.prevent="findNext"><input v-model="searchQuery" class="cursor-search ui-field" aria-label="Search diff" @keydown.esc.stop.prevent="closeSearch" /></form>
+        <UiButton size="sm" @click="openSearch">Find</UiButton>
+        <UiButton size="sm" :disabled="!canEditCursor" @click="enterEditMode">{{ loadEditorFile ? 'Edit file' : 'Edit line' }}</UiButton>
+        <UiButton v-if="!readOnly && !fileLevelOnly" size="sm" :disabled="!activeHunk" @click="lineMode ? stageSelectedLines() : stageActive()">{{ staged ? 'Unstage' : 'Stage' }} {{ lineMode ? 'lines' : 'hunk' }}</UiButton>
+      </template>
+    </div>
+    <template v-if="fileBuffer === null">
     <div v-if="!hasContent" class="diff-state">
       <slot name="empty">No diff to show.</slot>
     </div>
@@ -576,12 +781,12 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
       <strong>Large diff</strong>
       <span>{{ totalLines.toLocaleString() }} lines across {{ hunks.length }} hunks</span>
       <div class="diff-gate-actions">
-        <button type="button" @click="forceLarge = true">Load anyway</button>
-        <span class="diff-gate-hint"><kbd>s</kbd> {{ stageVerb }} entire file</span>
+        <UiButton @click="forceLarge = true">Load anyway</UiButton>
+        <span v-if="!readOnly" class="diff-gate-hint"><kbd>s</kbd> {{ stageVerb }} entire file</span>
       </div>
     </div>
 
-    <div v-else-if="editMode" class="diff-edit-panel">
+    <div v-else-if="editMode && !cursorReview" class="diff-edit-panel">
       <div class="diff-hunk active">
         <span class="hunk-header-text">{{ activeHunk?.Header }}</span>
         <span class="hunk-stage-hint"><kbd>⌃⏎</kbd> save</span>
@@ -598,7 +803,7 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
 
     <div v-else class="diff-spacer" :style="{ height: `${vwindow.totalHeight}px` }">
       <div class="diff-rows" :style="{ transform: `translateY(${vwindow.offsetY}px)` }">
-        <template v-for="(row, i) in slice" :key="vwindow.start + i">
+        <template v-for="{ row, index, pinned } in slice" :key="index">
           <button
             v-if="row.kind === 'gap'"
             class="diff-gap"
@@ -613,10 +818,10 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
             v-else-if="row.kind === 'hunk'"
             class="diff-hunk"
             :class="{ active: row.hunkIndex === hunkIndex }"
-            @click="hunkIndex = row.hunkIndex"
+            @click="jumpHunk(row.hunkIndex)"
           >
             <span class="hunk-header-text">{{ row.header }}</span>
-            <span v-if="!props.fileLevelOnly" class="hunk-stage-hint"><kbd>s</kbd> {{ stageVerb }} hunk{{ row.hunkIndex === hunkIndex ? editHint : '' }}</span>
+            <span v-if="!cursorReview && !props.readOnly && !props.fileLevelOnly" class="hunk-stage-hint"><kbd>s</kbd> {{ stageVerb }} hunk{{ row.hunkIndex === hunkIndex ? editHint : '' }}</span>
           </div>
 
           <div v-else-if="row.kind === 'delmark'" class="diff-delmark">
@@ -638,13 +843,22 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
               del: row.cell.line.Type === LineType.LineRemoved,
               'in-active-hunk': row.cell.hunkIndex === hunkIndex,
               'line-selected': isLineSelected(row.cell.hunkIndex, row.cell.lineIndex),
-              'line-cursor': lineMode && row.cell.hunkIndex === hunkIndex && row.cell.lineIndex === lineCursor,
+              'line-cursor': cursorReview ? index === cursorRow : lineMode && row.cell.hunkIndex === hunkIndex && row.cell.lineIndex === lineCursor,
             }"
+            :style="pinned ? { position: 'absolute', top: `${index * rowHeight - vwindow.offsetY}px`, width: '100%' } : undefined"
+            :aria-current="cursorReview && index === cursorRow ? 'true' : undefined"
+            @click="cursorReview && selectCursor(index)"
+            @dblclick.stop.prevent="editDiffLine(index)"
           >
+            <span v-if="cursorReview" class="diff-cursor-marker" aria-hidden="true">{{ index === cursorRow ? '›' : '' }}</span>
             <span class="line-no">{{ row.cell.line.OldLineNo || '' }}</span>
             <span class="line-no">{{ row.cell.line.NewLineNo || '' }}</span>
             <span class="line-sign">{{ row.cell.line.Type === LineType.LineAdded ? '+' : row.cell.line.Type === LineType.LineRemoved ? '-' : ' ' }}</span>
-            <span class="line-content">
+            <input v-if="cursorReview && editMode && index === cursorRow"
+              v-model="editValue" class="diff-inline-editor" aria-label="Edit line" spellcheck="false" autocomplete="off"
+              :style="{ minWidth: `${Math.max(editValue.length, row.cell.content.length, 20) + 2}ch` }"
+              :maxlength="MAX_LINE_CHARS" @click.stop @keydown.stop="onEditKey" />
+            <span v-else class="line-content">
               <template v-if="row.cell.hl">{{ row.cell.content.slice(0, row.cell.hl[0]) }}<mark>{{ row.cell.content.slice(row.cell.hl[0], row.cell.hl[1]) }}</mark>{{ row.cell.content.slice(row.cell.hl[1]) }}</template>
               <template v-else>{{ row.cell.content }}</template>
               <i v-if="row.cell.truncatedChars" class="line-truncated">… +{{ row.cell.truncatedChars.toLocaleString() }} chars</i>
@@ -672,5 +886,6 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
         </template>
       </div>
     </div>
+    </template>
   </section>
 </template>

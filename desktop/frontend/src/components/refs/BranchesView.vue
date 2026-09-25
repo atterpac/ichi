@@ -1,13 +1,18 @@
 <script setup lang="ts">
+import { isEditable, isModified, returnFromPane } from '../../composables/keyboard'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { PhArrowsClockwise, PhGitBranch } from '@phosphor-icons/vue'
+import { PhCaretRight, PhArrowsClockwise, PhGitBranch } from '@phosphor-icons/vue'
 import OperationConfirmModal, { type OperationConfirmRequest } from '../overlays/OperationConfirmModal.vue'
+import SurfaceState from '../common/SurfaceState.vue'
+import UiButton from '../common/UiButton.vue'
 import { setModeline, resetModeline } from '../../composables/useModeline'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { notify } from '../../composables/useToasts'
 import { useVimList } from '../../composables/useVimList'
-import { RefService, RemoteService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import { RefService, RemoteService, StashService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import type { Branch, Divergence, FileChurn, RefCommit } from '../../bindings/github.com/atterpac/ichi/internal/git'
+
+const emit = defineEmits<{ (e: 'navigate', view: string, focus?: string): void }>()
 
 const settings = useShellSettings()
 
@@ -61,7 +66,7 @@ const displayRows = computed<DisplayRow[]>(() => {
       singles.push(b)
     }
   }
-  for (const [prefix, members] of [...byPrefix]) {
+  for (const [prefix, members] of byPrefix) {
     if (members.length < 2) {
       singles.push(...members)
       byPrefix.delete(prefix)
@@ -117,11 +122,50 @@ async function run(label: string, op: () => Promise<void>) {
   }
 }
 
+// git refuses checkout when the switch would clobber uncommitted work.
+function isDirtyTreeError(err: unknown) {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return msg.includes('would be overwritten') || msg.includes('stash them') || msg.includes('local changes')
+}
+
+async function doCheckout(name: string) {
+  await RefService.CheckoutBranch(name, false)
+  await refresh()
+  notify({ tone: 'success', title: `Checked out ${name}` })
+}
+
 function checkout(row: Branch) {
-  if (row.IsCurrent) return
+  if (row.IsCurrent || busy.value) return
   // Remote rows check out the short name: git DWIMs a local tracking branch.
   const name = row.IsRemote ? splitRemote(row.Name).short : row.Name
-  void run(`Checked out ${name}`, () => RefService.CheckoutBranch(name, false))
+  busy.value = true
+  doCheckout(name)
+    .catch((err) => {
+      if (isDirtyTreeError(err)) offerStashAndSwitch(name)
+      else notify({ tone: 'danger', title: 'Checkout failed', message: err instanceof Error ? err.message : String(err) })
+    })
+    .finally(() => { busy.value = false })
+}
+
+// Dirty-tree checkout recovery: stash the worktree (incl. untracked), switch, done.
+// The stash stays on the list so the user can pop it back onto the new branch.
+function offerStashAndSwitch(name: string) {
+  pendingOperation.value = {
+    title: 'Stash and switch',
+    message: `Uncommitted changes block the switch to ${name}. Stash them (including untracked files) and check out?`,
+    confirmLabel: 'Stash & switch',
+    target: name,
+    tone: 'warning',
+    onConfirm: () =>
+      run(`Stashed and checked out ${name}`, async () => {
+        await StashService.StashPush(`ichi: switch to ${name}`, true)
+        await RefService.CheckoutBranch(name, false)
+      }),
+  }
+}
+
+function openInGraph(row: Branch) {
+  emit('navigate', 'graph', row.LastCommit)
 }
 
 function createFrom(row: Branch) {
@@ -323,6 +367,8 @@ const changedFiles = computed(() => {
 })
 
 function onListKey(event: KeyboardEvent) {
+  if (event.defaultPrevented || isEditable(event.target)) return
+  if (isModified(event)) { if (vim.handleKey(event)) event.preventDefault(); return }
   if (pendingOperation.value) return
   if (vim.search.active.value) {
     if (vim.handleKey(event)) event.preventDefault()
@@ -332,10 +378,11 @@ function onListKey(event: KeyboardEvent) {
   // feeding vim's gg motion. G still jumps to the bottom of the list.
   if (event.key === 'g' && !event.ctrlKey && !event.metaKey && !event.altKey) return
 
+  if (event.key === 'Escape' && vim.mode.value === 'normal') return
   const row = cursorRow.value
   const branch = row?.kind === 'branch' ? row.b : null
   switch (event.key) {
-    case 'Tab':
+    case 'i':
       settings.branchesDetailVisible = !settings.branchesDetailVisible
       event.preventDefault()
       return
@@ -354,6 +401,10 @@ function onListKey(event: KeyboardEvent) {
       return
     case 'l':
       if (row?.kind === 'group' && row.folded) toggleFold(row.id)
+      else {
+        settings.branchesDetailVisible = true
+        void nextTick(() => document.querySelector<HTMLElement>('[aria-label="Branch details"]')?.focus())
+      }
       event.preventDefault()
       return
     case 'n':
@@ -380,6 +431,10 @@ function onListKey(event: KeyboardEvent) {
       fetch()
       event.preventDefault()
       return
+    case 'o':
+      if (branch) openInGraph(branch)
+      event.preventDefault()
+      return
   }
   if (vim.handleKey(event)) event.preventDefault()
 }
@@ -393,7 +448,7 @@ watch(vim.cursor, () => nextTick(scrollToCursor))
 onMounted(async () => {
   setModeline({
     mode: 'NORMAL',
-    hints: '⏎ checkout · n new · r rename · d delete · m merge · R rebase · t group · ⇥ detail · / search',
+    hints: '⏎ checkout · o graph · n new · r rename · d delete · m merge · R rebase · t group · i inspector · F6 pane · / search',
   })
   await refresh()
   await nextTick()
@@ -407,27 +462,24 @@ onUnmounted(resetModeline)
     <Teleport defer to="#view-header-context">
       <span class="header-meta">{{ locals.length }} local</span>
       <span class="header-meta">{{ remotes.length }} remote</span>
-      <button
-        class="graph-toolbar-action icon-only"
-        type="button"
-        :class="{ active: settings.branchesGrouped }"
+      <UiButton
+        size="sm"
+        icon-only
+        :active="settings.branchesGrouped"
         :title="settings.branchesGrouped ? 'Flat list (t)' : 'Group by prefix (t)'"
         :aria-pressed="settings.branchesGrouped"
         @click="toggleGrouping"
       >
-        <PhGitBranch :size="14" weight="bold" />
-      </button>
-      <button class="graph-toolbar-action" type="button" title="Fetch all remotes (f)" :disabled="busy" @click="fetch">
-        <PhArrowsClockwise :size="14" weight="bold" />
+        <PhGitBranch :size="16" weight="bold" />
+      </UiButton>
+      <UiButton size="sm" title="Fetch all remotes (f)" :disabled="busy" @click="fetch">
+        <PhArrowsClockwise :size="16" weight="bold" />
         Fetch
-      </button>
+      </UiButton>
     </Teleport>
 
-    <div v-if="loading" class="graph-state">Loading branches...</div>
-    <div v-else-if="error" class="graph-state error">
-      <strong>Unable to load branches</strong>
-      <span>{{ error }}</span>
-    </div>
+    <SurfaceState v-if="loading" tone="loading" title="Loading branches" message="Reading local and remote refs." />
+    <SurfaceState v-else-if="error" tone="error" title="Unable to load branches" :message="error" action-label="Retry" @action="refresh" />
 
     <div v-else class="branches-body" :class="{ 'detail-open': settings.branchesDetailVisible }">
       <section
@@ -435,7 +487,7 @@ onUnmounted(resetModeline)
         class="branches-list"
         tabindex="0"
         aria-label="Branches"
-        @keydown="onListKey"
+        @keydown="onListKey" data-keyboard-pane
       >
         <div v-if="vim.search.active.value" class="vim-cmdline">
           /{{ vim.search.query.value }}<span class="vim-caret">▌</span>
@@ -451,7 +503,7 @@ onUnmounted(resetModeline)
             :class="{ selected: vim.cursor.value === i }"
             @click="vim.moveTo(i); toggleFold(row.id)"
           >
-            <span class="branch-twist">{{ row.folded ? '▸' : '▾' }}</span>
+            <PhCaretRight class="branch-twist disclosure-icon" :class="{ expanded: !row.folded }" :size="12" weight="bold" aria-hidden="true" />
             <span class="branch-name">{{ row.label }}</span>
             <span class="branch-count">{{ row.count }}</span>
           </button>
@@ -476,7 +528,7 @@ onUnmounted(resetModeline)
         </template>
       </section>
 
-      <aside v-if="settings.branchesDetailVisible" class="branch-detail" aria-label="Branch details">
+      <aside v-if="settings.branchesDetailVisible" class="branch-detail" aria-label="Branch details" tabindex="0" data-keyboard-pane @keydown="returnFromPane($event, listEl)">
         <template v-if="detailBranch">
           <h3 class="bd-name">
             {{ detailBranch.Name }}
@@ -534,11 +586,14 @@ onUnmounted(resetModeline)
             <span class="bd-churn-total">{{ changedFiles.total.files }} files · +{{ changedFiles.total.added }} −{{ changedFiles.total.deleted }}</span>
           </div>
 
-          <div v-if="!detailBranch.IsCurrent" class="bd-actions">
-            <button type="button" class="bp-btn primary" @click="checkout(detailBranch)"><kbd>↵</kbd> Checkout</button>
-            <button type="button" class="bp-btn" @click="merge(detailBranch)"><kbd>m</kbd> Merge</button>
-            <button type="button" class="bp-btn" @click="rebase(detailBranch)"><kbd>R</kbd> Rebase</button>
-            <button type="button" class="bp-btn danger" @click="remove(detailBranch)"><kbd>d</kbd> Delete</button>
+          <div class="bd-actions">
+            <UiButton size="sm" @click="openInGraph(detailBranch)"><kbd>o</kbd> Graph</UiButton>
+            <template v-if="!detailBranch.IsCurrent">
+            <UiButton size="sm" variant="primary" @click="checkout(detailBranch)"><kbd>↵</kbd> Checkout</UiButton>
+            <UiButton size="sm" @click="merge(detailBranch)"><kbd>m</kbd> Merge</UiButton>
+            <UiButton size="sm" @click="rebase(detailBranch)"><kbd>R</kbd> Rebase</UiButton>
+            <UiButton size="sm" variant="danger" @click="remove(detailBranch)"><kbd>d</kbd> Delete</UiButton>
+            </template>
           </div>
         </template>
         <p v-else class="bd-empty">Select a branch</p>

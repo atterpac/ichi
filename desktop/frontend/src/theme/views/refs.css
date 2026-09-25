@@ -1,0 +1,584 @@
+/* branches view — ranger list (A): dense rows, section labels, verb chords */
+.branches-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.branches-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  outline: 0;
+}
+
+.branch-sect {
+  padding: var(--space-4) var(--space-4) var(--space-2);
+  color: var(--text-mut);
+  font: 700 var(--fs-2xs) var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.branch-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  font: var(--fs-sm) var(--font-mono);
+  transition: background var(--ease-fast);
+  min-height: var(--control-height-lg);
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+}
+
+.branch-row:hover {
+  background: var(--hover);
+}
+
+.branches-list:focus .branch-row.selected,
+.branch-row.selected {
+  background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.branch-cur {
+  flex: none;
+  width: 10px;
+  text-align: center;
+  color: transparent;
+}
+
+.branch-cur.on {
+  color: var(--positive-text);
+}
+
+.branch-name {
+  flex: none;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.branch-row.remote .branch-name {
+  color: var(--text-dim);
+}
+
+.branch-up {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+
+.branch-fill {
+  flex: 1;
+}
+
+.branch-msg {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+
+.branch-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 14px;
+  padding: 0 var(--space-2);
+  border-radius: var(--control-radius);
+  font: 600 var(--fs-2xs) var(--font-mono);
+}
+
+.branch-chip.ahead {
+  background: color-mix(in oklch, var(--green) 16%, var(--surface));
+  color: var(--positive-text);
+}
+
+.branch-chip.behind {
+  background: color-mix(in oklch, var(--red) 16%, var(--surface));
+  color: var(--negative-text);
+}
+
+.branch-hash {
+  flex: none;
+  width: 56px;
+  text-align: right;
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+
+/* Stash list + diff preview (reuses .branch-row chrome). */
+.stash-idx {
+  flex: none;
+  min-width: 18px;
+  text-align: center;
+  color: var(--accent-text);
+  font: 600 var(--fs-xs) var(--font-mono);
+}
+
+.stash-branch {
+  flex: none;
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+
+/* Stash detail: navigable file chips + selection for partial apply. */
+.bd-subhead-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.st-selcount {
+  color: var(--accent-text);
+  font: var(--fs-2xs) var(--font-mono);
+}
+
+.st-files {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: var(--space-2) 0 var(--space-1);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.st-file {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  font: var(--fs-xs) var(--font-mono);
+  cursor: pointer;
+}
+
+.st-file:hover {
+  background: var(--hover);
+}
+
+.st-file.on {
+  color: var(--text);
+}
+
+.st-file.cursor {
+  background: color-mix(in oklch, var(--accent) 16%, var(--surface));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.st-file-tick {
+  flex: none;
+  width: 12px;
+  color: var(--text-mut);
+}
+
+.st-file.on .st-file-tick {
+  color: var(--accent-text);
+}
+
+.st-file-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.st-file-delta {
+  flex: none;
+  display: inline-flex;
+  gap: var(--space-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.st-file-delta em {
+  font-style: normal;
+}
+
+.st-file-delta .add {
+  color: var(--positive-text);
+}
+.st-file-delta .del {
+  color: var(--negative-text);
+}
+
+/* Dim the pane that doesn't own the keyboard so focus is legible. */
+.branches-list.dimmed {
+  opacity: 0.55;
+}
+
+.branch-detail.pane-active {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
+}
+
+.branch-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  transition: background var(--ease-fast);
+  min-height: var(--control-height-lg);
+  font: var(--weight-medium) var(--fs-sm) var(--font-ui);
+}
+
+.branch-group:hover {
+  background: var(--hover);
+}
+
+.branch-group.selected {
+  background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.branch-twist {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  color: var(--text-mut);
+  font-size: var(--fs-2xs);
+}
+
+.branch-count {
+  color: var(--text-mut);
+  font-size: var(--fs-2xs);
+  font-weight: var(--weight-medium);
+}
+
+.branch-row.child {
+  padding-left: 34px;
+}
+
+/* branch detail (B) — persistent right pane, tab toggles */
+.branches-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.branches-body.detail-open {
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 28vw, 350px);
+}
+
+.branch-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  gap: var(--section-gap);
+  padding: var(--panel-inset);
+  background: var(--surface-raised);
+  box-shadow: var(--elev-2);
+}
+
+.bd-name {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  color: var(--head);
+  overflow-wrap: anywhere;
+  font: var(--weight-medium) var(--font-title)/1.35 var(--font-mono);
+}
+
+.bd-current {
+  flex: none;
+  padding: 1px var(--space-4);
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--green) 16%, var(--surface));
+  color: var(--positive-text);
+  font: 600 var(--fs-2xs) var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.bd-meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.bd-meta dt {
+  color: var(--text-mut);
+  font: var(--fs-xs) var(--font-ui);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.bd-meta dd {
+  margin: 1px 0 0;
+  color: var(--text-dim);
+  font: var(--fs-sm) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.bd-div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bd-div-labels {
+  display: flex;
+  justify-content: space-between;
+  font: var(--fs-2xs) var(--font-mono);
+}
+
+.bd-div-labels .ahead-label {
+  color: var(--positive-text);
+}
+.bd-div-labels .behind-label {
+  color: var(--negative-text);
+}
+
+.bd-div-track {
+  display: flex;
+  justify-content: space-between;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.bd-div-track i.ahead {
+  background: var(--green);
+  border-radius: 2px;
+}
+
+.bd-div-track i.behind {
+  background: var(--red);
+  border-radius: 2px;
+}
+
+.bd-div-track.sync {
+  background: color-mix(in oklch, var(--green) 30%, var(--surface-2));
+}
+
+.bd-div-sync {
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+}
+
+.bd-subhead {
+  color: var(--text-mut);
+  font: var(--weight-medium) var(--fs-sm) var(--font-ui);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* commit rail (A) — one graph lane: dots on a line down to the fork point */
+.bd-rail-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.bd-rail {
+  display: flex;
+  flex-direction: column;
+}
+
+.bd-rail-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 0 var(--space-4);
+}
+
+.bd-rail-glyph {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.bd-rail-glyph::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: color-mix(in oklch, var(--accent) 45%, transparent);
+}
+
+.bd-rail-row:first-child .bd-rail-glyph::before {
+  top: 50%;
+}
+.bd-rail-row:last-child .bd-rail-glyph::before {
+  bottom: 50%;
+}
+.bd-rail-row:only-child .bd-rail-glyph::before {
+  display: none;
+}
+
+.bd-rail-dot {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.bd-rail-row.fork .bd-rail-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--text-mut);
+}
+
+.bd-rail-body {
+  min-width: 0;
+  padding: var(--space-2) 0;
+}
+
+.bd-rail-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  min-width: 0;
+  font: var(--fs-xs) var(--font-mono);
+}
+
+.bd-rail-hash {
+  flex: none;
+  color: var(--text-mut);
+}
+
+.bd-rail-subj {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.bd-rail-row.fork .bd-rail-subj {
+  color: var(--text-mut);
+}
+
+.bd-rail-badge {
+  flex: none;
+  align-self: center;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font: 600 var(--fs-2xs)/var(--fs-md) var(--font-mono);
+}
+
+.bd-rail-when {
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+}
+
+/* file churn (D) — where the branch lives since the fork */
+.bd-churn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bd-churn-row {
+  display: flex;
+  gap: var(--space-4);
+  align-items: baseline;
+  justify-content: space-between;
+  font: var(--fs-xs) var(--font-mono);
+}
+
+.bd-churn-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--text-dim);
+}
+
+.bd-churn-delta {
+  flex: none;
+  display: inline-flex;
+  gap: var(--space-3);
+}
+
+.bd-churn-delta em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.bd-churn-delta .add {
+  color: var(--positive-text);
+}
+.bd-churn-delta .del {
+  color: var(--negative-text);
+}
+
+.bd-churn-more {
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+  font-style: italic;
+}
+
+.bd-churn-total {
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+}
+
+.bd-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: auto;
+}
+
+.bd-actions .ui-button {
+  justify-content: center;
+}
+
+.bd-empty {
+  margin: auto;
+  color: var(--text-mut);
+  font-size: var(--fs-sm);
+}
+
+@media (max-width: 860px) {
+  .branches-body.detail-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 1fr) minmax(150px, 35vh);
+  }
+  .branch-detail {
+    display: flex;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}

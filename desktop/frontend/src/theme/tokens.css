@@ -3,11 +3,65 @@
    consistent hovers, borders, and tints for free. */
 
 :root {
+  /* Layout rhythm. Geometry for graph/code rows remains feature-owned. */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-6: 12px;
+  --space-8: 16px;
+  --space-10: 20px;
+  --space-12: 24px;
+  --space-16: 32px;
+  --panel-inset: var(--space-8);
+  --dialog-inset: var(--space-10);
+  --section-gap: var(--space-8);
+  --group-gap: var(--space-12);
+
+  --control-height-sm: 24px;
+  --control-height-md: 28px;
+  --control-height-lg: 32px;
+  --control-pad-sm: var(--space-3);
+  --control-pad-md: var(--space-4);
+  --control-pad-lg: var(--space-6);
+  --control-icon-sm: 16px;
+  --control-icon-md: 16px;
+  --control-icon-lg: 16px;
+  --control-line-sm: 14px;
+  --control-line-md: 15px;
+  --control-line-lg: 16px;
+  --control-radius: 5px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-emphasis: 600;
+
   /* derived text + chrome tones */
   --text-dim: color-mix(in oklab, var(--text) 80%, var(--text-mut));
-  --border: color-mix(in oklab, var(--text) 15%, var(--surface));
+  --line-faint: color-mix(in oklab, var(--text) 8%, var(--surface-panel));
+  --border: color-mix(in oklab, var(--text) 14%, var(--surface-panel));
   --border-2: color-mix(in oklab, var(--text) 28%, var(--surface));
-  --read-bg: var(--surface);
+  --surface-base: var(--bg);
+  --surface-panel: var(--surface);
+  --surface-raised: var(--surface-raised-gen, var(--surface-2));
+  --surface-overlay: var(--surface-overlay-gen, var(--surface-raised));
+  --inspector-bg: var(--surface-raised);
+  --chrome-bg: var(--surface-base);
+  --read-bg: var(--surface-raised);
+  --font-ui:
+    'Inter Variable', Inter, 'Segoe UI', ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-code: var(--font-mono);
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-body-lg: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --font-meta: var(--fs-xs);
+  --font-body: var(--fs-md);
+  --font-title: var(--fs-xl);
   --read-text: var(--text-dim);
 
   /* accent tints — opaque oklch mixes so the accent hue survives on dark surfaces */
@@ -17,14 +71,14 @@
 
   /* state overlays — translucent so they read the same on every theme */
   --hover: color-mix(in oklab, var(--text) 7%, transparent);
-  --selected: color-mix(in oklch, var(--accent) 20%, var(--surface));
+  --selected: color-mix(in oklch, var(--accent) 11%, var(--surface));
   --focus-ring: 0 0 0 2px color-mix(in oklch, var(--accent) 55%, var(--surface));
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, .18);
-  --shadow-2: 0 8px 24px -4px rgba(0, 0, 0, .38);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-2: 0 8px 24px -4px rgba(0, 0, 0, 0.38);
 
-  --ease: 120ms cubic-bezier(.2,.6,.2,1);
-  --ease-fast: 80ms cubic-bezier(.2,.6,.2,1);
+  --ease: 120ms cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-fast: 80ms cubic-bezier(0.2, 0.6, 0.2, 1);
 
   --radius-xs: 4px;
   --radius-sm: 5px;
@@ -35,5 +89,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --ease: 0ms; --ease-fast: 0ms; }
+  :root {
+    --ease: 0ms;
+    --ease-fast: 0ms;
+  }
 }

@@ -1,22 +1,41 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import UiInput from '../common/UiInput.vue'
+import UiIconButton from '../common/UiIconButton.vue'
+import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import GraphView from '../graph/GraphView.vue'
 import ChangesView from '../status/ChangesView.vue'
 import BranchesView from '../refs/BranchesView.vue'
+import StashesView from '../refs/StashesView.vue'
+import FileInspectView from '../inspect/FileInspectView.vue'
 import SettingsModal from '../overlays/SettingsModal.vue'
 import ToastViewport from '../overlays/ToastViewport.vue'
 import WhichKey from './WhichKey.vue'
-import { NAV_KEY_MAP } from './nav'
-import { useShellSettings } from '../../composables/useShellSettings'
+import FinderBar from './FinderBar.vue'
+import { NAV_GROUPS, NAV_KEY_MAP } from './nav'
 import { useModeline } from '../../composables/useModeline'
-import { THEMES } from '../../theme/themes'
-import { notify } from '../../composables/useToasts'
-import { PhBellRinging, PhGearSix } from '@phosphor-icons/vue'
+import { useRepoStatus } from '../../composables/useRepoStatus'
+import { useShellSettings } from '../../composables/useShellSettings'
+import { PhGitBranch, PhGearSix, PhMagnifyingGlass, PhSidebarSimple } from '@phosphor-icons/vue'
 
 const settings = useShellSettings()
+const primaryViews = NAV_GROUPS.flatMap(group => group.items).filter(item => ['graph', 'status', 'branches', 'stashes'].includes(item.id))
+const previousDetailPosition = ref<'right' | 'bottom'>(settings.graphDetailPosition === 'bottom' ? 'bottom' : 'right')
+function toggleInspector() {
+  if (settings.graphDetailPosition === 'hidden') settings.graphDetailPosition = previousDetailPosition.value
+  else {
+    previousDetailPosition.value = settings.graphDetailPosition
+    settings.graphDetailPosition = 'hidden'
+  }
+}
 const modeline = useModeline()
+const repo = useRepoStatus()
 const activeView = ref('graph')
 const settingsOpen = ref(false)
+// Commit/ref to land on when the next view mounts (finder commit-enter, branches
+// `o`). Read once by the target view, then cleared so a plain re-nav doesn't jump.
+const focusRef = ref('')
+const viewHistory: { view: string; focus: string }[] = []
+
 
 type ViewMeta = {
   title: string
@@ -109,18 +128,61 @@ const views: Record<string, ViewMeta> = {
 const activeMeta = computed<ViewMeta>(() => views[activeView.value] ?? graphMeta)
 const viewTitle = computed(() => activeMeta.value.title)
 
-// Mock counts until the git backend feeds real ones (same values the dock had).
-const modelineCounts = [
-  { id: 'status', label: 'changes', count: '12', tone: 'warn' },
-  { id: 'commit', label: 'staged', count: '5', tone: 'good' },
-  { id: 'sync', label: 'sync', count: '↑1', tone: 'sync' },
-  { id: 'prs', label: 'prs', count: '4', tone: '' },
-]
+// Real counts from repo status; segments hide when zero so the modeline stays quiet.
+const modelineCounts = computed(() => {
+  const info = repo.info
+  if (!info) return [] as { id: string; label: string; count: string; tone: string }[]
+  const changes = info.Unstaged.Files + info.Unstaged.Untracked
+  const staged = info.Staged.Files
+  const sync = [info.Ahead ? `↑${info.Ahead}` : '', info.Behind ? `↓${info.Behind}` : ''].filter(Boolean).join(' ')
+  const segs = [] as { id: string; label: string; count: string; tone: string }[]
+  if (changes) segs.push({ id: 'status', label: 'changes', count: String(changes), tone: 'warn' })
+  if (staged) segs.push({ id: 'commit', label: 'staged', count: String(staged), tone: 'good' })
+  if (sync) segs.push({ id: 'sync', label: 'sync', count: sync, tone: 'sync' })
+  if (info.StashCount) segs.push({ id: 'stashes', label: 'stash', count: String(info.StashCount), tone: '' })
+  return segs
+})
+const branchLabel = computed(() => repo.info?.Branch || 'detached')
+const repoName = computed(() => repo.info?.Name || 'ichi')
+const repoPath = computed(() => repo.info?.Path || 'Repository')
+const worktreeCount = computed(() => {
+  const info = repo.info
+  if (!info) return 0
+  return info.Staged.Files + info.Unstaged.Files + info.Unstaged.Untracked
+})
 
 const path = computed(() => `~/ichi/${activeView.value}`)
 const leaderOpen = ref(false)
+const finderOpen = ref(false)
+let finderReturn: HTMLElement | null = null
+watch(finderOpen, (open) => {
+  if (open) finderReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  else void nextTick(() => { if (finderReturn?.isConnected) finderReturn.focus() })
+})
 
-function setView(view: string) {
+const headerQuery = ref('')
+const finderInitialQuery = ref('')
+function searchFromHeader() {
+  finderInitialQuery.value = headerQuery.value.trim()
+  leaderOpen.value = false
+  finderOpen.value = true
+
+}
+
+function setView(view: string, focus = '') {
+  // finder is an overlay, not a view surface
+  if (view === 'finder') {
+    leaderOpen.value = false
+    finderInitialQuery.value = ''
+    finderOpen.value = true
+    return
+  }
+  if (view !== activeView.value) {
+    const selected = document.querySelector<HTMLElement>('.commit-row.selected')
+    viewHistory.push({ view: activeView.value, focus: activeView.value === 'graph' ? selected?.dataset.commitHash || focusRef.value : focusRef.value })
+    if (viewHistory.length > 30) viewHistory.shift()
+  }
+  focusRef.value = focus
   activeView.value = view
 }
 
@@ -134,7 +196,7 @@ const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta'])
 function handleShellKeydown(event: KeyboardEvent) {
   // Views consume their own keys (element handlers run before this window
   // listener in the bubble phase) — a handled key must not also navigate.
-  if (event.defaultPrevented) return
+  if (event.defaultPrevented || settingsOpen.value || finderOpen.value || document.querySelector('[aria-modal="true"], .ctx-menu')) return
   if (isEditableTarget(event.target)) return
   if (MODIFIER_KEYS.has(event.key)) return
 
@@ -148,13 +210,24 @@ function handleShellKeydown(event: KeyboardEvent) {
     return
   }
 
+  if (event.key === 'Escape') {
+    const previous = viewHistory.pop()
+    if (previous) {
+      event.preventDefault()
+      focusRef.value = previous.focus
+      activeView.value = previous.view
+    }
+    return
+  }
   if (event.key === ' ') {
+    // Space must still activate focused buttons and select stash files.
+    if (event.target instanceof HTMLElement && event.target.closest('button, [role="tab"]')) return
     event.preventDefault()
     leaderOpen.value = true
     return
   }
 
-  if (event.ctrlKey && event.key.toLowerCase() === 'p') {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
     event.preventDefault()
     setView('finder')
     return
@@ -168,6 +241,28 @@ function handleShellKeydown(event: KeyboardEvent) {
   setView(view)
 }
 
+function handleShellCapture(event: KeyboardEvent) {
+  if (event.isComposing || leaderOpen.value) return
+  if (settingsOpen.value || finderOpen.value || document.querySelector('[aria-modal="true"], .ctx-menu')) return
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
+    event.preventDefault()
+    event.stopPropagation()
+    setView('finder')
+    return
+  }
+  if (event.ctrlKey && event.key === ' ' && !isEditableTarget(event.target)) { event.preventDefault(); event.stopPropagation(); leaderOpen.value = true; return }
+  if (event.key !== 'F6' || event.ctrlKey || event.metaKey || event.altKey) return
+  const panes = Array.from(document.querySelectorAll<HTMLElement>('.main-island [data-keyboard-pane]')).filter(el => el.getClientRects().length && !el.closest('[inert]'))
+  if (!panes.length) return
+  const current = panes.findIndex(el => el.contains(document.activeElement))
+  const next = (current + (event.shiftKey ? -1 : 1) + panes.length) % panes.length
+  event.preventDefault()
+  event.stopPropagation()
+  panes[next]?.focus()
+}
+onMounted(() => window.addEventListener('keydown', handleShellCapture, true))
+onUnmounted(() => window.removeEventListener('keydown', handleShellCapture, true))
+
 function selectFromPanel(view: string) {
   leaderOpen.value = false
   setView(view)
@@ -176,32 +271,39 @@ function selectFromPanel(view: string) {
 onMounted(() => window.addEventListener('keydown', handleShellKeydown))
 onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
 
-function previewToast() {
-  notify({
-    tone: 'success',
-    title: 'Branch synced',
-    message: 'origin/main is up to date with your local worktree.',
-    actionLabel: 'Undo',
-  })
-}
 </script>
 
 <template>
   <main class="ichi-shell">
     <header class="topbar">
-      <div class="titlebar-path">
-        <span>{{ path }}</span>
+      <div class="repo-context" :title="repoPath">
+        <span class="app-wordmark">ichi</span>
+        <span class="repo-divider" aria-hidden="true">/</span>
+        <span class="repo-name">{{ repoName }}</span>
+        <span class="repo-divider" aria-hidden="true">/</span>
+        <span class="repo-branch"><PhGitBranch :size="16" weight="bold" />{{ branchLabel }}</span>
+        <span v-if="worktreeCount" class="repo-dirty" :title="`${worktreeCount} changed files`">
+          <i aria-hidden="true" />{{ worktreeCount }} changed
+        </span>
       </div>
       <div class="topbar-actions">
-        <select v-model="settings.theme" class="theme-select" aria-label="Theme">
-          <option v-for="theme in THEMES" :key="theme.id" :value="theme.id">{{ theme.label }}</option>
-        </select>
-        <button class="titlebar-icon" type="button" title="Preview toast" aria-label="Preview toast" @click="previewToast">
-          <PhBellRinging :size="15" weight="bold" />
-        </button>
-        <button class="titlebar-icon" type="button" title="Settings" aria-label="Settings" @click="settingsOpen = true">
-          <PhGearSix :size="15" weight="bold" />
-        </button>
+        <form class="titlebar-search ui-control size-sm" role="search" @submit.prevent="searchFromHeader">
+          <PhMagnifyingGlass weight="bold" :size="16" aria-hidden="true" />
+          <UiInput
+            size="sm"
+            v-model="headerQuery"
+            type="search"
+            aria-label="Search commits, files, and refs"
+            placeholder="Find commits, files, refs"
+            autocomplete="off"
+            spellcheck="false"
+            @focus="finderOpen = false"
+          />
+          <button type="submit" aria-label="Search" title="Search (Enter)"><kbd>↵</kbd></button>
+        </form>
+        <UiIconButton class="titlebar-icon" size="sm" label="Settings" @click="finderOpen = false; settingsOpen = true">
+          <PhGearSix :size="16" weight="bold" />
+        </UiIconButton>
       </div>
     </header>
 
@@ -209,23 +311,40 @@ function previewToast() {
 
       <section class="main-island" aria-live="polite">
         <header class="island-header">
-          <div class="header-crumb">
-            <span class="eyebrow">{{ activeMeta.group }}</span>
-            <span class="crumb-sep" aria-hidden="true">/</span>
-            <h1>{{ viewTitle }}</h1>
-          </div>
+          <h1 class="sr-only">{{ viewTitle }}</h1>
+          <nav class="primary-nav" aria-label="Repository views">
+            <button
+              v-for="item in primaryViews"
+              :key="item.id"
+              type="button"
+              :aria-current="activeView === item.id || (item.id === 'status' && activeView === 'commit') ? 'page' : undefined"
+              :title="`${item.label} (${item.key})`"
+              @click="setView(item.id)"
+            >{{ item.label }}<span aria-hidden="true">{{ item.key }}</span></button>
+            <span v-if="!primaryViews.some(item => item.id === activeView) && activeView !== 'commit'" class="secondary-view-title">{{ viewTitle }}</span>
+          </nav>
           <div id="view-header-context" class="header-context" aria-label="Repository status" />
         </header>
 
-        <GraphView v-if="activeView === 'graph'" />
+        <GraphView v-if="activeView === 'graph'" :focus-hash="focusRef" @navigate="setView" />
 
         <ChangesView
           v-else-if="activeView === 'status' || activeView === 'commit'"
           :focus-commit="activeView === 'commit'"
+          :focus-key="focusRef"
           @navigate="setView"
         />
 
-        <BranchesView v-else-if="activeView === 'branches'" />
+        <BranchesView v-else-if="activeView === 'branches'" @navigate="setView" />
+
+        <StashesView v-else-if="activeView === 'stashes'" />
+
+        <FileInspectView
+          v-else-if="activeView === 'file-log' || activeView === 'blame'"
+          :focus-file="focusRef"
+          :mode-hint="activeView"
+          @navigate="setView"
+        />
 
         <div v-else class="view-placeholder">
           <div class="graph-lines" aria-hidden="true">
@@ -244,6 +363,7 @@ function previewToast() {
     </div>
 
     <WhichKey v-if="leaderOpen" @select="selectFromPanel" @close="leaderOpen = false" />
+    <FinderBar v-if="finderOpen" :initial-query="finderInitialQuery" @close="finderOpen = false" @navigate="setView" />
 
     <footer class="modeline">
       <span class="ml-mode">{{ modeline.mode }}</span>
@@ -256,10 +376,10 @@ function previewToast() {
       >
         <kbd>␣</kbd> go
       </button>
-      <span class="ml-focus">{{ activeView }}</span>
-      <span class="ml-buffer">{{ path }}</span>
-      <span class="ml-hints">{{ modeline.hints }}</span>
-      <span class="ml-branch">main</span>
+      <span class="ml-hints">{{ modeline.hints }} · F6 panes · Esc back</span>
+      <button v-if="activeView === 'graph'" class="ml-go" type="button" :aria-expanded="settings.graphDetailPosition !== 'hidden'" aria-controls="commit-inspector" @click="toggleInspector">
+        <PhSidebarSimple weight="bold" :size="16" /> Inspector
+      </button>
       <button
         v-for="seg in modelineCounts"
         :key="seg.id"
@@ -271,7 +391,6 @@ function previewToast() {
       >
         {{ seg.label }} {{ seg.count }}
       </button>
-      <span class="ml-pct">0%</span>
     </footer>
 
     <SettingsModal v-if="settingsOpen" @close="settingsOpen = false" />

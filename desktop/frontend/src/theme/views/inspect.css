@@ -1,0 +1,504 @@
+/* ---- File inspect view ------------------------------------------------ */
+.inspect-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.inspect-empty {
+  flex: 1;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: var(--space-2);
+  max-width: 480px;
+  margin: 0 auto;
+  padding: var(--space-12);
+  color: var(--text-dim);
+}
+
+.inspect-empty h2 {
+  margin: 0;
+  color: var(--head);
+  font-size: var(--fs-lg);
+  font-weight: var(--weight-medium);
+}
+
+.inspect-empty p {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+}
+
+.fi-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  min-height: 40px;
+  padding: var(--space-2) var(--space-6);
+  flex-wrap: wrap;
+}
+
+.fi-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font: var(--fs-sm) var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fi-file em {
+  font-style: normal;
+  color: var(--text-mut);
+}
+
+.fi-pill {
+  flex: none;
+  padding: 1px var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.fi-blame-at {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+}
+
+.fi-blame-at button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  min-width: var(--control-height-sm);
+  min-height: var(--control-height-sm);
+}
+
+.fi-spacer {
+  flex: 1;
+}
+
+.fi-modes {
+  display: flex;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 0;
+  gap: var(--space-2);
+}
+
+.fi-modes button {
+  background: transparent;
+  color: var(--text-mut);
+  transition:
+    background var(--ease-fast),
+    color var(--ease-fast);
+  height: var(--control-height-md);
+  padding: 0 var(--control-pad-md);
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  font-size: var(--fs-sm);
+}
+
+.fi-modes button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.fi-modes button.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: var(--weight-medium);
+}
+
+/* scrubber strip */
+.fi-scrubber {
+  position: relative;
+  flex: none;
+  height: 44px;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+}
+
+.fi-scrubber:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+/* inner strip inset so edge dots never clip */
+.fi-scrub-inner {
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 32px;
+}
+
+.fi-scrub-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 15px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+
+.fi-scrub-dot {
+  position: absolute;
+  top: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: box-shadow var(--ease-fast);
+}
+
+.fi-scrub-dot:hover,
+.fi-scrub-dot:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--accent-line);
+}
+
+.fi-scrub-dot.sel {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.fi-scrub-label {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 3px;
+  overflow: hidden;
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fi-scrub-label b {
+  color: var(--accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.fi-state {
+  padding: var(--space-10);
+  color: var(--text-mut);
+  font-size: var(--fs-md);
+  text-align: center;
+}
+
+.fi-state.error {
+  color: var(--negative-text);
+}
+
+.fi-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
+}
+
+.fi-body.mode-blame {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.fi-body.mode-inspector {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) 200px;
+}
+
+.fi-rail {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3) 0;
+  border-right: 1px solid var(--border);
+  outline: none;
+}
+
+.fi-rail:focus-visible,
+.fi-blame:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.fi-rail .vim-cmdline,
+.fi-blame .vim-cmdline {
+  position: sticky;
+  top: 0;
+  margin: 0;
+}
+
+.fi-rail .vim-cmdline {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-3);
+}
+
+/* the accent spine spans only the commit rows, not the full column */
+.fi-rail-track {
+  position: relative;
+}
+
+.fi-rail-track::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+.fi-commit {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  transition: background var(--ease-fast);
+  padding: var(--space-3) var(--space-4) var(--space-3) 7px;
+  min-height: var(--control-height-lg);
+}
+
+.fi-commit:hover {
+  background: var(--hover);
+}
+
+.fi-commit.sel {
+  background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.fi-dot {
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  justify-self: center;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.fi-subj {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fi-commit.sel .fi-subj {
+  color: var(--text);
+}
+
+.fi-meta {
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+}
+
+.fi-commit.sel .fi-meta {
+  color: var(--accent-text);
+}
+
+.fi-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fi-pane .diff-view {
+  flex: 1;
+}
+
+.fi-blame {
+  overflow: auto;
+  background: var(--surface-panel);
+}
+
+.fi-ledger {
+  min-width: max-content;
+  padding: var(--space-3) 0;
+}
+
+.fi-bl {
+  display: flex;
+  align-items: center;
+  height: 19px;
+  white-space: pre;
+}
+
+.fi-bl.hot {
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+}
+
+.fi-bl.cur {
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    inset 0 0 0 1px color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
+.fi-bl-gutter {
+  flex: none;
+  width: 172px;
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border: 0;
+  border-left: 2px solid transparent;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+  text-align: left;
+}
+
+.fi-bl-gutter:hover {
+  background: var(--hover);
+}
+
+.fi-bl-hash {
+  color: var(--accent-text);
+}
+
+.fi-bl-author {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fi-bl-ago {
+  margin-left: auto;
+  color: var(--text-mut);
+}
+
+.fi-bl-no {
+  flex: none;
+  width: 38px;
+  padding-right: var(--space-4);
+  color: var(--text-mut);
+  opacity: 0.7;
+  font: var(--fs-2xs)/19px var(--font-mono);
+  text-align: right;
+}
+
+.fi-bl-tx {
+  color: var(--read-text);
+  font: var(--fs-sm)/19px var(--font-mono);
+}
+
+.fi-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  padding: var(--panel-inset);
+  background: var(--surface-raised);
+  box-shadow: var(--elev-2);
+}
+
+.fi-detail h3 {
+  margin: 0 0 var(--space-6);
+  color: var(--head);
+  font-weight: var(--weight-medium);
+  font-size: var(--font-title);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.fi-detail dl {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-8);
+}
+
+.fi-detail dl > div {
+  display: grid;
+  gap: 1px;
+}
+
+.fi-detail dt {
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+
+.fi-detail dd {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.fi-hash {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: var(--fs-sm) var(--font-mono);
+}
+
+.fi-actions {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.fi-actions .ui-button {
+  justify-content: flex-start;
+}
+
+.fi-blame-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 30px;
+  padding: 0 var(--space-6);
+  border-top: 1px solid var(--border);
+  font: var(--fs-xs) var(--font-mono);
+}
+
+.fi-foot-subj {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.d-add {
+  font-style: normal;
+  color: var(--positive-text);
+}
+
+.d-del {
+  font-style: normal;
+  color: var(--negative-text);
+}
+
+@media (max-width: 980px) {
+  .fi-body.mode-inspector {
+    grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+  }
+
+  .fi-body.mode-inspector .fi-detail {
+    grid-column: 1 / -1;
+    max-height: 30vh;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}

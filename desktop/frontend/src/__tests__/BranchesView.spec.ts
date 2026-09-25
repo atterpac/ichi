@@ -160,7 +160,7 @@ describe('BranchesView', () => {
 
     await list.trigger('keydown', { key: 't' })
     const groups = wrapper.findAll('.branch-group')
-    expect(groups.map((g) => g.text())).toEqual(['▾feature/2', '▾origin/1'])
+    expect(groups.map((g) => g.text())).toEqual(['feature/2', 'origin/1'])
     // children render short names, indented
     const children = wrapper.findAll('.branch-row.child')
     expect(children.map((c) => c.find('.branch-name').text())).toEqual(['diff-view', 'graph-styles', 'main'])
@@ -170,7 +170,7 @@ describe('BranchesView', () => {
     await list.trigger('keydown', { key: 'j' })
     await list.trigger('keydown', { key: 'h' })
     expect(wrapper.findAll('.branch-row.child')).toHaveLength(1)
-    expect(wrapper.find('.branch-group').text()).toContain('▸')
+    expect(wrapper.find('.branch-group .disclosure-icon').classes()).not.toContain('expanded')
 
     // singletons stay flat
     expect(wrapper.findAll('.branch-row:not(.child)')[0]!.text()).toContain('main')
@@ -201,13 +201,14 @@ describe('BranchesView', () => {
     expect(pane.find('.bd-div-track i.ahead').exists()).toBe(true)
     expect(pane.find('.bd-div-track i.behind').exists()).toBe(false)
 
-    // current branch shows no verb buttons; a non-current one does
-    expect(pane.find('.bp-btn').exists()).toBe(false)
+    // current branch shows only the Graph button; a non-current one adds the verbs
+    expect(pane.findAll('.ui-button').length).toBe(1)
+    expect(pane.find('.ui-button').text()).toContain('Graph')
     const list = wrapper.find('.branches-list')
     await list.trigger('keydown', { key: 'j' })
     await flushPromises()
     expect(wrapper.find('.bd-name').text()).toContain('feature/diff-view')
-    expect(wrapper.findAll('.bp-btn').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('.ui-button').length).toBeGreaterThan(0)
     // no upstream -> no sync bar
     expect(wrapper.find('.bd-div').exists()).toBe(false)
     wrapper.unmount()
@@ -241,14 +242,14 @@ describe('BranchesView', () => {
     wrapper.unmount()
   })
 
-  it('hides the detail pane on tab and persists the choice', async () => {
+  it('hides the detail pane on i and persists the choice', async () => {
     const wrapper = await mountView()
     const list = wrapper.find('.branches-list')
     expect(wrapper.find('.branch-detail').exists()).toBe(true)
-    await list.trigger('keydown', { key: 'Tab' })
+    await list.trigger('keydown', { key: 'i' })
     expect(wrapper.find('.branch-detail').exists()).toBe(false)
     expect(useShellSettings().branchesDetailVisible).toBe(false)
-    await list.trigger('keydown', { key: 'Tab' })
+    await list.trigger('keydown', { key: 'i' })
     expect(wrapper.find('.branch-detail').exists()).toBe(true)
     wrapper.unmount()
   })

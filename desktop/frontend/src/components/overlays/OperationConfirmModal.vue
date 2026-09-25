@@ -33,6 +33,9 @@ export type OperationConfirmRequest = {
 </script>
 
 <script setup lang="ts">
+import UiButton from '../common/UiButton.vue'
+import UiInput from '../common/UiInput.vue'
+import { useDialogFocus } from '../../composables/useDialogFocus'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { PhCheck, PhWarningCircle, PhX } from '@phosphor-icons/vue'
 
@@ -44,6 +47,9 @@ const emit = defineEmits<{
   close: []
 }>()
 
+const dialog = ref<HTMLElement | null>(null)
+useDialogFocus(dialog, () => emit('close'))
+
 const busy = ref(false)
 const error = ref('')
 const values = ref<OperationInputValues>({})
@@ -54,7 +60,8 @@ const inputError = computed(() => {
   for (const input of props.request.inputs ?? []) {
     const value = values.value[input.id]?.trim() ?? ''
     if (input.required && !value) return `${input.label} is required.`
-    if (input.pattern && value && !new RegExp(input.pattern).test(value)) return `${input.label} is not valid.`
+    if (input.pattern && value && !new RegExp(input.pattern).test(value))
+      return `${input.label} is not valid.`
   }
   return ''
 })
@@ -63,7 +70,9 @@ const canConfirm = computed(() => !busy.value && !inputError.value)
 watch(
   () => props.request,
   (request) => {
-    values.value = Object.fromEntries((request.inputs ?? []).map((input) => [input.id, input.value ?? '']))
+    values.value = Object.fromEntries(
+      (request.inputs ?? []).map((input) => [input.id, input.value ?? '']),
+    )
     error.value = ''
   },
   { immediate: true },
@@ -105,6 +114,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <div class="operation-backdrop" @click.self="emit('close')">
       <section
+        ref="dialog"
+        tabindex="-1"
         class="operation-confirm"
         :class="`tone-${tone}`"
         role="dialog"
@@ -119,10 +130,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <h2 id="operation-confirm-title">{{ props.request.title }}</h2>
             <p>{{ props.request.message }}</p>
           </div>
-          <button class="operation-close" type="button" aria-label="Close confirmation" @click="emit('close')">
+          <UiButton
+            class="operation-close"
+            aria-label="Close confirmation"
+            @click="emit('close')"
+            size="sm"
+            variant="ghost"
+          >
             <kbd>esc</kbd>
-            <PhX :size="13" weight="bold" />
-          </button>
+            <PhX :size="16" weight="bold" />
+          </UiButton>
         </header>
 
         <div class="operation-body">
@@ -130,10 +147,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           <div v-if="props.request.inputs?.length" class="operation-inputs">
             <label v-for="input in props.request.inputs" :key="input.id">
               <span>{{ input.label }}</span>
-              <input
+              <UiInput
+                size="lg"
                 v-model="values[input.id]"
                 :placeholder="input.placeholder"
                 :required="input.required"
+                :invalid="Boolean(error)"
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -149,11 +168,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         </div>
 
         <footer class="operation-actions">
-          <button class="operation-secondary" type="button" :disabled="busy" @click="emit('close')">Cancel</button>
-          <button class="operation-primary" type="button" :disabled="!canConfirm" @click="confirm">
-            <PhCheck :size="14" weight="bold" />
+          <UiButton class="operation-secondary" :disabled="busy" @click="emit('close')" size="lg"
+            >Cancel</UiButton
+          >
+          <UiButton
+            class="operation-primary"
+            :disabled="!canConfirm"
+            @click="confirm"
+            :variant="tone === 'danger' ? 'danger' : 'primary'"
+            size="lg"
+            :loading="busy"
+          >
+            <PhCheck :size="16" weight="bold" />
             {{ busy ? 'Running...' : props.request.confirmLabel }}
-          </button>
+          </UiButton>
         </footer>
       </section>
     </div>
@@ -167,8 +195,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   z-index: 70;
   display: grid;
   place-items: end center;
-  padding: 20px 20px 42px;
-  background: rgba(0, 0, 0, .24);
+  padding: var(--space-10) var(--space-10) 42px;
+  background: rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(1px);
 }
 
@@ -176,18 +204,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   width: min(calc(100vw - 32px), 620px);
   overflow: hidden;
   border: 1px solid var(--border-2);
-  border-radius: 14px;
-  background: color-mix(in oklab, var(--surface) 96%, transparent);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, .58), var(--top-hi);
+  border-radius: var(--radius-xl);
+  background: var(--surface-overlay);
+  box-shadow: var(--elev-3);
 }
 
 .operation-head {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) auto;
   align-items: start;
-  gap: 12px;
-  padding: 14px 14px 12px;
   border-bottom: 1px solid var(--border);
+  padding: var(--dialog-inset);
+  gap: var(--space-6);
 }
 
 .operation-icon {
@@ -196,21 +224,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   width: 36px;
   height: 36px;
   border: 1px solid var(--accent-line);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .operation-confirm.tone-warning .operation-icon {
   border-color: color-mix(in oklab, var(--orange) 42%, transparent);
   background: color-mix(in oklab, var(--orange) 16%, transparent);
-  color: var(--orange);
+  color: var(--warning-text);
 }
 
 .operation-confirm.tone-danger .operation-icon {
   border-color: color-mix(in oklab, var(--red) 42%, transparent);
   background: color-mix(in oklab, var(--red) 14%, transparent);
-  color: var(--red);
+  color: var(--negative-text);
 }
 
 .operation-head h2,
@@ -220,175 +248,117 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 .operation-head h2 {
   color: var(--head);
-  font: 650 17px/1.2 "Hanken Grotesk", Inter, sans-serif;
+  font: var(--weight-medium) var(--fs-lg)/1.35 var(--font-ui);
 }
 
 .operation-head p {
-  margin-top: 4px;
+  margin-top: var(--space-2);
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.45;
-}
-
-.operation-close,
-.operation-secondary,
-.operation-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-dim);
-  font: 12px "JetBrains Mono", ui-monospace, monospace;
-}
-
-.operation-close {
-  min-height: 30px;
-  padding: 0 8px;
-}
-
-.operation-close:hover,
-.operation-secondary:hover,
-.operation-close:focus-visible,
-.operation-secondary:focus-visible {
-  outline: 0;
-  border-color: var(--accent-line);
-  color: var(--accent);
 }
 
 .operation-close kbd {
   color: var(--text-mut);
-  font: 10px "JetBrains Mono", ui-monospace, monospace;
+  font: var(--fs-2xs) var(--font-mono);
 }
 
 .operation-body {
   display: grid;
-  gap: 10px;
-  padding: 12px 14px;
+  padding: var(--space-8) var(--dialog-inset);
+  gap: var(--space-8);
 }
 
 .operation-target {
   margin: 0;
-  padding: 10px 12px;
+  padding: var(--space-4) var(--space-6);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--surface-2);
   color: var(--text);
-  font: 12px "JetBrains Mono", ui-monospace, monospace;
+  font: var(--fs-sm) var(--font-mono);
   overflow-wrap: anywhere;
 }
 
 .operation-inputs {
   display: grid;
-  gap: 9px;
+  gap: var(--space-6);
 }
 
 .operation-inputs label {
   display: grid;
-  gap: 7px;
+  gap: var(--space-4);
 }
 
 .operation-inputs span {
   color: var(--text-mut);
-  font: 11px "JetBrains Mono", ui-monospace, monospace;
-}
-
-.operation-inputs input {
-  min-width: 0;
-  height: 38px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text);
-  padding: 0 11px;
-  outline: 0;
-  font: 12px "JetBrains Mono", ui-monospace, monospace;
-}
-
-.operation-inputs input:focus {
-  border-color: var(--accent-line);
-  box-shadow: 0 0 0 2px var(--accent-soft);
+  font: var(--fs-sm) var(--font-ui);
 }
 
 .operation-details {
   display: grid;
-  gap: 7px;
+  gap: var(--space-4);
   margin: 0;
 }
 
 .operation-details div {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
-  gap: 10px;
+  gap: var(--space-4);
 }
 
 .operation-details dt {
   color: var(--text-mut);
-  font: 11px "JetBrains Mono", ui-monospace, monospace;
+  font: var(--fs-xs) var(--font-mono);
 }
 
 .operation-details dd {
   min-width: 0;
   margin: 0;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--fs-md);
   overflow-wrap: anywhere;
 }
 
 .operation-error {
   margin: 0;
-  padding: 9px 10px;
+  padding: var(--space-4) var(--space-4);
   border: 1px solid color-mix(in oklab, var(--red) 36%, transparent);
   border-radius: 8px;
   background: color-mix(in oklab, var(--red) 10%, transparent);
-  color: var(--red);
-  font-size: 12px;
+  color: var(--negative-text);
+  font-size: var(--fs-sm);
   line-height: 1.45;
 }
 
 .operation-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 10px 14px 14px;
-}
-
-.operation-secondary,
-.operation-primary {
-  min-height: 34px;
-  padding: 0 12px;
-}
-
-.operation-primary {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 700;
+  padding: 0 var(--dialog-inset) var(--dialog-inset);
+  gap: var(--space-4);
 }
 
 .operation-confirm.tone-warning .operation-primary {
   border-color: color-mix(in oklab, var(--orange) 44%, transparent);
   background: color-mix(in oklab, var(--orange) 16%, transparent);
-  color: var(--orange);
+  color: var(--warning-text);
 }
 
 .operation-confirm.tone-danger .operation-primary {
   border-color: color-mix(in oklab, var(--red) 44%, transparent);
   background: color-mix(in oklab, var(--red) 16%, transparent);
-  color: var(--red);
+  color: var(--negative-text);
 }
 
 .operation-primary:disabled,
 .operation-secondary:disabled {
-  opacity: .62;
+  opacity: 0.62;
   cursor: wait;
 }
 
 @media (max-width: 560px) {
   .operation-backdrop {
-    padding: 12px 12px 34px;
+    padding: var(--space-6) var(--space-6) 34px;
   }
 
   .operation-head {

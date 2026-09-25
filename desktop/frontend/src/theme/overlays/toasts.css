@@ -1,0 +1,113 @@
+/* ---- Toasts ---------------------------------------------------------- */
+.toast-viewport {
+  position: fixed;
+  z-index: 1200;
+  top: 38px;
+  right: 14px;
+  width: min(380px, calc(100vw - 28px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  pointer-events: none;
+}
+
+.toast {
+  --toast-tone: var(--accent);
+  --toast-tone-soft: var(--accent-soft);
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 52px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+  pointer-events: auto;
+  overflow: hidden;
+  padding: var(--space-6);
+  background: var(--surface-overlay);
+  box-shadow: var(--elev-3);
+}
+
+.toast::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--toast-tone);
+}
+
+.toast.tone-success {
+  --toast-tone: var(--green);
+  --toast-tone-soft: color-mix(in oklab, var(--green) 12%, transparent);
+}
+
+.toast.tone-warning {
+  --toast-tone: var(--orange);
+  --toast-tone-soft: color-mix(in oklab, var(--orange) 12%, transparent);
+}
+
+.toast.tone-danger {
+  --toast-tone: var(--red);
+  --toast-tone-soft: color-mix(in oklab, var(--red) 12%, transparent);
+}
+
+.toast-icon {
+  color: var(--toast-tone);
+}
+
+.toast-copy {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.toast-copy b {
+  overflow: hidden;
+  color: var(--head);
+  font-size: var(--fs-md);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast-copy small {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.toast-action:hover,
+.toast-action:focus-visible {
+  border-color: color-mix(in oklab, var(--toast-tone) 45%, transparent);
+  background: var(--toast-tone-soft);
+  color: var(--toast-tone);
+}
+
+.toast-close:hover,
+.toast-close:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.toast-move-enter-active,
+.toast-move-leave-active {
+  transition:
+    opacity var(--ease),
+    transform var(--ease);
+}
+
+.toast-move-enter-from,
+.toast-move-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.99);
+}
+
+.toast-move-move {
+  transition: transform var(--ease);
+}

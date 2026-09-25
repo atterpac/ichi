@@ -1,0 +1,649 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: start center;
+  padding: 8vh var(--space-10) var(--space-10);
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(3px);
+}
+
+.settings-modal {
+  display: flex;
+  width: min(100%, 840px);
+  height: min(620px, 82vh);
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-xl);
+  background: var(--surface-overlay);
+  box-shadow: var(--elev-3);
+}
+
+.set-nav {
+  width: 200px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  padding: var(--panel-inset) var(--space-4);
+  gap: var(--space-2);
+}
+
+.set-title {
+  margin: var(--space-2) var(--space-4) var(--space-8);
+  color: var(--head);
+  font-size: var(--fs-body-lg);
+  font-weight: var(--weight-medium);
+}
+
+.set-catitem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+  text-align: left;
+  transition:
+    background var(--ease-fast),
+    color var(--ease-fast);
+  margin: 0;
+  min-height: var(--control-height-lg);
+  padding: var(--space-2) var(--space-4);
+}
+
+.set-catitem:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.set-catitem.active {
+  background: var(--selected);
+  color: var(--accent-text);
+  font-weight: var(--weight-medium);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.set-icon {
+  width: 16px;
+}
+
+.set-navfoot {
+  margin-top: auto;
+  padding: var(--space-4);
+  color: var(--text-mut);
+  font: var(--fs-xs) var(--font-mono);
+}
+
+.set-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.set-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-8) var(--dialog-inset);
+}
+
+.set-head h2 {
+  margin: 0;
+  color: var(--head);
+  font-weight: var(--weight-medium);
+  font-size: var(--fs-lg);
+}
+
+.set-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-10) var(--space-10);
+}
+
+.set-section {
+  margin: var(--space-8) 0 var(--space-3);
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.01em;
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding: var(--space-6) 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.set-row span {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.set-row b {
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: var(--weight-medium);
+}
+
+.set-row small,
+.set-note {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.toggle {
+  position: relative;
+  flex: none;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  transition:
+    background var(--ease-fast),
+    border-color var(--ease-fast);
+  height: var(--control-height-sm);
+  width: 40px;
+}
+
+.toggle i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: var(--text-mut);
+  transition:
+    left var(--ease-fast),
+    background var(--ease-fast);
+  width: 18px;
+  height: 18px;
+}
+
+.toggle.on {
+  border-color: var(--accent-text);
+  background: var(--accent);
+}
+
+.toggle.on i {
+  background: var(--accent-ink);
+  left: 19px;
+}
+
+.select {
+  flex: none;
+  min-width: 150px;
+}
+
+.graph-style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.graph-style-card {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  transition:
+    background var(--ease-fast),
+    border-color var(--ease-fast);
+}
+
+.graph-style-card:hover {
+  background: var(--hover);
+}
+
+.graph-style-card.active {
+  border-color: var(--accent-line);
+  background: var(--selected);
+  color: var(--text);
+}
+
+.graph-style-card b {
+  color: var(--head);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-medium);
+}
+
+.graph-style-card small {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.graph-style-preview {
+  position: relative;
+  height: 30px;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.graph-style-preview i {
+  position: absolute;
+  display: block;
+}
+
+.graph-style-preview i:nth-child(1) {
+  left: 12px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--accent);
+}
+
+.graph-style-preview i:nth-child(2) {
+  left: 12px;
+  top: 14px;
+  width: 30px;
+  height: 2px;
+  background: var(--green);
+}
+
+.graph-style-preview i:nth-child(3) {
+  left: 36px;
+  top: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px var(--surface-2);
+}
+
+.graph-style-preview.style-fine i {
+  opacity: 0.8;
+}
+
+.graph-style-preview.style-fine i:nth-child(1),
+.graph-style-preview.style-fine i:nth-child(2) {
+  width: 1px;
+  height: auto;
+}
+
+.graph-style-preview.style-bold i:nth-child(1),
+.graph-style-preview.style-bold i:nth-child(2) {
+  width: 4px;
+}
+
+.graph-style-preview.style-neon i {
+  box-shadow: 0 0 10px currentColor;
+}
+
+.graph-style-preview.style-mono i {
+  background: var(--accent);
+}
+
+.graph-style-preview.style-angular i {
+  border-radius: 0;
+}
+
+/* theme chips — each chip carries its own theme-<id> class, so the palette
+   vars from themes.css scope to the chip and the preview renders in that
+   theme regardless of the active one. Only base vars (--bg/--text/--accent/…)
+   are safe inside; derived tokens like --hover resolve at :root. */
+.theme-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.set-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  width: 100%;
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+  text-align: left;
+  font-size: var(--fs-sm);
+}
+
+.set-disclosure:hover,
+.set-disclosure:focus-visible {
+  border-color: var(--border-2);
+  background: var(--hover);
+  color: var(--text);
+}
+
+.theme-chip {
+  position: relative;
+  display: grid;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--text) 22%, var(--bg));
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  transition:
+    border-color var(--ease-fast),
+    box-shadow var(--ease-fast);
+}
+
+.theme-chip:hover {
+  border-color: color-mix(in oklab, var(--accent) 70%, var(--bg));
+}
+
+.theme-chip:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 55%, var(--bg));
+}
+
+.theme-chip.active {
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.theme-chip.active::after {
+  content: '✓';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 800 var(--fs-2xs)/1 var(--font-mono);
+}
+
+.theme-chip-rail {
+  display: block;
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+.theme-chip-rail svg {
+  display: block;
+  width: 100%;
+  height: 50px;
+}
+
+.theme-chip-rail .rail-main {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.theme-chip-rail .rail-branch {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+}
+
+.theme-chip-rail .n-accent {
+  fill: var(--accent);
+}
+.theme-chip-rail .n-purple {
+  fill: var(--purple);
+}
+.theme-chip-rail .n-green {
+  fill: var(--green);
+}
+.theme-chip-rail .n-orange {
+  fill: var(--orange);
+}
+.theme-chip-rail .t-strong {
+  fill: var(--text);
+  opacity: 0.75;
+}
+.theme-chip-rail .t-mut {
+  fill: var(--text-mut);
+}
+.theme-chip-rail .t-dim {
+  fill: var(--text-mut);
+  opacity: 0.6;
+}
+
+.theme-chip-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.theme-chip-name b {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+}
+
+.theme-chip-name small {
+  flex: none;
+  color: var(--text-mut);
+  font: 500 var(--fs-2xs) var(--font-mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* graph settings live preview — sticks to the top of the settings scroll
+   so option cards below update it in place, crosshair-creator style */
+.graph-preview-sticky {
+  position: sticky;
+  top: -4px;
+  z-index: 8;
+  margin: 0 calc(-1 * var(--space-10));
+  padding: var(--space-3) var(--space-10) var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.graph-preview-frame {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--read-bg);
+}
+
+/* .graph-canvas positions absolutely to overlay the commit list; in the
+   preview it participates in the flex row instead */
+.graph-preview-frame .graph-canvas {
+  position: static;
+  flex: none;
+}
+
+.graph-preview-rows {
+  flex: 1;
+  min-width: 0;
+}
+
+.graph-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--space-6) 0 var(--space-2);
+}
+
+.gp-subject {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gp-hash {
+  flex: none;
+  color: var(--text-mut);
+  font: var(--fs-2xs) var(--font-mono);
+}
+
+/* compact option cards — bends / collisions / node glyphs */
+.graph-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.graph-style-card.compact {
+  gap: var(--space-2);
+  padding: var(--space-3);
+  justify-items: center;
+  text-align: center;
+}
+
+.graph-style-card.compact b {
+  font-size: var(--fs-xs);
+}
+
+.graph-mini-preview {
+  width: 100%;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.graph-mini-preview svg {
+  display: block;
+  width: 34px;
+  height: 22px;
+}
+
+.graph-mini-preview .mini-lane {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.graph-mini-preview .mini-flow {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.graph-mini-preview .mini-flow.fade {
+  opacity: 0.4;
+}
+
+.graph-mini-preview .mini-node {
+  fill: var(--accent);
+}
+
+.graph-mini-preview .mini-node.flow {
+  fill: var(--green);
+}
+
+.graph-mini-preview .mini-ring {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.set-kbd-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.set-kbd-grid span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.set-kbd-grid b {
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: var(--weight-medium);
+}
+
+@media (max-width: 620px) {
+  .modal-backdrop {
+    padding: var(--space-4);
+  }
+  .settings-modal {
+    height: calc(100dvh - 16px);
+    flex-direction: column;
+  }
+  .set-nav {
+    width: 100%;
+    padding: var(--space-4);
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .set-title,
+  .set-navfoot {
+    display: none;
+  }
+  .set-catitem {
+    flex: none;
+    white-space: nowrap;
+  }
+  .set-body {
+    min-height: 0;
+  }
+  .set-row {
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+  .set-row > span {
+    flex: 1;
+    min-width: 180px;
+  }
+  .set-content,
+  .set-head {
+    padding-inline: var(--panel-inset);
+  }
+  .graph-style-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .graph-preview-sticky {
+    margin-inline: calc(-1 * var(--panel-inset));
+    padding-inline: var(--panel-inset);
+  }
+}
+
+.avatar-placeholder-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px; }
+.avatar-placeholder-options button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; background: var(--surface-base); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+.avatar-placeholder-options button[aria-pressed='true'] { border-color: var(--accent); background: var(--selected); }
+.avatar-placeholder-options button:hover { background: var(--hover); }
+.avatar-placeholder-options b { font-size: 12px; font-weight: 500; }
+.avatar-placeholder-options small { font-size: 10px; color: var(--text-mut); }
+.avatar-placeholder-preview, .avatar-placeholder-preview svg { display: block; width: 44px; height: 44px; }
+@media (max-width: 520px) { .avatar-placeholder-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

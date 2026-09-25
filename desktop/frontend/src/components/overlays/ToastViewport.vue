@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import UiButton from '../common/UiButton.vue'
+import UiIconButton from '../common/UiIconButton.vue'
 import { type Component } from 'vue'
 import { dismissToast, type Toast, useToasts } from '../../composables/useToasts'
 import {
@@ -33,12 +35,12 @@ function runAction(toast: Toast) {
           <b>{{ toast.title }}</b>
           <small v-if="toast.message">{{ toast.message }}</small>
         </div>
-        <button v-if="toast.actionLabel" class="toast-action" type="button" @click="runAction(toast)">
+        <UiButton v-if="toast.actionLabel" class="toast-action" @click="runAction(toast)" size="sm">
           {{ toast.actionLabel }}
-        </button>
-        <button class="toast-close" type="button" aria-label="Dismiss notification" @click="dismissToast(toast.id)">
-          <PhX :size="12" weight="bold" />
-        </button>
+        </UiButton>
+        <UiIconButton class="toast-close" size="sm" label="Dismiss notification" @click="dismissToast(toast.id)">
+          <PhX weight="bold" :size="16" />
+        </UiIconButton>
       </article>
     </TransitionGroup>
   </Teleport>

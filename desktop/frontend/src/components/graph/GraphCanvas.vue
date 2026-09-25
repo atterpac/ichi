@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useShellSettings, type ShellSettings } from '../../composables/useShellSettings'
-import type { GraphGlyph, GraphLayoutRow } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import { GRAPH_ROW_HEIGHTS } from './rowDensity'
+import { loadAuthorAvatar } from './authorAvatars'
+import { drawPlaceholder } from '../common/avatarPlaceholder'
+import { laneColorVar } from './laneColors'
+import { resolveCommitAvatarHash } from './authorIdentity'
+import type {
+  GraphGlyph,
+  GraphLayoutRow,
+} from '../../bindings/github.com/atterpac/ichi/desktop/services'
 
 const props = defineProps<{
   rows: GraphLayoutRow[]
   laneCount: number
+  /** fixed row height override — used by the settings preview */
+  rowHeight?: number
 }>()
 
 const glyphWidth = 12
@@ -13,12 +23,10 @@ const railPadding = 8
 const canvas = ref<HTMLCanvasElement | null>(null)
 const settings = useShellSettings()
 
-const rowHeights: Record<ShellSettings['graphRowDensity'], number> = {
-  compact: 30,
-  comfortable: 36,
-  spacious: 44,
-}
-const rowHeight = computed(() => rowHeights[settings.graphRowDensity] ?? rowHeights.comfortable)
+const rowHeight = computed(
+  () =>
+    props.rowHeight ?? GRAPH_ROW_HEIGHTS[settings.graphRowDensity] ?? GRAPH_ROW_HEIGHTS.comfortable,
+)
 const width = computed(() => Math.max(props.laneCount, 1) * 3 * glyphWidth + railPadding * 2)
 const height = computed(() => Math.max(props.rows.length * rowHeight.value, rowHeight.value))
 type GraphCanvasStyle = ShellSettings['graphCanvasStyle']
@@ -122,6 +130,43 @@ const bends = computed(() => settings.graphBendStyle)
 const collisions = computed(() => settings.graphCollisionStyle)
 const nodeGlyph = computed(() => settings.graphNodeGlyph)
 
+const avatarImages = new Map<string, HTMLImageElement>()
+const avatarHashes = new Map<string, string>()
+watch(
+  () => [settings.graphAuthorAvatars, props.rows] as const,
+  ([enabled], _, onCleanup) => {
+    let cancelled = false
+    onCleanup(() => { cancelled = true })
+    avatarImages.clear()
+    if (!enabled) return
+    avatarHashes.clear()
+    // Bound memory and parallel requests even when the graph limit is large.
+    const commits = props.rows.map(row => row.Commit?.Hash).filter((hash): hash is string => !!hash && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(hash))
+    void (async () => {
+      try {
+        for (let offset = 0; offset < commits.length; offset += 256) {
+          if (cancelled) return
+          const hashes = Object.fromEntries(await Promise.all(commits.slice(offset, offset + 256).map(async commit => [commit, await resolveCommitAvatarHash(commit)] as const)))
+          if (cancelled) return
+          for (const [commit, hash] of Object.entries(hashes)) { if (hash) avatarHashes.set(commit, hash) }
+        }
+        const authors = [...new Set(avatarHashes.values())].slice(0, 256)
+        let cursor = 0
+        const worker = async () => {
+          while (!cancelled && cursor < authors.length) {
+            const hash = authors[cursor++]!
+            const image = await loadAuthorAvatar(hash)
+            if (cancelled) return
+            if (image) { avatarImages.set(hash, image); scheduleDraw() }
+          }
+        }
+        await Promise.all(Array.from({ length: 4 }, worker))
+      } catch { /* Offline or unavailable attribution: keep local creatures. */ }
+    })()
+  },
+  { immediate: true },
+)
+
 let frame = 0
 let themeObserver: MutationObserver | null = null
 
@@ -185,6 +230,13 @@ function drawGlyph(
   ctx.shadowBlur = settings.graphCanvasStyle === 'neon' ? profile.value.glow : 0
   ctx.shadowColor = settings.graphCanvasStyle === 'neon' ? color : 'transparent'
 
+  const commit = props.rows[rowIndex]?.Commit
+  if (settings.graphAuthorAvatars && commit && ['node', 'head-node', 'merge-node'].includes(glyph.Kind)) {
+    drawNodeLine(ctx, centerX, top, midY, bottom, color, glyph.ConnectTop, glyph.ConnectBottom)
+    drawAuthorNode(ctx, centerX, midY, color, commit.Author, avatarHashes.get(commit.Hash) ?? '', glyph.Kind === 'head-node')
+    return
+  }
+
   switch (glyph.Kind) {
     case 'vertical':
       drawPath(ctx, [
@@ -229,9 +281,21 @@ function drawGlyph(
       break
     case 'node':
     case 'head-node':
-    case 'unstaged-node':
       drawNodeLine(ctx, centerX, top, midY, bottom, color, glyph.ConnectTop, glyph.ConnectBottom)
-      drawCircleNode(ctx, centerX, midY, glyph.Kind === 'head-node', color, glyph.Kind === 'unstaged-node')
+      drawCircleNode(
+        ctx,
+        centerX,
+        midY,
+        glyph.Kind === 'head-node',
+        color,
+      )
+      break
+    case 'unstaged-node':
+      ctx.save()
+      ctx.setLineDash([3, 3])
+      drawNodeLine(ctx, centerX, top, midY, bottom, color, glyph.ConnectTop, glyph.ConnectBottom)
+      ctx.restore()
+      drawWorkingNode(ctx, centerX, midY, color)
       break
     case 'merge-node':
     case 'stash-node':
@@ -329,7 +393,7 @@ function drawCollisionArm(
   }
   if (collisions.value === 'fade') {
     ctx.save()
-    ctx.globalAlpha = .45
+    ctx.globalAlpha = 0.45
     drawPath(ctx, [
       [fromX, midY],
       [toX, midY],
@@ -386,7 +450,7 @@ function drawCross(
   }
   if (collisions.value === 'fade') {
     ctx.save()
-    ctx.globalAlpha = .42
+    ctx.globalAlpha = 0.42
     drawPath(ctx, [
       [leftX, midY],
       [rightX, midY],
@@ -428,18 +492,56 @@ function drawNodeLine(
   ctx.restore()
 }
 
+function drawAuthorNode(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, name: string, hash: string, isHead: boolean) {
+  const radius = 10
+  const image = avatarImages.get(hash)
+  ctx.save()
+  ctx.shadowBlur = 0
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.fillStyle = themeVar('--surface')
+  ctx.fill()
+  ctx.save()
+  ctx.clip()
+  if (image) ctx.drawImage(image, x - radius, y - radius, radius * 2, radius * 2)
+  else {
+    drawPlaceholder(ctx, name, settings.avatarPlaceholder, x - radius, y - radius, radius * 2)
+  }
+  ctx.restore()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  if (isHead) {
+    ctx.beginPath()
+    ctx.arc(x, y, radius + 3, 0, Math.PI * 2)
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 function drawCircleNode(
   ctx: CanvasRenderingContext2D,
   centerX: number,
   centerY: number,
   isHead: boolean,
   color: string,
-  isUnstaged = false,
 ) {
   const surface = themeVar('--surface')
   const radius = isHead ? profile.value.headRadius : profile.value.nodeRadius
   const glyph = nodeGlyph.value
 
+  if (isHead) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(centerX, centerY, radius + 3, 0, Math.PI * 2)
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1.5
+    ctx.globalAlpha = 0.55
+    ctx.shadowBlur = 0
+    ctx.stroke()
+    ctx.restore()
+  }
   ctx.beginPath()
   if (glyph === 'diamond') {
     drawDiamondShape(ctx, centerX, centerY, radius)
@@ -450,30 +552,50 @@ function drawCircleNode(
   } else {
     ctx.arc(centerX, centerY, radius, 0, Math.PI * 2)
   }
-  if (profile.value.hollowNodes || glyph === 'ring' || isUnstaged) ctx.fillStyle = surface
+  if (profile.value.hollowNodes || glyph === 'ring') ctx.fillStyle = surface
   ctx.fill()
   ctx.lineWidth = profile.value.nodeStrokeWidth
   ctx.strokeStyle = surface
-  if (profile.value.hollowNodes || glyph === 'ring' || isUnstaged) ctx.strokeStyle = color
+  if (profile.value.hollowNodes || glyph === 'ring') ctx.strokeStyle = color
   ctx.stroke()
 
-  if (isHead || isUnstaged) {
+  if (isHead) {
     ctx.beginPath()
-    if (isUnstaged) {
-      ctx.strokeStyle = color
-      ctx.lineWidth = Math.max(1, profile.value.lineWidth - 0.5)
-      ctx.moveTo(centerX, centerY - 3)
-      ctx.lineTo(centerX, centerY + 3)
-      ctx.stroke()
-    } else {
-      ctx.fillStyle = surface
-      ctx.arc(centerX, centerY, 2.1, 0, Math.PI * 2)
-      ctx.fill()
-    }
+    ctx.fillStyle = surface
+    ctx.arc(centerX, centerY, 2.1, 0, Math.PI * 2)
+    ctx.fill()
   }
 }
 
-function drawDiamondNode(ctx: CanvasRenderingContext2D, centerX: number, centerY: number, isHollow: boolean) {
+/** Phosphor CircleDashed's six rounded arcs, drawn at graph-node scale. */
+function drawWorkingNode(ctx: CanvasRenderingContext2D, x: number, y: number, color: string) {
+  const radius = Math.max(5.5, profile.value.nodeRadius + 1)
+  ctx.save()
+  ctx.shadowBlur = 0
+  ctx.setLineDash([])
+  // Mask the connector inside the ring so this remains an empty pending node.
+  ctx.beginPath()
+  ctx.arc(x, y, radius + 1, 0, Math.PI * 2)
+  ctx.fillStyle = themeVar('--surface')
+  ctx.fill()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1.5
+  ctx.lineCap = 'round'
+  for (let segment = 0; segment < 6; segment++) {
+    const center = -Math.PI / 2 + segment * Math.PI / 3
+    ctx.beginPath()
+    ctx.arc(x, y, radius, center - Math.PI / 12, center + Math.PI / 12)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+function drawDiamondNode(
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  isHollow: boolean,
+) {
   const surface = themeVar('--surface')
   const radius = profile.value.diamondRadius
   const glyph = nodeGlyph.value
@@ -503,14 +625,24 @@ function drawDiamondNode(ctx: CanvasRenderingContext2D, centerX: number, centerY
   }
 }
 
-function drawDiamondShape(ctx: CanvasRenderingContext2D, centerX: number, centerY: number, radius: number) {
+function drawDiamondShape(
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+) {
   ctx.moveTo(centerX, centerY - radius - 1)
   ctx.lineTo(centerX + radius, centerY)
   ctx.lineTo(centerX, centerY + radius + 1)
   ctx.lineTo(centerX - radius, centerY)
 }
 
-function drawTerminalShape(ctx: CanvasRenderingContext2D, centerX: number, centerY: number, radius: number) {
+function drawTerminalShape(
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+) {
   const width = radius * 1.7
   const height = radius * 2.35
   ctx.roundRect(centerX - width / 2, centerY - height / 2, width, height, 3)
@@ -520,16 +652,7 @@ function laneColor(colorID: number) {
   if (profile.value.mono) {
     return themeVar('--accent')
   }
-  const colors = [
-    themeVar('--accent'),
-    themeVar('--green'),
-    themeVar('--orange'),
-    themeVar('--cyan'),
-    themeVar('--red'),
-    themeVar('--purple'),
-    themeVar('--accent'),
-  ]
-  return colors[Math.abs(colorID) % colors.length] || colors[0] || '#7aa2f7'
+  return themeVar(laneColorVar(colorID)) || '#7aa2f7'
 }
 
 function themeVar(name: string) {
@@ -540,10 +663,13 @@ watch(
   () => [
     props.rows,
     props.laneCount,
+    props.rowHeight,
     settings.graphCanvasStyle,
     settings.graphBendStyle,
     settings.graphCollisionStyle,
     settings.graphNodeGlyph,
+    settings.graphAuthorAvatars,
+    settings.avatarPlaceholder,
     settings.graphRowDensity,
   ],
   scheduleDraw,

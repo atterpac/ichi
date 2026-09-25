@@ -193,6 +193,7 @@ export function useVimList<T>(
   }
 
   function handleKey(e: KeyboardEvent): boolean {
+    if (e.altKey || e.isComposing || e.defaultPrevented) return false
     if (searchActive.value) return handleSearchKey(e)
 
     const key = e.key

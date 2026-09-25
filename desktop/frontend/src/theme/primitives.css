@@ -1,0 +1,181 @@
+/* Shared sizing applies to native fields as well as Vue primitives. */
+:where(.ui-button, .ui-field, .ui-control) {
+  --control-height: var(--control-height-md);
+  --control-pad: var(--control-pad-md);
+  --control-font: var(--fs-md);
+  --control-line: var(--control-line-md);
+  --control-icon: var(--control-icon-md);
+  --control-gap: var(--space-3);
+}
+:where(.ui-button, .ui-field, .ui-control).size-sm {
+  --control-height: var(--control-height-sm);
+  --control-pad: var(--control-pad-sm);
+  --control-font: var(--fs-sm);
+  --control-line: var(--control-line-sm);
+  --control-icon: var(--control-icon-sm);
+  --control-gap: var(--space-2);
+}
+:where(.ui-button, .ui-field, .ui-control).size-lg {
+  --control-height: var(--control-height-lg);
+  --control-pad: var(--control-pad-lg);
+  --control-font: var(--fs-body-lg);
+  --control-line: var(--control-line-lg);
+  --control-icon: var(--control-icon-lg);
+}
+.ui-button,
+.ui-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--control-gap);
+  min-width: 0;
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0 var(--control-pad);
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--text-dim);
+  font: var(--weight-medium) var(--control-font)/var(--control-line) var(--font-ui);
+  white-space: nowrap;
+  transition:
+    background var(--ease-fast),
+    border-color var(--ease-fast),
+    color var(--ease-fast);
+}
+:where(.ui-button, .ui-control) > svg {
+  flex: none;
+  width: var(--control-icon);
+  height: var(--control-icon);
+}
+.ui-button.icon-only {
+  width: var(--control-height);
+  flex: none;
+  padding: 0;
+}
+.ui-button.block {
+  width: 100%;
+}
+.ui-button:hover:not(:disabled),
+.ui-control:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--border-2);
+  color: var(--text);
+}
+.ui-button.active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.ui-button.variant-primary {
+  border-color: var(--accent-text);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.ui-button.variant-primary:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--accent) 88%, white);
+  color: var(--accent-ink);
+}
+.ui-button.variant-danger {
+  color: var(--negative-text);
+}
+.ui-button.variant-danger:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--red) 45%, var(--surface-panel));
+  background: color-mix(in oklab, var(--red) 10%, transparent);
+  color: var(--negative-text);
+}
+.ui-button.variant-ghost {
+  border-color: transparent;
+}
+.ui-button.variant-ghost:hover:not(:disabled) {
+  border-color: transparent;
+}
+.ui-button:disabled,
+.ui-control:disabled,
+.ui-field:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ui-button[aria-busy='true'] {
+  cursor: progress;
+}
+.ui-button.variant-primary kbd {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--accent-ink) 16%, transparent);
+  color: var(--accent-ink);
+}
+.ui-field {
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 var(--control-pad);
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--surface-panel);
+  color: var(--text);
+  font: var(--weight-regular) var(--control-font)/var(--control-line) var(--font-ui);
+  transition:
+    border-color var(--ease-fast),
+    background var(--ease-fast);
+}
+select.ui-field {
+  padding-right: var(--space-12);
+}
+textarea.ui-field {
+  height: auto;
+  min-height: 80px;
+  padding-block: var(--space-4);
+  line-height: 1.5;
+  resize: vertical;
+}
+.ui-field::placeholder {
+  color: var(--text-mut);
+}
+.ui-field:hover:not(:disabled) {
+  border-color: var(--border-2);
+}
+.ui-field:focus {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.ui-field[aria-invalid='true'] {
+  border-color: var(--negative-text);
+}
+.ui-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  border-bottom: 1px solid var(--border);
+}
+.ui-tabs > button {
+  min-height: var(--control-height-md);
+  padding: var(--space-2) 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-mut);
+  font: var(--weight-medium) var(--fs-sm)/1.5 var(--font-ui);
+}
+.ui-tabs > button:hover {
+  color: var(--text);
+}
+.ui-tabs > button[aria-selected='true'] {
+  color: var(--head);
+  border-bottom-color: var(--accent-text);
+}
+
+/* Keep SVG icons at their declared size; text line boxes must not shrink them. */
+:where(button, .repo-branch, .ref-label, .directory-toggle) > svg {
+  display: block;
+  flex-shrink: 0;
+}
+.disclosure-icon {
+  flex: none;
+  transform-origin: center;
+}
+.disclosure-icon.expanded {
+  transform: rotate(90deg);
+}
+
+/* Shared author attribution: fixed avatar, shrinking name, no row-height shift. */
+.author-identity { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.author-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
