@@ -31,8 +31,8 @@ watch(() => [props.commit, props.email, props.name], async (_, __, onCleanup) =>
 </template>
 
 <style scoped>
-.author-avatar { display: inline-flex; flex: none; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; background: var(--surface-2); color: var(--text); font-family: var(--font-mono); line-height: 1; vertical-align: middle; }
+.author-avatar { display: inline-flex; flex: none; align-items: center; justify-content: center; overflow: hidden; border-radius: 4px; background: var(--surface-2); color: var(--text); font-family: var(--font-mono); line-height: 1; vertical-align: middle; }
 .author-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.author-avatar:has(.author-placeholder) { border-radius: 4px; background: transparent; }
+.author-avatar:has(.author-placeholder) { background: transparent; }
 .author-placeholder, .author-placeholder :deep(svg) { display: block; width: 100%; height: 100%; }
 </style>

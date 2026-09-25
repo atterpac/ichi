@@ -11,7 +11,7 @@ const visibleStyles = computed(() =>
     ? avatarStyles.filter(
         (style) => ['relay', 'spore', 'lumen', 'alley'].includes(style.id),
       )
-    : avatarStyles.slice(0, 6),
+    : avatarStyles.filter((style) => !['relay', 'spore', 'lumen', 'alley'].includes(style.id)),
 )
 function setCollection(value: 'pixels' | 'originals') {
   collection.value = value

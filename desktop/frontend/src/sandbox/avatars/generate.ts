@@ -1,3 +1,4 @@
+import { auroraStyle, auroraSvg } from '../../components/common/avatarAurora'
 import { seedHash, random, palettes } from '../../components/common/avatarSeed'
 export { seedHash } from '../../components/common/avatarSeed'
 import { pixelCreature, pixelStyles, type PixelStyle } from '../../components/common/avatarPixels'
@@ -45,6 +46,7 @@ export const avatarStyles = [
     description: 'A little pixel creature with a recognizable expression.',
     note: 'Playful, with a face you can remember.',
   },
+  auroraStyle,
   ...pixelStyles,
 ] as const
 export type AvatarStyle = (typeof avatarStyles)[number]['id']
@@ -54,6 +56,7 @@ const point = (x: number, y: number) => `${n(x)},${n(y)}`
 
 /** Only generated numbers and fixed palette colors enter the SVG markup. */
 export function avatarSvg(input: string, style: AvatarStyle): string {
+  if (style === 'aurora') return auroraSvg(input)
   const r = random(seedHash(`${style}:${input}`))
   const palette = palettes[Math.floor(r() * palettes.length)]!
   const color = () => palette[Math.floor(r() * palette.length)]!
