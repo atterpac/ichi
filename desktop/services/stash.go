@@ -46,6 +46,18 @@ func (s *StashService) StashShow(index int) (string, error) {
 	return repo.StashShow(index)
 }
 
+func (s *StashService) StashFiles(index int) ([]git.FileChurn, error) {
+	repo, err := s.state.Repo()
+	if err != nil {
+		return nil, err
+	}
+	return repo.StashFiles(index)
+}
+
+func (s *StashService) StashCheckoutFiles(index int, paths []string) error {
+	return s.mutate(func(repo *git.Repository) error { return repo.StashCheckoutFiles(index, paths) })
+}
+
 func (s *StashService) StashBranch(branchName string, index int) error {
 	return s.mutate(func(repo *git.Repository) error { return repo.StashBranch(branchName, index) })
 }

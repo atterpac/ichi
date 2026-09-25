@@ -141,6 +141,29 @@ func (r *Repository) StashShow(index int) (string, error) {
 	return r.run("stash", "show", "-p", stashRef(index))
 }
 
+// StashFiles returns the per-file numstat for a stash entry, so callers can
+// render file chips instead of a raw diff. Untracked files captured in the stash
+// are included.
+func (r *Repository) StashFiles(index int) ([]FileChurn, error) {
+	out, err := r.run("stash", "show", "--include-untracked", "--numstat", stashRef(index))
+	if err != nil {
+		return nil, err
+	}
+	return parseChurn(out), nil
+}
+
+// StashCheckoutFiles restores specific files from a stash into the worktree
+// without applying (or dropping) the whole stash. This overwrites the worktree
+// copy of each path with the stashed version — it is a checkout, not a merge.
+func (r *Repository) StashCheckoutFiles(index int, paths []string) error {
+	if len(paths) == 0 {
+		return fmt.Errorf("no files selected")
+	}
+	args := append([]string{"checkout", stashRef(index), "--"}, paths...)
+	_, err := r.run(args...)
+	return err
+}
+
 // StashBranch creates a branch from a stash.
 func (r *Repository) StashBranch(branchName string, index int) error {
 	_, err := r.run("stash", "branch", branchName, stashRef(index))

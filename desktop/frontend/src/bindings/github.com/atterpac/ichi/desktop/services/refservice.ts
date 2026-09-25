@@ -107,6 +107,10 @@ export function ResetHard(ref: string): $CancellablePromise<void> {
     return $Call.ByID(2260796214, ref);
 }
 
+export function ResetMixed(ref: string): $CancellablePromise<void> {
+    return $Call.ByID(3099775618, ref);
+}
+
 export function ResetSoft(ref: string): $CancellablePromise<void> {
     return $Call.ByID(2689658927, ref);
 }

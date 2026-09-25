@@ -13,6 +13,16 @@ import * as git$0 from "../../internal/git/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * AuthorAvatarHashes reads attribution only when author avatars are enabled.
+ * The client receives Gravatar identifiers, not raw author email addresses.
+ */
+export function AuthorAvatarHashes(commits: string[]): $CancellablePromise<{ [_ in string]?: string }> {
+    return $Call.ByID(37209763, commits).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
 export function DropCommit(hash: string): $CancellablePromise<void> {
     return $Call.ByID(784815965, hash);
 }
@@ -27,25 +37,25 @@ export function IsCommitPushed(hash: string): $CancellablePromise<boolean> {
 
 export function LoadCommit(hash: string): $CancellablePromise<git$0.CommitDetail | null> {
     return $Call.ByID(538336828, hash).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
 export function LoadGraph(limit: number): $CancellablePromise<git$0.Graph | null> {
     return $Call.ByID(207611783, limit).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType4($result);
     });
 }
 
 export function LoadGraphLayout(limit: number): $CancellablePromise<$models.GraphLayout | null> {
     return $Call.ByID(3171989245, limit).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType6($result);
     });
 }
 
 export function LoadGraphStashes(): $CancellablePromise<(git$0.Commit | null)[]> {
     return $Call.ByID(1387277908).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType9($result);
     });
 }
 
@@ -55,17 +65,18 @@ export function RenameCommit(hash: string, message: string): $CancellablePromise
 
 export function SearchCommits(query: string, limit: number): $CancellablePromise<(git$0.Commit | null)[]> {
     return $Call.ByID(3800079149, query, limit).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType9($result);
     });
 }
 
 // Private type creation functions
-const $$createType0 = git$0.CommitDetail.createFrom;
-const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = git$0.Graph.createFrom;
-const $$createType3 = $Create.Nullable($$createType2);
-const $$createType4 = $models.GraphLayout.createFrom;
-const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = git$0.Commit.createFrom;
-const $$createType7 = $Create.Nullable($$createType6);
-const $$createType8 = $Create.Array($$createType7);
+const $$createType0 = $Create.Map($Create.Any, $Create.Any);
+const $$createType1 = git$0.CommitDetail.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);
+const $$createType3 = git$0.Graph.createFrom;
+const $$createType4 = $Create.Nullable($$createType3);
+const $$createType5 = $models.GraphLayout.createFrom;
+const $$createType6 = $Create.Nullable($$createType5);
+const $$createType7 = git$0.Commit.createFrom;
+const $$createType8 = $Create.Nullable($$createType7);
+const $$createType9 = $Create.Array($$createType8);

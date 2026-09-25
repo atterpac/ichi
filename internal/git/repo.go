@@ -225,6 +225,13 @@ func (r *Repository) ResetSoft(ref string) error {
 	return err
 }
 
+// ResetMixed performs a mixed reset to a commit (moves HEAD, keeps the worktree,
+// resets the index). This is git's default reset mode.
+func (r *Repository) ResetMixed(ref string) error {
+	_, err := r.run("reset", "--mixed", ref)
+	return err
+}
+
 // DiscardFileChanges discards all unstaged changes to a file.
 func (r *Repository) DiscardFileChanges(file string) error {
 	_, err := r.run("checkout", "--", file)

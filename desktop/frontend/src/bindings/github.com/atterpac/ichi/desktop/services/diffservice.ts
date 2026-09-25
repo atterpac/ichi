@@ -33,10 +33,18 @@ export function FileDiff(hash: string, path: string): $CancellablePromise<string
     return $Call.ByID(448168455, hash, path);
 }
 
+export function LoadEditorFile(file: string): $CancellablePromise<string> {
+    return $Call.ByID(3245092857, file);
+}
+
 export function ParseDiff(raw: string): $CancellablePromise<(git$0.FileDiff | null)[]> {
     return $Call.ByID(2252851846, raw).then(($result: any) => {
         return $$createType2($result);
     });
+}
+
+export function SaveEditorFile(file: string, original: string, replacement: string): $CancellablePromise<void> {
+    return $Call.ByID(3563504704, file, original, replacement);
 }
 
 export function StageHunk(path: string, hunk: git$0.DiffHunk | null): $CancellablePromise<void> {

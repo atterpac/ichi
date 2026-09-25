@@ -1,6 +1,7 @@
 package git
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -9,18 +10,19 @@ import (
 
 // Commit is a plain-data commit record, free of any UI/layout state.
 type Commit struct {
-	Hash      string
-	ShortHash string
-	Message   string
-	Author    string
-	Date      time.Time
-	Parents   []string
-	Refs      []string
-	Branch    string
-	IsMerge   bool
-	IsStash   bool
-	Ahead     int
-	Behind    int
+	Hash        string
+	ShortHash   string
+	Message     string
+	Author      string
+	Date        time.Time
+	Parents     []string
+	Refs        []string
+	Decorations []RefDecoration
+	Branch      string
+	IsMerge     bool
+	IsStash     bool
+	Ahead       int
+	Behind      int
 }
 
 // Graph is the commit graph as plain data (newest first) with a hash lookup.
@@ -55,6 +57,11 @@ func (r *Repository) LoadGraph(limit int) (*Graph, error) {
 	graph := &Graph{CommitMap: make(map[string]*Commit)}
 	graph.CurrentBranch = r.CurrentBranch()
 
+	remotes := make(map[string]bool)
+	for _, name := range r.ListRemotes() {
+		remotes[name] = true
+	}
+
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
@@ -69,8 +76,10 @@ func (r *Repository) LoadGraph(limit int) (*Graph, error) {
 		parents := strings.Fields(parts[5])
 
 		var refs []string
+		var decorations []RefDecoration
 		if len(parts) > 6 && parts[6] != "" {
 			refs = parseRefs(parts[6])
+			decorations = parseDecorations(parts[6], remotes)
 		}
 
 		// Determine branch name from refs
@@ -83,15 +92,16 @@ func (r *Repository) LoadGraph(limit int) (*Graph, error) {
 		}
 
 		commit := &Commit{
-			Hash:      parts[0],
-			ShortHash: parts[1],
-			Message:   parts[2],
-			Author:    parts[3],
-			Date:      time.Unix(timestamp, 0),
-			Parents:   parents,
-			IsMerge:   len(parents) > 1,
-			Refs:      refs,
-			Branch:    branch,
+			Hash:        parts[0],
+			ShortHash:   parts[1],
+			Message:     parts[2],
+			Author:      parts[3],
+			Date:        time.Unix(timestamp, 0),
+			Parents:     parents,
+			IsMerge:     len(parents) > 1,
+			Refs:        refs,
+			Decorations: decorations,
+			Branch:      branch,
 		}
 
 		// Mark if this is the HEAD commit
@@ -105,6 +115,17 @@ func (r *Repository) LoadGraph(limit int) (*Graph, error) {
 			}
 			if !hasHead {
 				commit.Refs = append([]string{"HEAD"}, commit.Refs...)
+			}
+			// Detached HEAD carries no branch decoration — surface it explicitly.
+			hasHeadDec := false
+			for _, d := range commit.Decorations {
+				if d.Kind == "head" || d.IsHead {
+					hasHeadDec = true
+					break
+				}
+			}
+			if !hasHeadDec {
+				commit.Decorations = append([]RefDecoration{{Name: "HEAD", Kind: "head"}}, commit.Decorations...)
 			}
 		}
 
@@ -374,51 +395,68 @@ type ChangedFile struct {
 	Deletions  int
 }
 
-// SearchCommits searches commits by message, author, or hash.
+var hexQuery = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
+
+// parseSearchLine parses one "%H|%h|%s|%an|%at|%P" log line.
+func parseSearchLine(line string) *Commit {
+	parts := strings.SplitN(line, "|", 6)
+	if len(parts) < 6 {
+		return nil
+	}
+	timestamp, _ := strconv.ParseInt(parts[4], 10, 64)
+	parents := strings.Fields(parts[5])
+	return &Commit{
+		Hash:      parts[0],
+		ShortHash: parts[1],
+		Message:   parts[2],
+		Author:    parts[3],
+		Date:      time.Unix(timestamp, 0),
+		Parents:   parents,
+		IsMerge:   len(parents) > 1,
+	}
+}
+
+// SearchCommits searches commits by hash prefix, message, and author
+// (case-insensitive). A hash match ranks first; the rest are deduped in
+// message-then-author order, capped at limit.
 func (r *Repository) SearchCommits(query string, limit int) ([]*Commit, error) {
 	format := "%H|%h|%s|%an|%at|%P"
-	out, err := r.run("log", "--all",
-		"--max-count="+strconv.Itoa(limit),
-		"--grep="+query,
-		"--format="+format)
-	if err != nil {
-		// Try searching by hash
-		out, err = r.run("log", "--all",
-			"--max-count="+strconv.Itoa(limit),
-			"--format="+format,
-			query)
-		if err != nil {
-			return nil, err
-		}
-	}
+	max := "--max-count=" + strconv.Itoa(limit)
 
 	var commits []*Commit
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
+	seen := map[string]bool{}
+	add := func(out string) {
+		for _, line := range strings.Split(out, "\n") {
+			if line == "" {
+				continue
+			}
+			if c := parseSearchLine(line); c != nil && !seen[c.Hash] {
+				seen[c.Hash] = true
+				commits = append(commits, c)
+			}
 		}
-
-		parts := strings.SplitN(line, "|", 6)
-		if len(parts) < 5 {
-			continue
-		}
-
-		timestamp, _ := strconv.ParseInt(parts[4], 10, 64)
-		parents := strings.Fields(parts[5])
-
-		commit := &Commit{
-			Hash:      parts[0],
-			ShortHash: parts[1],
-			Message:   parts[2],
-			Author:    parts[3],
-			Date:      time.Unix(timestamp, 0),
-			Parents:   parents,
-			IsMerge:   len(parents) > 1,
-		}
-
-		commits = append(commits, commit)
 	}
 
+	// hash prefix first — an exact-id lookup is the strongest intent signal
+	if hexQuery.MatchString(query) {
+		if out, err := r.run("log", "-1", "--format="+format, query); err == nil {
+			add(out)
+		}
+	}
+
+	byMessage, err := r.run("log", "--all", max, "--regexp-ignore-case", "--grep="+query, "--format="+format)
+	if err != nil {
+		return nil, err
+	}
+	add(byMessage)
+
+	if byAuthor, err := r.run("log", "--all", max, "--regexp-ignore-case", "--author="+query, "--format="+format); err == nil {
+		add(byAuthor)
+	}
+
+	if len(commits) > limit {
+		commits = commits[:limit]
+	}
 	return commits, nil
 }
 
@@ -469,6 +507,45 @@ func (r *Repository) LoadStashes() ([]*Commit, error) {
 }
 
 // parseRefs parses the ref string from git log.
+// RefDecoration is a single ref pointing at a commit, classified so the UI can
+// colour it and offer the right actions without re-deriving the kind.
+type RefDecoration struct {
+	Name   string // short name: "main", "origin/main", "v1.2.0"
+	Kind   string // "head" (detached) | "branch" | "remote" | "tag"
+	IsHead bool   // local branch that HEAD is currently on
+}
+
+// parseDecorations classifies the raw %D decoration string, preserving the
+// tag:/HEAD-> markers that parseRefs discards. remotes lets it tell a remote
+// tracking ref ("origin/x") from a local branch that merely contains a slash.
+func parseDecorations(refStr string, remotes map[string]bool) []RefDecoration {
+	if refStr == "" {
+		return nil
+	}
+	var decs []RefDecoration
+	for _, ref := range strings.Split(refStr, ", ") {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || strings.Contains(ref, "stash") {
+			continue
+		}
+		switch {
+		case ref == "HEAD":
+			decs = append(decs, RefDecoration{Name: "HEAD", Kind: "head"})
+		case strings.HasPrefix(ref, "HEAD -> "):
+			decs = append(decs, RefDecoration{Name: strings.TrimPrefix(ref, "HEAD -> "), Kind: "branch", IsHead: true})
+		case strings.HasPrefix(ref, "tag: "):
+			decs = append(decs, RefDecoration{Name: strings.TrimPrefix(ref, "tag: "), Kind: "tag"})
+		default:
+			kind := "branch"
+			if prefix, _, ok := strings.Cut(ref, "/"); ok && remotes[prefix] {
+				kind = "remote"
+			}
+			decs = append(decs, RefDecoration{Name: ref, Kind: kind})
+		}
+	}
+	return decs
+}
+
 func parseRefs(refStr string) []string {
 	if refStr == "" {
 		return nil

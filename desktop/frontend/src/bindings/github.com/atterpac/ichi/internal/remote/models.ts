@@ -5,10 +5,6 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as time$0 from "../../../../../time/models.js";
-
 /**
  * ChangedFile represents a file changed in a PR
  */
@@ -65,8 +61,8 @@ export class Check {
     "Status": CheckStatus;
     "Conclusion": CheckConclusion;
     "URL": string;
-    "StartedAt": time$0.Time;
-    "CompletedAt": time$0.Time;
+    "StartedAt": string;
+    "CompletedAt": string;
 
     /** Creates a new Check instance. */
     constructor($$source: Partial<Check> = {}) {
@@ -83,10 +79,10 @@ export class Check {
             this["URL"] = "";
         }
         if (!("StartedAt" in $$source)) {
-            this["StartedAt"] = null;
+            this["StartedAt"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("CompletedAt" in $$source)) {
-            this["CompletedAt"] = null;
+            this["CompletedAt"] = "0001-01-01T00:00:00.000Z";
         }
 
         Object.assign(this, $$source);
@@ -139,8 +135,8 @@ export class Comment {
     "ID": number;
     "Author": User;
     "Body": string;
-    "CreatedAt": time$0.Time;
-    "UpdatedAt": time$0.Time;
+    "CreatedAt": string;
+    "UpdatedAt": string;
     "Resolved": boolean;
 
     /**
@@ -166,10 +162,10 @@ export class Comment {
             this["Body"] = "";
         }
         if (!("CreatedAt" in $$source)) {
-            this["CreatedAt"] = null;
+            this["CreatedAt"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("UpdatedAt" in $$source)) {
-            this["UpdatedAt"] = null;
+            this["UpdatedAt"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("Resolved" in $$source)) {
             this["Resolved"] = false;
@@ -407,8 +403,8 @@ export class PullRequest {
     "HeadSHA": string;
     "Draft": boolean;
     "Mergeable": boolean | null;
-    "CreatedAt": time$0.Time;
-    "UpdatedAt": time$0.Time;
+    "CreatedAt": string;
+    "UpdatedAt": string;
     "Labels": string[];
     "Reviewers": User[];
     "Checks": Check[];
@@ -453,10 +449,10 @@ export class PullRequest {
             this["Mergeable"] = null;
         }
         if (!("CreatedAt" in $$source)) {
-            this["CreatedAt"] = null;
+            this["CreatedAt"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("UpdatedAt" in $$source)) {
-            this["UpdatedAt"] = null;
+            this["UpdatedAt"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("Labels" in $$source)) {
             this["Labels"] = [];
@@ -516,7 +512,7 @@ export class Review {
     "Author": User;
     "State": ReviewState;
     "Body": string;
-    "CreatedAt": time$0.Time;
+    "CreatedAt": string;
 
     /** Creates a new Review instance. */
     constructor($$source: Partial<Review> = {}) {
@@ -533,7 +529,7 @@ export class Review {
             this["Body"] = "";
         }
         if (!("CreatedAt" in $$source)) {
-            this["CreatedAt"] = null;
+            this["CreatedAt"] = "0001-01-01T00:00:00.000Z";
         }
 
         Object.assign(this, $$source);

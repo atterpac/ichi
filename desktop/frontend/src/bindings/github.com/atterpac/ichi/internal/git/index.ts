@@ -23,6 +23,7 @@ export {
     Graph,
     LineType,
     RefCommit,
+    RefDecoration,
     Stash,
     StatusEntry,
     Tag

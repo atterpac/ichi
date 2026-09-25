@@ -23,12 +23,22 @@ export function StashBranch(branchName: string, index: number): $CancellableProm
     return $Call.ByID(2084898505, branchName, index);
 }
 
+export function StashCheckoutFiles(index: number, paths: string[]): $CancellablePromise<void> {
+    return $Call.ByID(2390173056, index, paths);
+}
+
 export function StashClear(): $CancellablePromise<void> {
     return $Call.ByID(2198339318);
 }
 
 export function StashDropIndex(index: number): $CancellablePromise<void> {
     return $Call.ByID(3089403396, index);
+}
+
+export function StashFiles(index: number): $CancellablePromise<git$0.FileChurn[]> {
+    return $Call.ByID(2469250652, index).then(($result: any) => {
+        return $$createType3($result);
+    });
 }
 
 export function StashPopIndex(index: number): $CancellablePromise<void> {
@@ -50,3 +60,5 @@ export function StashStaged(message: string): $CancellablePromise<void> {
 // Private type creation functions
 const $$createType0 = git$0.Stash.createFrom;
 const $$createType1 = $Create.Array($$createType0);
+const $$createType2 = git$0.FileChurn.createFrom;
+const $$createType3 = $Create.Array($$createType2);

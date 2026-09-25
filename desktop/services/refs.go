@@ -102,6 +102,10 @@ func (s *RefService) ResetSoft(ref string) error {
 	return s.mutate(func(repo *git.Repository) error { return repo.ResetSoft(ref) })
 }
 
+func (s *RefService) ResetMixed(ref string) error {
+	return s.mutate(func(repo *git.Repository) error { return repo.ResetMixed(ref) })
+}
+
 func (s *RefService) ResetHard(ref string) error {
 	return s.mutate(func(repo *git.Repository) error { return repo.ResetHard(ref) })
 }

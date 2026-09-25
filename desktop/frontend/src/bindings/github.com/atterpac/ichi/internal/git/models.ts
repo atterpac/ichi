@@ -5,10 +5,6 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore: Unused imports
-import * as time$0 from "../../../../../time/models.js";
-
 /**
  * BlameLine represents a single line from git blame.
  */
@@ -240,9 +236,10 @@ export class Commit {
     "ShortHash": string;
     "Message": string;
     "Author": string;
-    "Date": time$0.Time;
+    "Date": string;
     "Parents": string[];
     "Refs": string[];
+    "Decorations": RefDecoration[];
     "Branch": string;
     "IsMerge": boolean;
     "IsStash": boolean;
@@ -264,13 +261,16 @@ export class Commit {
             this["Author"] = "";
         }
         if (!("Date" in $$source)) {
-            this["Date"] = null;
+            this["Date"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("Parents" in $$source)) {
             this["Parents"] = [];
         }
         if (!("Refs" in $$source)) {
             this["Refs"] = [];
+        }
+        if (!("Decorations" in $$source)) {
+            this["Decorations"] = [];
         }
         if (!("Branch" in $$source)) {
             this["Branch"] = "";
@@ -297,12 +297,16 @@ export class Commit {
     static createFrom($$source: any = {}): Commit {
         const $$createField5_0 = $$createType0;
         const $$createField6_0 = $$createType0;
+        const $$createField7_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Parents" in $$parsedSource) {
             $$parsedSource["Parents"] = $$createField5_0($$parsedSource["Parents"]);
         }
         if ("Refs" in $$parsedSource) {
             $$parsedSource["Refs"] = $$createField6_0($$parsedSource["Refs"]);
+        }
+        if ("Decorations" in $$parsedSource) {
+            $$parsedSource["Decorations"] = $$createField7_0($$parsedSource["Decorations"]);
         }
         return new Commit($$parsedSource as Partial<Commit>);
     }
@@ -318,10 +322,10 @@ export class CommitDetail {
     "Body": string;
     "Author": string;
     "AuthorEmail": string;
-    "AuthorDate": time$0.Time;
+    "AuthorDate": string;
     "Committer": string;
     "CommitterEmail": string;
-    "CommitterDate": time$0.Time;
+    "CommitterDate": string;
     "Parents": string[];
 
     /**
@@ -359,7 +363,7 @@ export class CommitDetail {
             this["AuthorEmail"] = "";
         }
         if (!("AuthorDate" in $$source)) {
-            this["AuthorDate"] = null;
+            this["AuthorDate"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("Committer" in $$source)) {
             this["Committer"] = "";
@@ -368,7 +372,7 @@ export class CommitDetail {
             this["CommitterEmail"] = "";
         }
         if (!("CommitterDate" in $$source)) {
-            this["CommitterDate"] = null;
+            this["CommitterDate"] = "0001-01-01T00:00:00.000Z";
         }
         if (!("Parents" in $$source)) {
             this["Parents"] = [];
@@ -403,9 +407,9 @@ export class CommitDetail {
         const $$createField11_0 = $$createType0;
         const $$createField12_0 = $$createType0;
         const $$createField13_0 = $$createType0;
-        const $$createField14_0 = $$createType1;
-        const $$createField15_0 = $$createType3;
-        const $$createField16_0 = $$createType4;
+        const $$createField14_0 = $$createType3;
+        const $$createField15_0 = $$createType5;
+        const $$createField16_0 = $$createType6;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Parents" in $$parsedSource) {
             $$parsedSource["Parents"] = $$createField10_0($$parsedSource["Parents"]);
@@ -704,7 +708,7 @@ export class DiffHunk {
      * Creates a new DiffHunk instance from a string or object.
      */
     static createFrom($$source: any = {}): DiffHunk {
-        const $$createField5_0 = $$createType7;
+        const $$createField5_0 = $$createType9;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Lines" in $$parsedSource) {
             $$parsedSource["Lines"] = $$createField5_0($$parsedSource["Lines"]);
@@ -918,7 +922,7 @@ export class FileDiff {
      * Creates a new FileDiff instance from a string or object.
      */
     static createFrom($$source: any = {}): FileDiff {
-        const $$createField3_0 = $$createType10;
+        const $$createField3_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Hunks" in $$parsedSource) {
             $$parsedSource["Hunks"] = $$createField3_0($$parsedSource["Hunks"]);
@@ -1097,8 +1101,8 @@ export class Graph {
      * Creates a new Graph instance from a string or object.
      */
     static createFrom($$source: any = {}): Graph {
-        const $$createField0_0 = $$createType13;
-        const $$createField1_0 = $$createType14;
+        const $$createField0_0 = $$createType15;
+        const $$createField1_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Commits" in $$parsedSource) {
             $$parsedSource["Commits"] = $$createField0_0($$parsedSource["Commits"]);
@@ -1173,6 +1177,51 @@ export class RefCommit {
     static createFrom($$source: any = {}): RefCommit {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new RefCommit($$parsedSource as Partial<RefCommit>);
+    }
+}
+
+/**
+ * parseRefs parses the ref string from git log.
+ * RefDecoration is a single ref pointing at a commit, classified so the UI can
+ * colour it and offer the right actions without re-deriving the kind.
+ */
+export class RefDecoration {
+    /**
+     * short name: "main", "origin/main", "v1.2.0"
+     */
+    "Name": string;
+
+    /**
+     * "head" (detached) | "branch" | "remote" | "tag"
+     */
+    "Kind": string;
+
+    /**
+     * local branch that HEAD is currently on
+     */
+    "IsHead": boolean;
+
+    /** Creates a new RefDecoration instance. */
+    constructor($$source: Partial<RefDecoration> = {}) {
+        if (!("Name" in $$source)) {
+            this["Name"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = "";
+        }
+        if (!("IsHead" in $$source)) {
+            this["IsHead"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RefDecoration instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RefDecoration {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RefDecoration($$parsedSource as Partial<RefDecoration>);
     }
 }
 
@@ -1321,17 +1370,19 @@ export class Tag {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
-const $$createType1 = CommitStats.createFrom;
-const $$createType2 = ChangedFile.createFrom;
-const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = GPGSignature.createFrom;
-const $$createType5 = DiffLine.createFrom;
-const $$createType6 = $Create.Nullable($$createType5);
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = DiffHunk.createFrom;
-const $$createType9 = $Create.Nullable($$createType8);
-const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = Commit.createFrom;
-const $$createType12 = $Create.Nullable($$createType11);
-const $$createType13 = $Create.Array($$createType12);
-const $$createType14 = $Create.Map($Create.Any, $$createType12);
+const $$createType1 = RefDecoration.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = CommitStats.createFrom;
+const $$createType4 = ChangedFile.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = GPGSignature.createFrom;
+const $$createType7 = DiffLine.createFrom;
+const $$createType8 = $Create.Nullable($$createType7);
+const $$createType9 = $Create.Array($$createType8);
+const $$createType10 = DiffHunk.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = Commit.createFrom;
+const $$createType14 = $Create.Nullable($$createType13);
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = $Create.Map($Create.Any, $$createType14);

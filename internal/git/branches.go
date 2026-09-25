@@ -395,15 +395,21 @@ func (r *Repository) DiffFiles(a, b string) ([]FileChurn, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseChurn(out), nil
+}
+
+// parseChurn turns `git diff --numstat` output into per-file FileChurn entries.
+// Binary files report "-" for both counts, which parse to 0.
+func parseChurn(out string) []FileChurn {
 	var churn []FileChurn
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		parts := strings.SplitN(line, "\t", 3)
 		if len(parts) != 3 {
 			continue
 		}
-		added, _ := strconv.Atoi(parts[0])   // "-" for binary → 0
-		deleted, _ := strconv.Atoi(parts[1]) // "-" for binary → 0
+		added, _ := strconv.Atoi(parts[0])
+		deleted, _ := strconv.Atoi(parts[1])
 		churn = append(churn, FileChurn{Path: parts[2], Added: added, Deleted: deleted})
 	}
-	return churn, nil
+	return churn
 }
