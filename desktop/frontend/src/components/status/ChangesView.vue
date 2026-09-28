@@ -38,7 +38,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  navigate: [view: string]
+  navigate: [view: string, focus?: string]
 }>()
 
 type ChangeRow = {
@@ -431,7 +431,7 @@ const vim = useVimList(rows, {
   onAction(action, payload) {
     const row = payload.items[0]
     if (action === 'open' && row) {
-      if (row.conflict) emit('navigate', 'conflicts')
+      if (row.conflict) emit('navigate', 'conflicts', row.path)
       else void focusDiff()
     }
     if (action === 'delete' && row) discardRow(row)
@@ -1111,6 +1111,34 @@ function startChangeListResize(event: PointerEvent) {
 
 onUnmounted(endChangeListResize)
 
+const sectionSplit = ref(55)
+const sectionStack = ref<HTMLElement | null>(null)
+const sectionsResizable = computed(() => splitSections.value.every(section => !section.collapsed))
+function clampSectionSplit(value: number) { return Math.max(15, Math.min(85, value)) }
+function resizeSectionsKey(event: KeyboardEvent) {
+  event.stopPropagation()
+  if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key) || isModified(event)) return
+  event.preventDefault()
+  sectionSplit.value = event.key === 'Home' ? 15 : event.key === 'End' ? 85
+    : clampSectionSplit(sectionSplit.value + (event.key === 'ArrowDown' ? 5 : -5))
+}
+function startSectionResize(event: PointerEvent) {
+  if (event.button !== 0 || !sectionsResizable.value) return
+  const handle = event.currentTarget as HTMLElement
+  handle.setPointerCapture(event.pointerId)
+}
+function moveSectionResize(event: PointerEvent) {
+  const handle = event.currentTarget as HTMLElement
+  if (!handle.hasPointerCapture(event.pointerId) || !sectionsResizable.value) return
+  const bounds = sectionStack.value?.getBoundingClientRect()
+  if (!bounds?.height) return
+  sectionSplit.value = clampSectionSplit((event.clientY - bounds.top) / bounds.height * 100)
+}
+function endSectionResize(event: PointerEvent) {
+  const handle = event.currentTarget as HTMLElement
+  if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+}
+
 const summaryLimit = 50
 </script>
 
@@ -1165,9 +1193,6 @@ const summaryLimit = 50
           @focusin="onTreeFocus"
         >
           <p v-if="!allRowCount" class="changes-section-empty">Working tree clean</p>
-          <div v-if="vim.search.active.value" class="vim-cmdline">
-            /{{ vim.search.query.value }}<span class="vim-caret">▌</span>
-          </div>
 
           <div v-if="conflictSection" class="changes-pane conflicts-pane">
             <div class="changes-section section-conflicts">
@@ -1185,7 +1210,7 @@ const summaryLimit = 50
               </button>
             </div>
 
-            <template v-if="!conflictSection.collapsed">
+            <div v-if="!conflictSection.collapsed" class="changes-section-files">
               <button
                 v-for="item in conflictSection.flat"
                 :key="item.row.key"
@@ -1196,7 +1221,7 @@ const summaryLimit = 50
                 :style="{ '--status-color': statusColor(item.row.label) }"
                 type="button"
                 :title="item.row.oldPath ? `${item.row.oldPath} → ${item.row.path}` : item.row.path"
-                @click="emit('navigate', 'conflicts')"
+                @click="emit('navigate', 'conflicts', item.row.path)"
               >
                 <span class="file-status">{{ item.row.label }}</span>
                 <span class="change-file-label"
@@ -1204,12 +1229,19 @@ const summaryLimit = 50
                   ><span v-if="item.row.dir" class="change-dir">{{ item.row.dir }}</span></span
                 >
               </button>
-            </template>
+            </div>
           </div>
 
-          <div class="changes-stack">
+          <div ref="sectionStack" class="changes-stack">
             <template v-for="section in splitSections" :key="section.id">
-              <div class="changes-pane" :class="`pane-${section.id}`">
+              <button v-if="section.id === 'staged'" class="changes-section-resizer" type="button"
+                role="separator" aria-label="Resize staged and unstaged sections" aria-orientation="horizontal"
+                :aria-valuenow="sectionSplit" :aria-valuemin="15" :aria-valuemax="85" :disabled="!sectionsResizable"
+                @keydown="resizeSectionsKey" @pointerdown.prevent.stop="startSectionResize"
+                @pointermove="moveSectionResize" @pointerup="endSectionResize" @pointercancel="endSectionResize"
+                @dblclick="sectionSplit = 55" />
+              <div class="changes-pane" :class="[`pane-${section.id}`, { 'is-collapsed': section.collapsed }]"
+                :style="{ flexGrow: section.collapsed ? 0 : section.id === 'unstaged' ? sectionSplit : 100 - sectionSplit }">
                 <div class="changes-section" :class="`section-${section.id}`">
                   <button class="section-toggle" :data-tree-key="`section:${section.id}`" :class="{ selected: treeCursorKey === `section:${section.id}` }" :aria-expanded="!section.collapsed" type="button" @click="toggleSection(section.id)">
                     <PhCaretRight class="section-chevron disclosure-icon" :class="{ expanded: !section.collapsed }" :size="12" weight="bold" aria-hidden="true" />
@@ -1226,13 +1258,14 @@ const summaryLimit = 50
                   </button>
                 </div>
 
-                <p v-if="!section.count && !section.collapsed" class="changes-section-empty">{{ section.id === 'staged' ? 'No staged files' : 'No unstaged files' }}</p>
+                <div v-if="!section.collapsed" class="changes-section-files" :aria-label="`${section.label} files`">
+                <p v-if="!section.count" class="changes-section-empty">{{ section.id === 'staged' ? 'No staged files' : 'No unstaged files' }}</p>
                 <template v-if="!section.collapsed">
                   <template v-if="section.groups">
                     <template v-for="item in section.groups" :key="item.key">
                       <button v-if="item.kind === 'dir'" class="change-dir-row" :data-tree-key="`dir:${item.key}`" :data-tree-parent="item.parentKey" :style="{ '--tree-depth': item.depth }" :title="item.dir" :class="{ selected: treeCursorKey === `dir:${item.key}` }" :aria-expanded="!item.collapsed" type="button" @click="toggleDir(item.key)">
                         <PhCaretRight class="section-chevron disclosure-icon" :class="{ expanded: !item.collapsed }" :size="12" weight="bold" aria-hidden="true" />
-                        <span class="change-tree-guides" aria-hidden="true"><i v-for="level in item.depth" :key="level" :style="{ left: `${(level - 1) * 16 + 12}px` }" /></span>
+                        <span class="change-tree-guides" aria-hidden="true"><i v-for="level in item.depth" :key="level" :style="{ left: `${(level - 1) * 12 + 12}px` }" /></span>
                         <span class="change-dir-path">{{ item.label }}</span>
                         <i class="section-count">{{ item.count }}</i>
                       </button>
@@ -1255,7 +1288,7 @@ const summaryLimit = 50
                         "
                         @click="selectRow(item.index)"
                       >
-                        <span class="change-tree-guides" aria-hidden="true"><i v-for="level in item.depth" :key="level" :style="{ left: `${(level - 1) * 16 + 12}px` }" /></span>
+                        <span class="change-tree-guides" aria-hidden="true"><i v-for="level in item.depth" :key="level" :style="{ left: `${(level - 1) * 12 + 12}px` }" /></span>
                         <span class="file-status">{{ item.row.label }}</span>
                         <span class="change-name">{{ item.row.name }}</span>
                         <span v-if="deltaFor(item.row)" class="change-delta">
@@ -1321,6 +1354,7 @@ const summaryLimit = 50
                     </button>
                   </template>
                 </template>
+                </div>
               </div>
             </template>
           </div>
@@ -1330,7 +1364,7 @@ const summaryLimit = 50
           <div class="changes-selection-summary">{{ selectionDetails.count }} {{ selectionDetails.count === 1 ? 'file' : 'files' }} · {{ selectionDetails.hint }}</div>
           <div class="changes-selection-actions">
             <UiButton size="sm" :disabled="!selectionDetails.canStage" @click="selectionAction('s')"><kbd>s</kbd>{{ selectionDetails.stageLabel }}</UiButton>
-            <UiButton size="sm" :disabled="!selectionDetails.canDiscard" @click="selectionAction('x')"><kbd>x</kbd>Discard{{ selectedScope ? ' all' : '' }}</UiButton>
+            <UiButton size="sm" variant="ghost" class="is-danger" :disabled="!selectionDetails.canDiscard" @click="selectionAction('x')"><kbd>x</kbd>Discard{{ selectedScope ? ' all' : '' }}</UiButton>
           </div>
         </footer>
       </div>

@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch, type Component } from 'vue'
-import OperationConfirmModal, { type OperationConfirmRequest } from '../overlays/OperationConfirmModal.vue'
 import { NAV_GROUPS } from './nav'
 import { notify } from '../../composables/useToasts'
 import { setModeline, useModeline } from '../../composables/useModeline'
-import { PhMagnifyingGlass, PhFileText, PhGitBranch, PhGitCommit, PhSquaresFour, PhClockCounterClockwise, PhPlus, PhArrowElbowDownLeft, PhTag, PhArrowsClockwise, PhGitDiff, PhGraph, PhArchive, PhUserList, PhClock, PhWarningDiamond, PhGitPullRequest, PhCloud } from '@phosphor-icons/vue'
+import { PhMagnifyingGlass, PhFileText, PhGitBranch, PhGitCommit, PhSquaresFour, PhClockCounterClockwise, PhArrowElbowDownLeft, PhTag, PhArrowsClockwise, PhGitDiff, PhGraph, PhArchive, PhUserList, PhClock, PhWarningDiamond, PhGitPullRequest, PhCloud } from '@phosphor-icons/vue'
 import AuthorAvatar from '../common/AuthorAvatar.vue'
 import { useWorkspaces, type WorkspaceRepo } from '../../composables/useWorkspaces'
 import { useGitProfiles } from '../../composables/useGitProfiles'
 import { switchRepository } from '../../composables/useRepoStatus'
 import { repoSwitchBlocker } from '../../composables/useRepoSwitchGuard'
 import { finderHistory, rememberFind } from './finderHistory'
-import { CompletionService, GraphService, RefService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import { CompletionService, GraphService, RefService, InspectService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import type { Branch, Commit } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
 const props = withDefaults(defineProps<{ initialQuery?: string }>(), { initialQuery: '' })
@@ -33,11 +32,10 @@ const MODES: { key: string; mode: Mode; label: string }[] = [
   { key: 'w:', mode: 'workspace', label: 'Workspaces' },
   { key: 'p:', mode: 'profile', label: 'Profiles' },
 ]
-const MODE_ORDER = MODES.map(item => item.mode)
 const input = ref<HTMLInputElement>()
 const list = ref<HTMLElement>()
 const finderId = useId()
-const icons = { repo: PhArchive, workspace: PhSquaresFour, profile: PhUserList, branch: PhGitBranch, commit: PhGitCommit, file: PhFileText, view: PhSquaresFour, create: PhPlus, search: PhClockCounterClockwise }
+const icons = { repo: PhArchive, workspace: PhSquaresFour, profile: PhUserList, branch: PhGitBranch, commit: PhGitCommit, file: PhFileText, view: PhSquaresFour, search: PhClockCounterClockwise }
 const viewIcons: Record<string, Component> = {
   graph: PhGraph,
   status: PhGitDiff,
@@ -59,7 +57,6 @@ const commitError = ref(false)
 const mode = ref<Mode>('root')
 const query = ref(props.initialQuery)
 const cursor = ref(0)
-const pendingOperation = ref<OperationConfirmRequest | null>(null)
 
 const branches = ref<Branch[]>([])
 const files = ref<string[]>([])
@@ -72,12 +69,11 @@ type Row = {
   label: string
   segs: Seg[]
   sub?: string
-  kind: 'branch' | 'commit' | 'file' | 'view' | 'create' | 'search' | 'repo' | 'workspace' | 'profile'
+  kind: 'branch' | 'commit' | 'file' | 'view' | 'search' | 'repo' | 'workspace' | 'profile'
   detail?: string
   author?: string
   commit?: string
   data?: unknown
-  groupStart?: boolean
 }
 
 function subseqHits(text: string, q: string): number[] | null {
@@ -110,14 +106,15 @@ function match<T>(items: T[], text: (item: T) => string): { item: T; hits: numbe
   return items
     .map((item) => ({ item, hits: subseqHits(text(item), query.value) }))
     .filter((m): m is { item: T; hits: number[] } => m.hits !== null)
-    .sort((a, b) => (a.hits[0] ?? 0) - (b.hits[0] ?? 0) || text(a.item).length - text(b.item).length)
+    .sort((a, b) => !query.value ? 0 : (a.hits[0] ?? 0) - (b.hits[0] ?? 0) || text(a.item).length - text(b.item).length)
 }
 
 const LIMIT = 8
-const UNIFIED_GROUP_LIMIT = 4
+const UNIFIED_GROUP_LIMIT = 8
 
 function viewEntries() {
-  return NAV_GROUPS.flatMap((g) => g.items.filter((i) => i.id !== 'finder').map((i) => ({ ...i, group: g.title })))
+  const order = ['graph', 'status', 'branches', 'stashes', 'commit']
+  return NAV_GROUPS.flatMap((g) => g.items.filter((i) => order.includes(i.id)).map((i) => ({ ...i, group: g.title }))).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 }
 
 function branchRows(cap: number): Row[] {
@@ -170,7 +167,7 @@ function workspaceRows(cap: number): Row[] {
   return match(workspaces.state.workspaces, w => w.name).slice(0, cap).map(({item, hits}) => ({ id: item.id, label: item.name, segs: toSegs(item.name, hits), sub: 'Workspace', detail: `${workspaces.state.repos.filter(r => r.workspace === item.id).length} repositories`, kind: 'workspace', data: item.id }))
 }
 function profileRows(cap: number): Row[] {
-  return match(profiles.state.profiles, p => `${p.Label} ${p.Name} ${p.Email}`).slice(0, cap).map(({item, hits}) => ({ id: item.ID, label: item.Label, segs: toSegs(item.Label, hits.filter(i => i < item.Label.length)), detail: `${item.Name} <${item.Email}>`, sub: 'Assign to workspace', kind: 'profile', data: item.ID }))
+  return match(profiles.state.profiles, p => `${p.Label} ${p.Name} ${p.Email}`).slice(0, cap).map(({item, hits}) => ({ id: item.ID, label: item.Label, segs: toSegs(item.Label, hits.filter(i => i < item.Label.length)), detail: `${item.Name} <${item.Email}>`, sub: 'Edit profile and assignments', kind: 'profile', data: item.ID }))
 }
 async function openRepository(repo: WorkspaceRepo) {
   if (openingRepo.value) return
@@ -189,7 +186,7 @@ async function openRepository(repo: WorkspaceRepo) {
 const results = computed<Row[]>(() => {
   if (mode.value === 'root') {
     if (query.value) {
-      // unified: everything at once, grouped by kind — instant sources first
+      // Rank across sources rather than putting one category ahead of every other.
       const groups = [
         repositoryRows(UNIFIED_GROUP_LIMIT),
         workspaceRows(UNIFIED_GROUP_LIMIT),
@@ -199,21 +196,23 @@ const results = computed<Row[]>(() => {
         fileRows(UNIFIED_GROUP_LIMIT),
         query.value.trim().length >= 2 ? commitRows(UNIFIED_GROUP_LIMIT) : [],
       ].filter((g) => g.length)
-      return groups.flatMap((g, gi) => g.map((row, ri) => ({ ...row, groupStart: gi > 0 && ri === 0 })))
+      const q = query.value.toLowerCase().trim()
+      const score = (row: Row) => {
+        const label = row.label.toLowerCase()
+        if (label === q) return 0
+        if (label.startsWith(q)) return 1
+        if (label.includes(q)) return 2
+        if ((row.detail ?? '').toLowerCase().includes(q)) return 3
+        return 4
+      }
+      return groups.flat().sort((a, b) => score(a) - score(b) || a.label.length - b.label.length).slice(0, LIMIT)
     }
     const recentSearches: Row[] = finderHistory.searches.slice(0, 3).map(value => ({ id: value, label: value, segs: toSegs(value, []), sub: 'Recent search', kind: 'search', data: value }))
     const recentFiles = fileRows(6, finderHistory.files.filter(file => files.value.includes(file)))
       .sort((a, b) => finderHistory.files.indexOf(a.id) - finderHistory.files.indexOf(b.id)).slice(0, 3)
-    return [...recentSearches, ...repositoryRows(3), ...recentFiles, ...viewRows(6)]
+    return [...recentFiles, ...repositoryRows(2), ...recentSearches.slice(0, 2), ...viewRows(4)].slice(0, LIMIT)
   }
-  if (mode.value === 'branch') {
-    const rows = branchRows(LIMIT)
-    const q = query.value.trim()
-    if (q && !branches.value.some((b) => b.Name === q)) {
-      rows.push({ id: '\0create', label: `＋ create branch “${q}”`, segs: toSegs(`＋ create branch “${q}”`, []), kind: 'create' })
-    }
-    return rows
-  }
+  if (mode.value === 'branch') return branchRows(LIMIT)
   if (mode.value === 'repo') return repositoryRows(LIMIT)
   if (mode.value === 'workspace') return workspaceRows(LIMIT)
   if (mode.value === 'profile') return profileRows(LIMIT)
@@ -223,7 +222,11 @@ const results = computed<Row[]>(() => {
 })
 
 watch([query, mode], () => { cursor.value = 0 })
-watch(results, () => { if (cursor.value >= results.value.length) cursor.value = Math.max(0, results.value.length - 1) })
+watch(results, (rows, previous) => {
+  const selected = previous[cursor.value]
+  const at = selected ? rows.findIndex(row => row.kind === selected.kind && row.id === selected.id) : -1
+  cursor.value = at >= 0 ? at : Math.min(cursor.value, Math.max(0, rows.length - 1))
+})
 
 // unified root: `b:` / `c:` / `f:` / `v:` prefixes lock a mode mid-typing
 const PREFIX_MODES: Record<string, Mode> = { b: 'branch', c: 'commit', f: 'file', v: 'view', r: 'repo', w: 'workspace', p: 'profile' }
@@ -281,46 +284,6 @@ function backToRoot() {
   cursor.value = 0
 }
 
-async function checkout(b: Branch) {
-  const name = b.IsRemote ? b.Name.slice(b.Name.indexOf('/') + 1) : b.Name
-  try {
-    await RefService.CheckoutBranch(name, false)
-    notify({ tone: 'success', title: `Checked out ${name}` })
-  } catch (err) {
-    notify({ tone: 'danger', title: `Checkout failed`, message: err instanceof Error ? err.message : String(err) })
-  }
-  emit('close')
-}
-
-async function createBranch(name: string) {
-  try {
-    await RefService.CheckoutBranch(name, true)
-    notify({ tone: 'success', title: `Created ${name}` })
-  } catch (err) {
-    notify({ tone: 'danger', title: `Create failed`, message: err instanceof Error ? err.message : String(err) })
-  }
-  emit('close')
-}
-
-function deleteBranch(b: Branch) {
-  if (b.IsCurrent || b.IsRemote) {
-    notify({ tone: 'danger', title: b.IsRemote ? 'Delete remote branches from the Branches view' : 'Cannot delete the checked-out branch' })
-    return
-  }
-  pendingOperation.value = {
-    title: 'Delete branch',
-    message: `Delete local branch ${b.Name}.`,
-    confirmLabel: 'Delete',
-    target: b.Name,
-    tone: 'danger',
-    onConfirm: async () => {
-      await RefService.DeleteBranch(b.Name, false)
-      notify({ tone: 'success', title: `Deleted ${b.Name}` })
-      branches.value = branches.value.filter((x) => x.Name !== b.Name)
-    },
-  }
-}
-
 function activate(row: Row) {
   if (openingRepo.value) return
   if (row.kind !== 'search') rememberFind(query.value, mode.value, row.kind === 'file' ? row.id : undefined)
@@ -334,10 +297,8 @@ function activate(row: Row) {
       input.value?.focus()
       return
     case 'branch':
-      void checkout(row.data as Branch)
-      return
-    case 'create':
-      void createBranch(query.value.trim())
+      emit('navigate', 'branches', row.id)
+      emit('close')
       return
     case 'view':
       emit('navigate', row.data as string)
@@ -354,47 +315,102 @@ function activate(row: Row) {
   }
 }
 
-const placeholder = computed(() => mode.value === 'root' ? 'Search repos, profiles, files, commits, and views…' : `Search ${MODES.find(item => item.mode === mode.value)?.label.toLowerCase()}…`)
+const placeholder = computed(() => mode.value === 'root' ? 'Find a file, commit, branch, or workspace…' : `Search ${MODES.find(item => item.mode === mode.value)?.label.toLowerCase()}…`)
+const selectedRow = computed(() => results.value[cursor.value])
 const actionHint = computed(() => {
-  const kind = results.value[cursor.value]?.kind
-  return kind === 'branch' ? 'check out' : kind === 'create' ? 'create branch' : kind === 'search' ? 'search' : 'open'
+  if (openingRepo.value) return 'Switching repository…'
+  const kind = selectedRow.value?.kind
+  return ({ branch: 'Inspect branch', file: 'Open file history', commit: 'Open commit', repo: 'Switch repository', workspace: 'Browse repositories', profile: 'Configure profile', search: 'Repeat search', view: 'Open view' })[kind ?? 'view']
+})
+const activeScope = computed(() => MODES.find(item => item.mode === mode.value))
+const prefixSuggestions = computed(() => mode.value === 'root' && /^[fcbvrwp]$/i.test(query.value) ? MODES.filter(item => item.key.startsWith(query.value.toLowerCase())) : [])
+function applyPrefix(next: Mode) { query.value = ''; enterMode(next) }
+const previewOpen = ref(false)
+const previewPane = ref<HTMLElement>()
+const previewLoading = ref(false)
+const previewError = ref('')
+const previewText = ref('')
+const canPreview = computed(() => !!selectedRow.value && !['search', 'view'].includes(selectedRow.value.kind))
+async function openPreview() {
+  if (!canPreview.value) return
+  previewOpen.value = true
+  await nextTick()
+  previewPane.value?.focus()
+}
+function closePreview() { previewOpen.value = false; void nextTick(() => input.value?.focus()) }
+watch([previewOpen, selectedRow], async ([open, row], _, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  previewText.value = ''
+  previewError.value = ''
+  previewLoading.value = false
+  if (!open || !row) return
+  previewLoading.value = true
+  try {
+    let text = ''
+    if (row.kind === 'file') {
+      const content = await InspectService.WorkingFileContent(row.id)
+      text = content.includes('\0') ? 'Binary file — no text preview.' : content.split('\n').slice(0, 100).join('\n').slice(0, 16000)
+      if (text.length < content.length && !content.includes('\0')) text += '\n… Preview truncated'
+    } else if (row.kind === 'commit') {
+      const detail = await GraphService.LoadCommit(row.id)
+      text = detail ? [detail.Subject, detail.Body, detail.Author, detail.Stats ? `${detail.Stats.FilesChanged} files · +${detail.Stats.Insertions} −${detail.Stats.Deletions}` : ''].filter(Boolean).join('\n\n') : 'Commit details unavailable.'
+    } else if (row.kind === 'branch') {
+      const branch = row.data as Branch
+      const current = branches.value.find(b => b.IsCurrent)
+      const comparison = current && current.Name !== branch.Name ? await RefService.BranchDivergence(current.Name, branch.Name) : null
+      text = [branch.Name, branch.IsCurrent ? 'Checked out' : branch.IsRemote ? 'Remote branch' : 'Local branch', branch.LastMsg, comparison ? `Compared with ${current!.Name}:\n${comparison.AheadB} commits ahead · ${comparison.AheadA} behind` : '', branch.Upstream ? `Upstream: ${branch.Upstream}` : ''].filter(Boolean).join('\n\n')
+    } else if (row.kind === 'workspace') {
+      text = workspaces.state.repos.filter(repo => repo.workspace === row.id).map(repo => `${repo.name}\n${repo.path}`).join('\n\n') || 'No repositories in this workspace.'
+    } else if (row.kind === 'profile') {
+      const profile = profiles.state.profiles.find(p => p.ID === row.id)
+      text = [row.detail, profile?.Source, 'Opens Git Profiles to edit this identity and its workspace assignments.'].filter(Boolean).join('\n\n')
+    } else text = [row.label, row.detail, row.sub].filter(Boolean).join('\n\n')
+    if (!cancelled) previewText.value = text || 'No preview content.'
+  } catch (error) { if (!cancelled) previewError.value = error instanceof Error ? error.message : String(error) }
+  finally { if (!cancelled) previewLoading.value = false }
 })
 watch([cursor, results], () => {
   void nextTick(() => list.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' }))
 })
 
 function onKey(event: KeyboardEvent) {
-  if (pendingOperation.value || openingRepo.value) return
+  if (openingRepo.value) { event.preventDefault(); event.stopPropagation(); return }
   event.stopPropagation()
   if (event.isComposing) return
   const k = event.key
-  if (k === 'Escape') { event.preventDefault(); emit('close'); return }
+  if (k === 'Escape') { event.preventDefault(); if (previewOpen.value) closePreview(); else emit('close'); return }
   if (k === 'Tab') {
-    event.preventDefault()
-    const at = MODE_ORDER.indexOf(mode.value)
-    enterMode(MODE_ORDER[(at + (event.shiftKey ? MODE_ORDER.length - 1 : 1)) % MODE_ORDER.length]!)
+    const focusable = [...(input.value?.closest('.finderbar')?.querySelectorAll<HTMLElement>('input, button:not(:disabled), [tabindex="0"]') ?? [])].filter(el => el.getClientRects().length)
+    const at = focusable.indexOf(document.activeElement as HTMLElement)
+    if (focusable.length) {
+      event.preventDefault()
+      focusable[(at + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length]?.focus()
+    }
     return
+  }
+  if (k === 'ArrowRight' && event.target === input.value && input.value?.selectionStart === query.value.length && input.value.selectionEnd === query.value.length && canPreview.value && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault(); void openPreview(); return
+  }
+  if (k === 'ArrowLeft' && previewPane.value?.contains(event.target as Node)) {
+    event.preventDefault(); closePreview(); return
   }
   if (k === 'Backspace' && !query.value && mode.value !== 'root') {
     event.preventDefault(); backToRoot(); return
   }
-  if (k === 'ArrowUp' || k === 'ArrowDown' || (event.ctrlKey && ['p', 'n'].includes(k.toLowerCase()))) {
+  if (k === 'ArrowUp' || k === 'ArrowDown' || (event.ctrlKey && ['p', 'n', 'j', 'k'].includes(k.toLowerCase()))) {
     event.preventDefault()
-    const delta = k === 'ArrowUp' || (event.ctrlKey && k.toLowerCase() === 'p') ? -1 : 1
+    const delta = k === 'ArrowUp' || (event.ctrlKey && ['p', 'k'].includes(k.toLowerCase())) ? -1 : 1
     if (results.value.length) cursor.value = (cursor.value + results.value.length + delta) % results.value.length
     return
   }
-  if (k === 'Enter' && (event.target === input.value || event.target === window)) {
+  if (k === 'Enter' && (event.target === input.value || event.target === window || event.target === previewPane.value)) {
     event.preventDefault()
     const row = results.value[cursor.value]
     if (row) activate(row)
     return
   }
-  if (event.ctrlKey && k.toLowerCase() === 'd' && mode.value === 'branch') {
-    event.preventDefault()
-    const row = results.value[cursor.value]
-    if (row?.kind === 'branch') deleteBranch(row.data as Branch)
-  }
+
 }
 
 let previousFocus: HTMLElement | null = null
@@ -425,29 +441,27 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="finder-backdrop" @mousedown.self="!pendingOperation && emit('close')">
-    <section class="finderbar" role="dialog" aria-modal="true" aria-label="Global search">
+  <div class="finder-backdrop" @mousedown.self="!openingRepo && emit('close')">
+    <section class="finderbar" :class="{ 'with-preview': previewOpen }" role="dialog" aria-modal="true" aria-label="Global search">
       <div class="fb-prompt">
         <PhMagnifyingGlass :size="21" aria-hidden="true" />
-        <input ref="input" v-model="query" class="fb-query" :placeholder="placeholder" aria-label="Search files, commits, branches, and views"
+        <button v-if="mode !== 'root'" class="fb-scope-chip" aria-label="Clear search scope" @click="backToRoot">{{ activeScope?.key }} ×</button>
+        <input ref="input" v-model="query" class="fb-query" :placeholder="placeholder" aria-label="Find files, commits, branches, repositories, and profiles"
           role="combobox" aria-autocomplete="list" aria-expanded="true" :aria-controls="`${finderId}-results`"
           :aria-activedescendant="results.length ? `${finderId}-result-${cursor}` : undefined" autocomplete="off" spellcheck="false" />
         <button class="fb-close" aria-label="Close search" @click="emit('close')">Esc</button>
       </div>
-      <div class="fb-scopes" role="group" aria-label="Search scope">
-        <button v-for="scope in MODES" :key="scope.mode" :aria-pressed="mode === scope.mode" @click="enterMode(scope.mode)">
-          {{ scope.label }}<span v-if="scope.key">{{ scope.key }}</span>
-        </button>
-      </div>
+      <div v-if="prefixSuggestions.length" class="fb-prefixes"><button v-for="scope in prefixSuggestions" :key="scope.mode" @click="applyPrefix(scope.mode)"><kbd>{{ scope.key }}</kbd> Search {{ scope.label.toLowerCase() }}</button></div>
       <div v-if="workspaceFilter" class="fb-summary"><span>Workspace: {{ workspaces.state.workspaces.find(w => w.id === workspaceFilter)?.name }}</span><button @click="workspaceFilter = ''">All repositories</button></div>
       <div v-if="profiles.state.error && mode === 'profile'" class="fb-summary" role="alert">{{ profiles.state.error }}</div>
       <div class="fb-summary" aria-live="polite">
         <span>{{ !query && mode === 'root' ? 'Recent & suggested' : `${results.length} results` }}</span>
-        <span>{{ loadingCommits ? 'Searching commits…' : commitError ? 'Commit search unavailable' : mode === 'root' ? 'Use r: w: p: f: c: b: v: to narrow' : '' }}</span>
+        <span>{{ loadingCommits ? 'Searching commits…' : commitError ? 'Commit search unavailable' : mode === 'root' && !query ? 'Files · commits · branches · workspaces' : activeScope?.label ?? '' }}</span>
       </div>
+      <div class="fb-body">
       <div :id="`${finderId}-results`" ref="list" class="fb-rows" role="listbox" aria-label="Search results" :aria-busy="loadingCommits || openingRepo">
         <div v-for="(row, i) in results" :id="`${finderId}-result-${i}`" :key="`${row.kind}:${row.id}`"
-          class="fb-row" :class="{ sel: cursor === i, create: row.kind === 'create', 'group-start': row.groupStart }"
+          class="fb-row" :class="{ sel: cursor === i }"
           role="option" :aria-selected="cursor === i" :aria-label="`${row.kind}: ${row.label}${row.detail ? ', ' + row.detail : ''}`"
           @mousemove="cursor = i" @mousedown.prevent @click="activate(row)">
           <component :is="row.kind === 'view' ? viewIcons[row.id] ?? PhSquaresFour : icons[row.kind]" class="fb-icon" :size="19" aria-hidden="true" />
@@ -458,17 +472,23 @@ onBeforeUnmount(() => {
               {{ row.detail || row.author }}
             </span>
           </span>
-          <span v-if="row.sub" class="fb-sub">{{ row.sub }}</span>
+          <span class="fb-sub"><span class="fb-kind">{{ row.kind === 'repo' ? 'Repository' : row.kind }}</span><span v-if="row.sub">{{ row.sub }}</span></span>
           <PhArrowElbowDownLeft class="fb-enter" :size="14" aria-hidden="true" />
         </div>
         <div v-if="!results.length" class="fb-empty">
           <PhMagnifyingGlass :size="28" aria-hidden="true" />
           <b>{{ loadingCommits ? 'Searching commits…' : mode === 'commit' && query.trim().length < 2 ? 'Find a commit' : 'No matches found' }}</b>
-          <span>{{ mode === 'commit' && query.trim().length < 2 ? 'Type at least two characters from a message or hash.' : 'Try a shorter search or choose another scope.' }}</span>
+          <span>{{ mode === 'commit' && query.trim().length < 2 ? 'Type at least two characters from a message or hash.' : 'Try a shorter search or a prefix such as f: or b:.' }}</span>
         </div>
       </div>
-      <footer class="fb-footer"><span><kbd>↑↓</kbd> navigate</span><span><kbd>Enter</kbd> {{ actionHint }}</span><span><kbd>Tab</kbd> scope</span><span v-if="mode === 'branch'" class="fb-extra"><kbd>Ctrl D</kbd> delete</span></footer>
+      <aside v-if="previewOpen" ref="previewPane" class="fb-preview" tabindex="0" aria-label="Result preview">
+        <header><span>{{ selectedRow?.label || 'Preview' }}</span><button aria-label="Close preview" @click="closePreview">×</button></header>
+        <p v-if="previewLoading" role="status">Loading preview…</p>
+        <p v-else-if="previewError" role="alert">{{ previewError }}</p>
+        <pre v-else :class="{ 'file-preview': selectedRow?.kind === 'file' }">{{ previewText }}</pre>
+      </aside>
+      </div>
+      <footer class="fb-footer"><span v-if="results.length"><kbd>↵</kbd> {{ actionHint }}</span><button v-if="canPreview" class="fb-preview-toggle" @click="previewOpen ? closePreview() : openPreview()"><kbd>{{ previewOpen ? '←' : '→' }}</kbd> {{ previewOpen ? 'Back to results' : 'Preview' }}</button></footer>
     </section>
-    <OperationConfirmModal v-if="pendingOperation" :request="pendingOperation" @close="pendingOperation = null; nextTick(() => input?.focus())" />
   </div>
 </template>

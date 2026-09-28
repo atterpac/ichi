@@ -399,9 +399,6 @@ onUnmounted(resetModeline)
         aria-label="Stashes"
         @keydown="onListKey" data-keyboard-pane @focusin="focusPane = 'stashes'"
       >
-        <div v-if="vim.search.active.value" class="vim-cmdline">
-          /{{ vim.search.query.value }}<span class="vim-caret">▌</span>
-        </div>
 
         <p v-if="!stashes.length" class="bd-empty">
           No stashes — press n to save the current worktree.

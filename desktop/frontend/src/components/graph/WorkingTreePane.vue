@@ -218,7 +218,7 @@ const description = (file: WorkFile) =>
     </template>
     <p v-else class="empty-tree">Working tree is clean.</p>
     <footer class="pane-footer">
-      <UiButton :disabled="!selected" @click="emit('navigate', 'status', selected?.key)"
+      <UiButton variant="primary" :disabled="!selected" @click="emit('navigate', 'status', selected?.key)"
         >Review selected file</UiButton
       ><UiButton variant="ghost" @click="emit('retry')">Refresh</UiButton>
     </footer>
@@ -228,42 +228,42 @@ const description = (file: WorkFile) =>
 .heat-pane {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   min-width: 0;
   background: var(--surface-raised);
-  border-left: 1px solid var(--border);
-  box-shadow: var(--elev-2);
 }
 .pane-head {
-  padding: 20px 20px 0;
+  padding: var(--space-8) var(--space-8) 0;
 }
 .pane-title {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-6);
 }
 .pane-title h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
+  color: var(--head);
+  font: var(--font-title);
 }
 .pane-title > span {
   color: var(--text-mut);
-  font: 11px var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 .summary {
   display: flex;
-  gap: 12px;
+  gap: var(--space-4);
   align-items: baseline;
-  margin-top: 12px;
-  font: 13px var(--font-mono);
+  margin-top: var(--space-3);
+  font: var(--fs-sm) var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .summary-meta {
   margin-left: auto;
   color: var(--text-mut);
-  font: 11px var(--font-ui);
+  font: var(--fs-xs) var(--font-ui);
 }
 .positive {
   color: var(--positive-text);
@@ -275,15 +275,16 @@ const description = (file: WorkFile) =>
   color: var(--negative-text);
 }
 .map-section {
-  padding: 20px 20px 16px;
+  padding: var(--space-8) var(--space-8) var(--space-6);
   border-bottom: 1px solid var(--line-faint);
 }
 .map-caption {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-4);
   color: var(--text-mut);
-  font: 10px var(--font-mono);
+  font: var(--font-label);
+  font-variant-numeric: tabular-nums;
 }
 .change-map {
   overflow-x: auto;
@@ -291,7 +292,7 @@ const description = (file: WorkFile) =>
   display: flex;
   gap: 3px;
   height: 38px;
-  margin-top: 6px;
+  margin-top: var(--space-3);
   align-items: stretch;
 }
 .map-segment {
@@ -338,10 +339,11 @@ const description = (file: WorkFile) =>
 .map-selection {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
   min-width: 0;
-  font: 11px var(--font-mono);
+  color: var(--text);
+  font: var(--fs-xs) var(--font-mono);
 }
 .map-selection > span:nth-child(2) {
   overflow: hidden;
@@ -358,41 +360,57 @@ const description = (file: WorkFile) =>
 .map-selection small {
   flex: none;
   margin-left: auto;
-  font: 10px var(--font-ui);
+  font: var(--fs-xs) var(--font-ui);
   color: var(--text-mut);
+}
+.map-note {
+  margin: var(--space-4) 0 0;
+  color: var(--text-mut);
+  font: var(--fs-xs)/1.45 var(--font-ui);
 }
 .heat-files {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 12px;
+  padding: var(--space-4) var(--space-4) var(--space-6);
 }
 .directory + .directory {
-  margin-top: 12px;
+  margin-top: var(--space-4);
 }
 .directory-toggle {
   display: grid;
-  grid-template-columns: 12px 16px minmax(0, 1fr) auto;
+  grid-template-columns: 12px 14px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   width: 100%;
-  padding: 8px;
+  height: var(--control-height-md);
+  padding: 0 var(--space-4);
   background: transparent;
   border: 0;
+  border-radius: var(--radius-sm);
   color: var(--text-mut);
-  font: 11px var(--font-mono);
+  font: var(--fs-xs) var(--font-mono);
   text-align: left;
+}
+.directory-toggle > svg:nth-child(2) {
+  width: 14px;
+  height: 14px;
+  opacity: 0.8;
 }
 .directory-toggle > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
 .directory-toggle small {
-  font: 10px var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 .directory-toggle:hover {
-  color: var(--text);
+  background: var(--hover);
+  color: var(--text-dim);
 }
 .directory-toggle[aria-expanded='true'] .caret {
   transform: rotate(90deg);
@@ -401,13 +419,13 @@ const description = (file: WorkFile) =>
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-4);
   width: 100%;
-  min-height: 34px;
-  padding: 8px 8px 8px 26px;
+  min-height: 30px;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-10);
   background: transparent;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   text-align: left;
 }
@@ -416,22 +434,27 @@ const description = (file: WorkFile) =>
 }
 .heat-file.selected {
   background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.heat-file.selected .heat-name {
+  color: var(--head);
 }
 .heat-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 11px var(--font-mono);
+  color: var(--text);
+  font: var(--fs-sm) var(--font-mono);
 }
 .heat-name small {
   display: block;
-  font: 10px/1.6 var(--font-mono);
   color: var(--text-mut);
+  font: var(--fs-2xs)/1.6 var(--font-ui);
 }
 .file-mark {
   color: var(--text-mut);
-  font: 10px var(--font-mono);
+  font: var(--weight-medium) var(--fs-xs) var(--font-mono);
 }
 .file-mark.staged {
   color: var(--positive-text);
@@ -441,45 +464,27 @@ const description = (file: WorkFile) =>
 }
 .file-counts {
   display: flex;
-  gap: 6px;
-  font: 10px var(--font-mono);
-}
-.pane-footer {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px 20px;
-  border-top: 1px solid var(--line-faint);
-  color: var(--text-mut);
-  font: 10px var(--font-mono);
-}
-.pane-footer span {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.heat-pane {
-  height: 100%;
-  border-left: 0;
-  box-shadow: none;
-}
-.pane-footer {
-  align-items: center;
-}
-.pane-footer .ui-button:first-child {
-  flex: 1;
+  gap: var(--space-3);
+  font: var(--fs-xs) var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .unknown-count {
   color: var(--text-mut);
 }
-.map-note {
-  color: var(--text-mut);
-  margin: 8px 0 0;
-  font-size: 10px;
+.pane-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-6) var(--space-8);
+  border-top: 1px solid var(--line-faint);
+}
+.pane-footer .ui-button:first-child {
+  flex: 1;
 }
 .empty-tree {
-  padding: 20px;
+  padding: var(--space-8);
   color: var(--text-mut);
+  font: var(--fs-sm) var(--font-ui);
 }
 </style>

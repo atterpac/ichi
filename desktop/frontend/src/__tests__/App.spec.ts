@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('../composables/useGitProfiles', () => ({ useGitProfiles: () => ({ state: { profiles: [], warnings: [], syncing: false, syncError: '', error: '', loading: false }, refresh: async () => {}, ready: async () => {}, sync: async () => {}, effective: async () => {} }) }))
 import { nextTick } from 'vue'
 
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import App from '../App.vue'
 import { useShellSettings } from '../composables/useShellSettings'
 
@@ -11,6 +11,33 @@ function pressKey(key: string) {
 }
 
 describe('App', () => {
+  it('opens main search with slash from a view but allows typing slash in inputs', async () => {
+    const wrapper = mount(App, { attachTo: document.body })
+    try {
+      const input = wrapper.get('.titlebar-search input')
+      await input.trigger('keydown', { key: '/' })
+      expect(wrapper.find('.finderbar').exists()).toBe(false)
+      await wrapper.get('.graph-view').trigger('keydown', { key: '/' })
+      await flushPromises()
+      expect(wrapper.find('.finderbar').exists()).toBe(true)
+      expect(wrapper.find('.fb-query').element).toBe(document.activeElement)
+    } finally { wrapper.unmount() }
+  })
+
+  it('opens the conflict demo from Settings without a repository and exits', async () => {
+    const wrapper = mount(App, { attachTo: document.body })
+    try {
+      await wrapper.get('.topbar [aria-label="Settings"]').trigger('click')
+      await wrapper.findAll('.set-catitem').find(b => b.text().includes('Conflict demo'))!.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.settings-modal').exists()).toBe(false)
+      expect(wrapper.findAll('.native-file-row')).toHaveLength(2)
+      expect(wrapper.get('.conflicts-view').text()).toContain('Your repositories are untouched')
+      await wrapper.findAll('button').find(b => b.text() === 'Exit demo')!.trigger('click')
+      expect(wrapper.find('.graph-view').exists()).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+
   it('allows global navigation from buttons and Escape returns to the previous view', async () => {
     const wrapper = mount(App, { attachTo: document.body })
     const button = wrapper.findAll('.primary-nav button')[2]!
@@ -79,19 +106,25 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('opens which-key on space and jumps to the chorded view', async () => {
+  it('delays quick navigation while keeping chords immediate', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(App, { attachTo: document.body })
-    expect(wrapper.find('.whichkey').exists()).toBe(false)
-
-    pressKey(' ')
-    await nextTick()
-    expect(wrapper.find('.whichkey').exists()).toBe(true)
-
-    pressKey('b')
-    await nextTick()
-    expect(wrapper.find('.whichkey').exists()).toBe(false)
-    expect(wrapper.text()).toContain('Branches')
-    wrapper.unmount()
+    try {
+      pressKey(' ')
+      await nextTick()
+      expect(wrapper.find('.whichkey').exists()).toBe(false)
+      pressKey('b')
+      await nextTick()
+      expect(wrapper.find('.branches-view').exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(250)
+      expect(wrapper.find('.whichkey').exists()).toBe(false)
+      pressKey(' ')
+      await vi.advanceTimersByTimeAsync(250)
+      expect(wrapper.find('.whichkey').exists()).toBe(true)
+      pressKey('Escape')
+      await nextTick()
+      expect(wrapper.find('.whichkey').exists()).toBe(false)
+    } finally { wrapper.unmount(); vi.useRealTimers() }
   })
 
   it('opens the finder omnibar on ctrl+p and closes on escape', async () => {

@@ -17,8 +17,8 @@
 .branch-sect {
   padding: var(--space-4) var(--space-4) var(--space-2);
   color: var(--text-mut);
-  font: 700 var(--fs-2xs) var(--font-mono);
-  letter-spacing: 0.1em;
+  font: 600 var(--fs-2xs) var(--font-ui);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -31,7 +31,7 @@
   background: transparent;
   color: var(--text-dim);
   text-align: left;
-  font: var(--fs-sm) var(--font-mono);
+  font: var(--fs-md) var(--font-ui);
   transition: background var(--ease-fast);
   min-height: var(--control-height-lg);
   gap: var(--space-4);
@@ -62,6 +62,7 @@
 .branch-name {
   flex: none;
   color: var(--text);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
@@ -100,7 +101,8 @@
   height: 14px;
   padding: 0 var(--space-2);
   border-radius: var(--control-radius);
-  font: 600 var(--fs-2xs) var(--font-mono);
+  font: 600 var(--fs-2xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 
 .branch-chip.ahead {
@@ -118,7 +120,7 @@
   width: 56px;
   text-align: right;
   color: var(--text-mut);
-  font-size: var(--fs-xs);
+  font: var(--font-data);
 }
 
 /* Stash list + diff preview (reuses .branch-row chrome). */
@@ -128,6 +130,7 @@
   text-align: center;
   color: var(--accent-text);
   font: 600 var(--fs-xs) var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .stash-branch {
@@ -146,7 +149,7 @@
 
 .st-selcount {
   color: var(--accent-text);
-  font: var(--fs-2xs) var(--font-mono);
+  font: var(--fs-2xs) var(--font-ui);
 }
 
 .st-files {
@@ -308,7 +311,8 @@
   min-width: 0;
   color: var(--head);
   overflow-wrap: anywhere;
-  font: var(--weight-medium) var(--font-title)/1.35 var(--font-mono);
+  font: var(--font-hero);
+  letter-spacing: -0.01em;
 }
 
 .bd-current {
@@ -317,9 +321,7 @@
   border-radius: var(--radius-pill);
   background: color-mix(in oklch, var(--green) 16%, var(--surface));
   color: var(--positive-text);
-  font: 600 var(--fs-2xs) var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font: 600 var(--fs-2xs)/16px var(--font-ui);
 }
 
 .bd-meta {
@@ -331,15 +333,13 @@
 
 .bd-meta dt {
   color: var(--text-mut);
-  font: var(--fs-xs) var(--font-ui);
-  text-transform: none;
-  letter-spacing: normal;
+  font: var(--font-label);
 }
 
 .bd-meta dd {
   margin: 1px 0 0;
-  color: var(--text-dim);
-  font: var(--fs-sm) var(--font-mono);
+  color: var(--text);
+  font: var(--fs-md) var(--font-ui);
   overflow-wrap: anywhere;
 }
 
@@ -352,7 +352,8 @@
 .bd-div-labels {
   display: flex;
   justify-content: space-between;
-  font: var(--fs-2xs) var(--font-mono);
+  font: var(--weight-medium) var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 
 .bd-div-labels .ahead-label {
@@ -387,14 +388,12 @@
 
 .bd-div-sync {
   color: var(--text-mut);
-  font: var(--fs-2xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
 }
 
 .bd-subhead {
   color: var(--text-mut);
-  font: var(--weight-medium) var(--fs-sm) var(--font-ui);
-  text-transform: none;
-  letter-spacing: normal;
+  font: var(--font-label);
 }
 
 /* commit rail (A) — one graph lane: dots on a line down to the fork point */
@@ -466,12 +465,13 @@
   align-items: baseline;
   gap: var(--space-4);
   min-width: 0;
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--fs-sm) var(--font-ui);
 }
 
 .bd-rail-hash {
   flex: none;
   color: var(--text-mut);
+  font: var(--font-data);
 }
 
 .bd-rail-subj {
@@ -493,12 +493,12 @@
   border-radius: var(--radius-pill);
   background: var(--accent-soft);
   color: var(--accent-text);
-  font: 600 var(--fs-2xs)/var(--fs-md) var(--font-mono);
+  font: 600 var(--fs-2xs)/var(--fs-md) var(--font-ui);
 }
 
 .bd-rail-when {
   color: var(--text-mut);
-  font: var(--fs-2xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
 }
 
 /* file churn (D) — where the branch lives since the fork */
@@ -513,22 +513,32 @@
   gap: var(--space-4);
   align-items: baseline;
   justify-content: space-between;
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--fs-sm) var(--font-mono);
 }
 
+/* Directory shrinks first so the basename stays readable. */
 .bd-churn-path {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+.bd-churn-dir {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-  color: var(--text-dim);
+  color: var(--text-mut);
+}
+.bd-churn-base {
+  flex: none;
+  color: var(--text);
 }
 
 .bd-churn-delta {
   flex: none;
   display: inline-flex;
   gap: var(--space-3);
+  font-size: var(--fs-xs);
 }
 
 .bd-churn-delta em {
@@ -543,15 +553,12 @@
   color: var(--negative-text);
 }
 
-.bd-churn-more {
-  color: var(--text-mut);
-  font: var(--fs-2xs) var(--font-mono);
-  font-style: italic;
-}
-
+.bd-churn-more,
 .bd-churn-total {
+  padding: var(--space-3) var(--space-4) 0;
   color: var(--text-mut);
-  font: var(--fs-2xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 
 .bd-actions {

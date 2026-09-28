@@ -497,7 +497,7 @@ describe('ChangesView', () => {
     await wrapper.find('.changes-files').trigger('keydown', { key: 's' })
     expect(stageFile).not.toHaveBeenCalled()
     await wrapper.find('.changes-files').trigger('keydown', { key: 'Enter' })
-    expect(wrapper.emitted('navigate')).toEqual([['conflicts']])
+    expect(wrapper.emitted('navigate')).toEqual([['conflicts', 'src/clash.ts']])
     statusEntries = saved
     wrapper.unmount()
   })

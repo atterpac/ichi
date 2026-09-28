@@ -5,6 +5,7 @@ import { useGitProfiles } from '../../composables/useGitProfiles'
 import { useWorkspaces } from '../../composables/useWorkspaces'
 import { useRepoStatus } from '../../composables/useRepoStatus'
 import UiButton from '../common/UiButton.vue'
+const emit = defineEmits<{ profiles: [] }>()
 const props = defineProps<{ initialProfile?: string }>()
 const profiles = useGitProfiles()
 const profileCard = ref<HTMLElement>()
@@ -178,13 +179,13 @@ function removeRepo(path: string) {
     <section ref="profileCard" class="ws-form ws-profile">
       <div class="ws-heading">
         <h3>Git profile</h3>
+        <UiButton size="sm" @click="emit('profiles')">Manage profiles ↗</UiButton>
         <UiButton size="sm" :disabled="profiles.state.loading" @click="profiles.refresh"
           >Rescan machine</UiButton
         >
       </div>
       <p class="ws-description">
-        Use this identity for Git operations launched by Ichi in this workspace. Git config files
-        and authentication stay unchanged.
+        Apply this identity to repository Git configuration throughout the workspace, including terminal Git and other clients. Linked worktrees may share these settings.
       </p>
       <label
         >Assigned identity<select

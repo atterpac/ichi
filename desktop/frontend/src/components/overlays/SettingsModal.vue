@@ -3,7 +3,7 @@ import { placeholderStyles, placeholderSvg } from '../common/avatarPlaceholder'
 import { computed, ref, type Component } from 'vue'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { useDialogFocus } from '../../composables/useDialogFocus'
-import { THEMES } from '../../theme/themes'
+import { DEFAULT_THEME, THEMES } from '../../theme/themes'
 import GraphPreview from './GraphPreview.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import UiButton from '../common/UiButton.vue'
@@ -18,6 +18,9 @@ import {
 
 const emit = defineEmits<{
   close: []
+  appearanceLab: []
+  conflictDemo: []
+  profiles: []
 }>()
 
 type Category = {
@@ -33,7 +36,7 @@ const settings = useShellSettings()
 const props = defineProps<{ initialCategory?: Category['id']; initialProfile?: string }>()
 const active = ref<Category['id']>(props.initialCategory || 'appearance')
 const showAllThemes = ref(false)
-const essentialThemeIds = new Set(['atterpac', 'tokyonight-night', 'onelight'])
+const essentialThemeIds = new Set([DEFAULT_THEME, 'ichi-light', 'atterpac', 'tokyonight-night', 'onelight'])
 const visibleThemes = computed(() => {
   if (showAllThemes.value) return THEMES
   return THEMES.filter((theme) => essentialThemeIds.has(theme.id) || theme.id === settings.theme)
@@ -130,6 +133,8 @@ function close() {
           <component :is="category.icon" class="set-icon" :size="16" weight="bold" />
           <span class="set-catlabel">{{ category.label }}</span>
         </button>
+        <button class="set-catitem" type="button" @click="emit('profiles')">Git profiles ↗</button>
+        <button class="set-catitem" type="button" @click="emit('conflictDemo')">Conflict demo ↗</button>
         <span class="set-navfoot">ichi · local</span>
       </nav>
 
@@ -142,7 +147,7 @@ function close() {
         </header>
 
         <div class="set-content">
-          <WorkspaceSettings v-if="active === 'workspaces'" :initial-profile="initialProfile" />
+          <WorkspaceSettings v-if="active === 'workspaces'" :initial-profile="initialProfile" @profiles="emit('profiles')" />
           <template v-else-if="active === 'general'">
             <p class="set-section">Safety</p>
             <label class="set-row">
@@ -175,8 +180,9 @@ function close() {
                 <b>{{ style.name }}</b><small>{{ style.id === 'spore' ? 'Default' : style.id === 'relay' ? 'Robot' : style.id === 'lumen' ? 'Moth' : style.id === 'aurora' ? 'Lights' : 'Cat' }}</small>
               </button>
             </div>
+            <UiButton size="sm" @click="emit('appearanceLab')">Open live appearance lab</UiButton>
             <p class="set-section">Theme</p>
-            <p class="set-note">A focused set of product defaults. Changes apply immediately and persist locally.</p>
+            <p class="set-note">Designed for reading history and reviewing diffs: Ichi pairs charcoal with copper; Ichi Light pairs warm sand with forest green. Changes apply immediately and persist locally.</p>
             <div class="theme-chip-grid" role="radiogroup" aria-label="Color theme">
               <button
                 v-for="theme in visibleThemes"
@@ -203,7 +209,7 @@ function close() {
                 </span>
                 <span class="theme-chip-name">
                   <b>{{ theme.label }}</b>
-                  <small>{{ theme.light ? 'light' : 'dark' }}</small>
+                  <small>{{ theme.id === DEFAULT_THEME ? 'default · dark' : theme.light ? 'light' : 'dark' }}</small>
                 </span>
               </button>
             </div>

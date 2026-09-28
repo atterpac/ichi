@@ -39,29 +39,6 @@
   outline: none;
 }
 
-.vim-cmdline {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  margin: 0 calc(-1 * var(--space-3)) var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  color: var(--accent-text);
-  background: var(--accent-soft);
-  border-bottom: 1px solid var(--accent-line);
-}
-
-.vim-caret {
-  animation: vim-blink 1s steps(2) infinite;
-}
-
-@keyframes vim-blink {
-  50% {
-    opacity: 0;
-  }
-}
-
 .commit-list-canvas {
   position: relative;
   min-width: max-content;
@@ -80,14 +57,13 @@
   height: 28px;
   margin: 0 calc(-1 * var(--space-3)) var(--space-3);
   padding: 0 var(--space-3);
-  border-bottom: 1px solid var(--border);
-  background: var(--chrome-bg);
-  box-shadow: 0 -1px 0 var(--chrome-bg);
+  border-bottom: 1px solid var(--line-faint);
+  background: var(--surface-panel);
+  box-shadow: 0 -1px 0 var(--surface-panel);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--text-mut);
-  font-size: var(--fs-xs);
-  font-weight: var(--weight-medium);
+  font: var(--weight-emphasis) var(--fs-2xs) var(--font-ui);
 }
 
 .commit-table-head span {
@@ -173,8 +149,11 @@
   background: var(--hover);
 }
 
-.commit-row.selected {
+/* Selection is a tint plus an accent edge so it never reads as hover. */
+.commit-row.selected,
+.commit-row.selected:hover {
   background: var(--selected);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .commit-row.selected .commit-subject {
@@ -220,8 +199,8 @@
 
 .commit-hash {
   overflow: hidden;
-  color: var(--text-dim);
-  font: var(--fs-xs) var(--font-mono);
+  color: var(--text-mut);
+  font: var(--font-data);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -238,6 +217,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font: var(--fs-xs) var(--font-ui);
+}
+.commit-table-date {
+  color: var(--text-mut);
+  font-variant-numeric: tabular-nums;
 }
 
 .commit-detail {
@@ -267,10 +250,8 @@
 .commit-detail h3 {
   margin: 0;
   color: var(--head);
-  font-size: var(--font-title);
-  font-weight: var(--weight-medium);
-  letter-spacing: -0.4px;
-  line-height: 1.35;
+  font: var(--font-hero);
+  letter-spacing: -0.01em;
 }
 
 .commit-detail dl {
@@ -290,8 +271,7 @@
 .commit-detail dt {
   padding-top: 1px;
   color: var(--text-mut);
-  font-size: var(--fs-xs);
-  font-weight: var(--weight-medium);
+  font: var(--font-label);
 }
 
 .commit-detail dd {
@@ -327,7 +307,7 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  padding: var(--space-4) 0;
+  padding: var(--space-4) var(--space-4);
 }
 
 button.detail-file-row:hover {
@@ -341,19 +321,20 @@ button.detail-file-row:hover {
   width: 14px;
   height: 18px;
   color: var(--accent-text);
-  font: var(--weight-medium) var(--fs-sm)/1 var(--font-mono);
+  font: var(--weight-medium) var(--fs-xs)/1 var(--font-mono);
 }
 
 .file-path {
   min-width: 0;
-  color: var(--read-text);
+  color: var(--text);
   font: var(--fs-sm)/1.5 var(--font-code);
   overflow-wrap: anywhere;
 }
 
 .file-delta {
   color: var(--text-mut);
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--font-data);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -407,7 +388,8 @@ button.detail-file-row:hover {
 .detail-tabs button span {
   margin-left: var(--space-2);
   color: var(--text-mut);
-  font: var(--fs-2xs) var(--font-code);
+  font: var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 #commit-metadata-panel {
   padding-top: var(--space-10);
@@ -423,11 +405,6 @@ button.detail-file-row:hover {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .vim-caret {
-    animation: none;
-  }
-}
 
 /* Inspector owns scrolling independently, leaving actions reachable. */
 .detail-scroll {
@@ -478,7 +455,12 @@ button.detail-file-row:hover {
   gap: var(--space-6);
   padding: var(--space-6) 0;
   color: var(--text-dim);
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+.detail-summary .delta-add,
+.detail-summary .delta-del {
+  font-family: var(--font-mono);
 }
 .detail-summary .delta-del {
   margin: 0;
@@ -488,15 +470,15 @@ button.detail-file-row:hover {
 }
 .detail-file-group h4 {
   margin: 0;
-  padding: var(--space-2) 0;
+  padding: var(--space-4) 0 var(--space-2);
   color: var(--text-mut);
-  font: var(--weight-medium) var(--fs-xs)/1.5 var(--font-mono);
+  font: var(--fs-xs)/1.5 var(--font-mono);
   overflow-wrap: anywhere;
 }
 .file-path small {
   display: block;
   color: var(--text-mut);
-  font-size: var(--fs-xs);
+  font: var(--fs-xs) var(--font-ui);
 }
 .file-status.status-positive {
   color: var(--positive-text);
@@ -560,6 +542,76 @@ button.detail-file-row:hover {
   flex-direction: column;
 }
 
-.detail-file-row.heat-selected { background: var(--selection-bg, color-mix(in oklab, var(--accent) 10%, var(--surface-raised))); border-radius: var(--radius-sm); }
+.detail-file-row.heat-selected { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); border-radius: var(--radius-sm); }
 
 .detail-loading { margin: var(--space-8) 0; color: var(--text-mut); font-size: var(--fs-sm); }
+
+/* Bottom docking is a horizontal inspector, with separate summary and files. */
+.detail-overview, .detail-content { display: contents; }
+@media (min-width: 761px) {
+  .graph-grid.detail-bottom .commit-detail {
+    display: grid;
+    grid-template-columns: clamp(280px, 30vw, 420px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    box-shadow: none;
+  }
+  .graph-grid.detail-bottom .detail-scroll:not(.working-scroll) { display: contents; }
+  .graph-grid.detail-bottom .detail-overview {
+    display: block;
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--space-6) var(--space-8);
+  }
+  .graph-grid.detail-bottom .detail-head { gap: var(--space-4); margin-bottom: var(--space-6); }
+  .graph-grid.detail-bottom .detail-head h3 { font: var(--font-title); }
+  .graph-grid.detail-bottom .detail-identifiers { margin-bottom: 0; }
+  .graph-grid.detail-bottom .detail-sha.ui-button { font-size: var(--fs-2xs); }
+  .graph-grid.detail-bottom .detail-content {
+    display: flex;
+    flex-direction: column;
+    grid-column: 2;
+    grid-row: 1 / -1;
+    min-height: 0;
+    min-width: 0;
+    border-left: 1px solid var(--border);
+    padding: 0 var(--space-8);
+    overflow: hidden;
+  }
+  .graph-grid.detail-bottom .detail-tabs { flex-shrink: 0; margin-top: 0; }
+  .graph-grid.detail-bottom .detail-content > [role='tabpanel'] {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding-bottom: var(--space-6);
+  }
+  .graph-grid.detail-bottom .detail-summary { padding: var(--space-4) 0; }
+  .graph-grid.detail-bottom .detail-content .file-heatmap { display: none; }
+  .graph-grid.detail-bottom .detail-footer {
+    grid-column: 1;
+    grid-row: 2;
+    padding: var(--space-4) var(--space-6);
+    gap: var(--space-3);
+    background: transparent;
+  }
+  .graph-grid.detail-bottom .detail-footer .ui-button { font-size: var(--fs-xs); }
+  .graph-grid.detail-bottom .working-scroll {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+  }
+  .graph-grid.detail-bottom .detail-scroll > .surface-state { grid-column: 1 / -1; grid-row: 1 / -1; }
+  .graph-grid.detail-bottom .heat-pane {
+    flex: 1;
+    display: grid;
+    grid-template-columns: clamp(280px, 30vw, 420px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    border-left: 0;
+    box-shadow: none;
+  }
+  .graph-grid.detail-bottom .heat-pane .pane-head { grid-column: 1; grid-row: 1; padding: var(--space-6) var(--space-8) 0; }
+  .graph-grid.detail-bottom .heat-pane .map-section { grid-column: 1; grid-row: 2; overflow: auto; padding: var(--space-6) var(--space-8); }
+  .graph-grid.detail-bottom .heat-pane .heat-files { grid-column: 2; grid-row: 1 / -1; border-left: 1px solid var(--border); }
+  .graph-grid.detail-bottom .heat-pane .pane-footer { grid-column: 1; grid-row: 3; padding: var(--space-4) var(--space-8); }
+}

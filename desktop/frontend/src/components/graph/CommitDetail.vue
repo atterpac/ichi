@@ -229,6 +229,7 @@ function resizeKey(event: KeyboardEvent) {
         @navigate="(view, focus) => emit('navigate', view, focus)"
       />
       <template v-else>
+        <div class="detail-overview">
         <header class="detail-head">
           <div v-if="settings.graphDetailShowAuthorDate" class="detail-person">
             <AuthorAvatar :name="author" :commit="commit.Hash" :email="detail?.AuthorEmail" :size="32" />
@@ -265,6 +266,8 @@ function resizeKey(event: KeyboardEvent) {
             >
           </div>
         </div>
+        </div>
+        <div class="detail-content">
         <p v-if="loading" class="detail-loading" role="status">Loading files and metadata…</p>
         <template v-else>
           <div
@@ -416,6 +419,7 @@ function resizeKey(event: KeyboardEvent) {
             </dl>
           </div>
         </template>
+        </div>
       </template>
     </div>
     <footer v-if="!working && !loading && !error" class="detail-footer">
@@ -427,6 +431,7 @@ function resizeKey(event: KeyboardEvent) {
       >
       <UiButton
         icon-only
+        variant="ghost"
         aria-label="Commit actions"
         title="Commit actions"
         @click="emit('menu', $event)"

@@ -77,19 +77,20 @@ function key(event: KeyboardEvent, index: number) {
 <style scoped>
 .file-heatmap {
   min-width: 0;
-  margin: 16px 0;
+  margin: var(--space-8) 0;
 }
 .map-note {
   color: var(--text-mut);
   font-size: var(--fs-xs);
-  margin: 8px 0 0;
+  margin: var(--space-4) 0 0;
 }
 .map-caption {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-4);
   color: var(--text-mut);
-  font: 10px var(--font-mono);
+  font: var(--font-label);
+  font-variant-numeric: tabular-nums;
 }
 .change-map {
   overflow-x: auto;
@@ -144,10 +145,11 @@ function key(event: KeyboardEvent, index: number) {
 .map-selection {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
   min-width: 0;
-  font: 11px var(--font-mono);
+  color: var(--text);
+  font: var(--font-data);
 }
 .map-selection > span:nth-child(2) {
   overflow: hidden;
@@ -164,7 +166,7 @@ function key(event: KeyboardEvent, index: number) {
 .map-selection small {
   flex: none;
   margin-left: auto;
-  font: 10px var(--font-ui);
+  font: var(--fs-xs) var(--font-ui);
   color: var(--text-mut);
 }
 </style>

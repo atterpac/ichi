@@ -475,14 +475,6 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
           tabindex="0"
           @keydown="onRailKey" data-keyboard-pane @focusin="setModeline({ mode: 'HISTORY', hints: 'j/k commit · l diff · Enter graph · / search' })"
         >
-          <div
-            v-if="railVim.search.active.value || railVim.pending.value || railVim.count.value"
-            class="vim-cmdline"
-            aria-live="polite"
-          >
-            <template v-if="railVim.search.active.value">/{{ railVim.search.query.value }}<span class="vim-caret">▌</span></template>
-            <template v-else>{{ railVim.count.value }}{{ railVim.pending.value }}</template>
-          </div>
           <div class="fi-rail-track">
             <button
               v-for="entry in entries"
@@ -514,14 +506,6 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
           tabindex="0"
           @keydown="onBlameKey" data-keyboard-pane @focusin="setModeline({ mode: 'BLAME', hints: 'j/k line · Enter select · b blame · o graph' })"
         >
-          <div
-            v-if="blameVim.search.active.value || blameVim.pending.value || blameVim.count.value"
-            class="vim-cmdline"
-            aria-live="polite"
-          >
-            <template v-if="blameVim.search.active.value">/{{ blameVim.search.query.value }}<span class="vim-caret">▌</span></template>
-            <template v-else>{{ blameVim.count.value }}{{ blameVim.pending.value }}</template>
-          </div>
           <div v-if="blameLoading" class="fi-state">Loading blame…</div>
           <div v-else-if="blameError" class="fi-state error">{{ blameError }}</div>
           <div v-else class="fi-ledger">

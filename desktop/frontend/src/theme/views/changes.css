@@ -11,7 +11,7 @@
   min-height: 0;
   display: grid;
   grid-template-columns:
-    minmax(220px, min(var(--changes-left-w, 270px), 30vw)) 5px minmax(0, 1fr)
+    minmax(220px, min(var(--changes-left-w, 270px), 30vw)) 1px minmax(0, 1fr)
     280px;
   grid-template-rows: minmax(0, 1fr);
 }
@@ -26,24 +26,30 @@
 .changes-resizer {
   grid-column: 2;
   grid-row: 1 / -1;
-  width: 5px;
-  min-width: 5px;
+  position: relative;
+  z-index: 2;
+  width: 1px;
+  min-width: 1px;
   padding: 0;
   border: 0;
-  border-left: 1px solid var(--border);
-  border-right: 1px solid transparent;
-  background: var(--surface);
+  background: var(--border);
   cursor: col-resize;
   transition:
     background var(--ease-fast),
     border-color var(--ease-fast);
 }
 
+.changes-resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+  cursor: col-resize;
+}
+
 .changes-resizer:hover,
 .changes-resizer:focus-visible {
   outline: 0;
-  border-left-color: var(--accent-line);
-  background: var(--accent-soft);
+  background: var(--accent-line);
 }
 
 .changes-diff {
@@ -56,7 +62,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  overflow: auto;
+  overflow: hidden;
   padding: var(--space-3);
   outline: none;
 }
@@ -82,7 +88,7 @@
 .changes-files:focus-within .changes-section,
 .changes-view .changes-diff:focus-within .diff-file-head,
 .changes-view .commit-bar:focus-within .commit-panel-head {
-  background: color-mix(in oklab, var(--accent) 9%, var(--surface-base));
+  background: color-mix(in oklab, var(--accent) 7%, var(--surface-panel));
 }
 
 .changes-files:focus-within .changes-section:not(.section-conflicts) .section-label,
@@ -92,24 +98,57 @@
 }
 
 .changes-stack {
-  flex: none;
-  display: block;
-}
-.changes-stack .changes-pane + .changes-pane {
-  margin-top: var(--space-8);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .changes-pane {
-  flex: none;
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  flex-basis: 0;
+  min-height: calc(var(--control-height-lg) + 8px);
+  overflow: hidden;
   padding: 0;
 }
-
-.conflicts-pane {
-  flex: none;
+.changes-pane.is-collapsed { flex: 0 0 auto; }
+.changes-section-files {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
+.changes-section-resizer {
+  position: relative;
+  flex: 0 0 9px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: row-resize;
+  touch-action: none;
+}
+.changes-section-resizer::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+}
+.changes-section-resizer:hover:not(:disabled)::after,
+.changes-section-resizer:focus-visible::after { background: var(--accent); }
+.changes-section-resizer:disabled { cursor: default; }
+.conflicts-pane {
+  flex: 0 1 auto;
+  max-height: 30%;
+}
+.changes-files > .changes-section-empty { flex-shrink: 0; }
 
 .changes-section {
+  flex-shrink: 0;
   position: sticky;
   top: 0;
   z-index: 3;
@@ -166,8 +205,9 @@
 .section-count {
   color: var(--text-mut);
   font-style: normal;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
 }
 
 .changes-section .section-count {
@@ -224,7 +264,7 @@
   width: 100%;
   min-height: 24px;
   padding: var(--space-1) var(--space-3);
-  padding-left: calc(var(--space-3) + var(--tree-depth, 0) * 16px);
+  padding-left: calc(var(--space-3) + var(--tree-depth, 0) * 12px);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -265,7 +305,8 @@
 }
 
 .change-row.grouped {
-  padding-left: calc(var(--space-3) + var(--tree-depth, 1) * 16px);
+  min-height: 28px;
+  padding-left: calc(var(--space-3) + var(--tree-depth, 1) * 12px);
 }
 
 .change-row:hover {
@@ -275,6 +316,7 @@
 .change-row.selected {
   background: var(--selected);
   color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .change-row.conflict .change-name {
@@ -291,13 +333,8 @@
   font: var(--fs-sm) var(--font-mono);
 }
 
-.change-row:not(.selected) .change-name {
-  color: var(--text-dim);
-}
-
-.change-row:hover .change-name,
 .change-row.selected .change-name {
-  color: var(--text);
+  color: var(--head);
 }
 
 .change-dir {
@@ -324,12 +361,17 @@
   font-style: normal;
 }
 
+.change-delta {
+  color: var(--text-mut);
+  font-variant-numeric: tabular-nums;
+}
+
 .change-delta .d-add {
-  color: var(--positive-text);
+  color: color-mix(in oklab, var(--positive-text) 75%, var(--text-mut));
 }
 
 .change-delta .d-del {
-  color: var(--negative-text);
+  color: color-mix(in oklab, var(--negative-text) 75%, var(--text-mut));
 }
 
 .change-delta .d-new {
@@ -456,7 +498,8 @@
   right: 9px;
   transform: translateY(-50%);
   color: var(--text-mut);
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 
 .commit-count.over {
@@ -482,27 +525,13 @@
   flex: none;
 }
 
-.commit-btn:hover:not(:disabled) {
-  background: color-mix(in oklch, var(--accent) 88%, #fff);
-}
-
-.commit-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.commit-btn kbd {
-  border-color: transparent;
-  background: color-mix(in oklab, var(--accent-ink) 16%, transparent);
-  color: var(--accent-ink);
-  box-shadow: none;
-}
+/* Hover, disabled and kbd treatment come from .ui-button.variant-primary. */
 
 /* Review desk: files, diff, and an always-visible composer. */
 .commit-panel-head {
   display: flex;
-  margin: -8px -8px 0;
-  padding: 8px;
+  margin: calc(var(--space-4) * -1) calc(var(--space-4) * -1) 0;
+  padding: var(--space-4);
   border-radius: var(--radius-sm);
   flex-wrap: wrap;
   justify-content: space-between;
@@ -511,21 +540,25 @@
 }
 .commit-panel-head h2 {
   margin: 0;
-  font: var(--weight-medium) var(--fs-lg) var(--font-ui);
+  color: var(--head);
+  font: var(--font-title);
 }
 .commit-panel-head > span {
   color: var(--text-mut);
-  font-size: var(--fs-xs);
+  font: var(--font-label);
+  font-variant-numeric: tabular-nums;
 }
 .commit-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  font-size: var(--fs-sm);
+  gap: var(--space-3);
+  color: var(--text-dim);
+  font: var(--font-label);
 }
 .commit-field small {
   color: var(--text-mut);
   margin-left: var(--space-2);
+  font-weight: var(--weight-regular);
 }
 .commit-note {
   margin: 0;
@@ -554,7 +587,7 @@
   direction: ltr;
   font-size: var(--fs-2xs);
 }
-.change-row {
+.change-row:not(.grouped) {
   min-height: 40px;
 }
 .change-delta {
@@ -569,7 +602,7 @@
 }
 @media (max-width: 1100px) {
   .changes-grid {
-    grid-template-columns: minmax(220px, min(var(--changes-left-w, 270px), 35vw)) 5px minmax(0, 1fr);
+    grid-template-columns: minmax(220px, min(var(--changes-left-w, 270px), 35vw)) 1px minmax(0, 1fr);
     grid-template-rows: minmax(180px, 1fr) minmax(0, auto);
   }
   .commit-bar {
@@ -639,16 +672,21 @@
 .changes-files .change-dir-row.selected {
   background: var(--selected);
   color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* Keep navigation and action scope visible while the tree itself scrolls. */
-.changes-tree-heading { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); font-weight: var(--weight-medium); }
-.changes-selection-footer { flex-shrink: 0; display: grid; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--surface-panel); }
+.changes-tree-heading { display: flex; align-items: center; gap: var(--space-4); min-height: 44px; padding: var(--space-4) var(--space-6); border-bottom: 1px solid var(--line-faint); color: var(--head); font: var(--font-title); }
+.changes-tree-heading .change-delta { display: inline-flex; gap: var(--space-3); font: var(--font-data); }
+.changes-selection-footer { flex-shrink: 0; display: grid; gap: var(--space-3); padding: var(--space-5, 10px) var(--space-6); border-top: 1px solid var(--line-faint); background: var(--surface-panel); }
 .changes-selection-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: var(--fs-xs) var(--font-mono); }
 .changes-selection-summary { color: var(--text-mut); font-size: var(--fs-xs); }
-.changes-selection-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.changes-selection-actions kbd { margin-right: 4px; color: var(--text-mut); }
-.changes-section-empty { margin: 0; padding: 6px 12px 10px; color: var(--text-mut); font-size: var(--fs-xs); }
+.changes-selection-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.changes-selection-actions kbd { margin-right: var(--space-2); color: var(--text-mut); }
+/* Destructive but secondary: ghost weight, danger colour. */
+.changes-selection-actions .is-danger:not(:disabled) { color: var(--negative-text); }
+.changes-selection-actions .is-danger:hover:not(:disabled) { background: color-mix(in oklab, var(--red) 12%, transparent); color: var(--negative-text); }
+.changes-section-empty { margin: 0; padding: var(--space-3) var(--space-6) var(--space-5, 10px); color: var(--text-mut); font-size: var(--fs-xs); }
 .change-dir-row { position: relative; min-height: 28px; }
 .change-dir-row .section-count { margin-left: auto; padding-left: 6px; font-size: var(--fs-xs); }
 .change-tree-guides { position: absolute; inset: 0; pointer-events: none; }
@@ -663,7 +701,7 @@
 /* A single row tint indicates both selection and keyboard focus. */
 .changes-files :is(.section-toggle, .change-dir-row, .change-row):focus-visible {
   outline: none;
-  box-shadow: none;
+  box-shadow: inset 2px 0 0 var(--accent);
   background: var(--selected);
   color: var(--text);
 }

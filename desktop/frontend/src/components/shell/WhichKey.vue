@@ -1,155 +1,45 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { NAV_GROUPS } from './nav'
-
-defineEmits<{ (e: 'select', id: string): void; (e: 'close'): void }>()
+const props = defineProps<{ activeView: string; showCommit: boolean }>()
+defineEmits<{ select: [id: string]; close: [] }>()
+const views = NAV_GROUPS.flatMap(group => group.items).filter(item => ['graph', 'status', 'branches', 'stashes'].includes(item.id))
+const current = computed(() => props.activeView === 'commit' ? 'status' : props.activeView)
 </script>
 
 <template>
-  <div class="whichkey" @click.self="$emit('close')">
-    <div class="wk-panel" role="menu" aria-label="Go to view">
-      <div class="wk-head">
-        <span class="kbadge">space</span>
-        <span class="wk-crumb">Go to view</span>
-      </div>
-      <div class="wk-groups">
-        <div v-for="group in NAV_GROUPS" :key="group.title" class="wk-group">
-          <span class="wk-title">{{ group.title }}</span>
-          <button
-            v-for="item in group.items"
-            :key="item.id"
-            class="wk-item"
-            type="button"
-            role="menuitem"
-            @click="$emit('select', item.id)"
-          >
-            <kbd>{{ item.key }}</kbd>
-            <span class="wk-label">{{ item.label }}</span>
-          </button>
-        </div>
-      </div>
-      <footer class="wk-foot">
-        <span><kbd>g s c …</kbd> jump</span>
-        <span><kbd>esc</kbd> close</span>
-      </footer>
+  <nav class="whichkey" aria-label="Quick navigation">
+    <header class="wk-head"><span>Go to</span><kbd>space</kbd></header>
+    <div class="wk-views">
+      <button v-for="item in views" :key="item.id" class="wk-item" type="button" :aria-current="current === item.id ? 'page' : undefined" @click="$emit('select', item.id)">
+        <span>{{ item.label }}</span><kbd>{{ item.key }}</kbd>
+      </button>
     </div>
-  </div>
+    <div class="wk-extra">
+      <button v-if="showCommit" class="wk-item" type="button" @click="$emit('select', 'commit')"><span>Write commit</span><kbd>c</kbd></button>
+      <button class="wk-item" type="button" @click="$emit('select', 'finder')"><span>Search…</span><kbd>f</kbd></button>
+    </div>
+  </nav>
 </template>
 
 <style scoped>
 .whichkey {
-  position: fixed;
-  inset: 0;
+  position: absolute;
+  left: 8px;
+  bottom: 30px;
   z-index: 80;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 0 var(--space-8) 38px;
-  background: rgba(8, 8, 14, 0.5);
-  backdrop-filter: blur(2px);
-}
-.wk-panel {
-  width: min(680px, 100%);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius-xl);
+  width: min(260px, calc(100vw - 16px));
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--surface-overlay);
-  box-shadow: var(--elev-3);
-  overflow: hidden;
+  box-shadow: var(--elev-2);
 }
-.wk-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  padding: var(--space-6) var(--space-8);
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
-}
-.kbadge {
-  flex: none;
-  padding: var(--space-2) var(--space-4);
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font: 700 var(--fs-xs) var(--font-mono);
-  text-transform: uppercase;
-}
-.wk-crumb {
-  flex: none;
-  color: var(--text-dim);
-  font-size: var(--fs-md);
-}
-.wk-groups {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2) var(--space-8);
-  padding: 10px;
-}
-.wk-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.wk-title {
-  padding: var(--space-1) var(--space-4) var(--space-2);
-  color: var(--text-mut);
-  font-size: var(--fs-2xs);
-  font-weight: var(--weight-emphasis);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.wk-item {
-  min-height: var(--control-height-md);
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: transparent;
-  color: var(--text-dim);
-  padding: var(--space-4) var(--space-4);
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-}
-.wk-item:hover {
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent-line);
-  color: var(--text);
-}
-.wk-item kbd {
-  flex: none;
-  min-width: 22px;
-  color: var(--accent);
-}
-.wk-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-}
-.wk-foot {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-8);
-  padding: var(--space-4) var(--space-8);
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-}
-.wk-foot span {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  color: var(--text-mut);
-  font-size: var(--fs-xs);
-}
-.wk-foot kbd {
-  color: var(--text-dim);
-}
-@media (max-width: 640px) {
-  .wk-groups {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
+.wk-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 10px; color: var(--text-mut); font: var(--fs-xs) var(--font-ui); }
+.wk-views { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.wk-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-dim); font: var(--fs-sm) var(--font-ui); cursor: pointer; text-align: left; }
+.wk-item[aria-current='page'] { background: var(--selected); color: var(--text); }
+.wk-item:hover { background: var(--hover); color: var(--text); }
+kbd { color: var(--text-mut); font: var(--fs-2xs) var(--font-mono); }
+.wk-extra { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line-faint); }
 </style>

@@ -41,7 +41,8 @@ const MAX_EDIT_CHARS = 30000
 const LARGE_DIFF_LINES = 5000
 const DENSITY_HEIGHTS = { compact: 17, comfortable: 20, relaxed: 24 } as const
 
-const rowHeight = computed(() => props.cursorReview ? 26 : DENSITY_HEIGHTS[settings.diffDensity])
+const CURSOR_DENSITY_HEIGHTS = { compact: 22, comfortable: 26, relaxed: 30 } as const
+const rowHeight = computed(() => props.cursorReview ? CURSOR_DENSITY_HEIGHTS[settings.diffDensity] : DENSITY_HEIGHTS[settings.diffDensity])
 const layout = computed(() => props.cursorReview ? 'unified' : settings.diffLayout)
 
 const LAYOUT_CYCLE = ['unified', 'split', 'inline', 'changes', 'result'] as const
@@ -460,7 +461,7 @@ function moveCursor(direction: number) {
 }
 function jumpHunk(index: number) {
   if (editMode.value) return
-  if (!props.cursorReview) { hunkIndex.value = index; return }
+  if (!props.cursorReview) { hunkIndex.value = index; container.value?.focus({ preventScroll: true }); return }
   const target = Math.max(0, Math.min(hunks.value.length - 1, index))
   const row = rowData.value.rows.findIndex(item => item.kind === 'line' && item.cell.hunkIndex === target)
   if (row >= 0) selectCursor(row)
@@ -762,14 +763,14 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
     <div v-if="fileBuffer === null && cursorReview && hasContent && !gateVisible" class="cursor-review-actions">
       <span>{{ editMode ? 'EDIT' : lineMode ? 'VISUAL' : 'NORMAL' }}</span>
       <template v-if="editMode">
-        <UiButton size="sm" @click="leaveEditMode">Cancel</UiButton>
-        <UiButton size="sm" @click="saveEditMode">Save</UiButton>
+        <UiButton size="sm" variant="ghost" @click="leaveEditMode">Cancel</UiButton>
+        <UiButton size="sm" variant="primary" @click="saveEditMode">Save</UiButton>
       </template>
       <template v-else>
         <form v-if="searchOpen" @submit.prevent="findNext"><input v-model="searchQuery" class="cursor-search ui-field" aria-label="Search diff" @keydown.esc.stop.prevent="closeSearch" /></form>
-        <UiButton size="sm" @click="openSearch">Find</UiButton>
-        <UiButton size="sm" :disabled="!canEditCursor" @click="enterEditMode">{{ loadEditorFile ? 'Edit file' : 'Edit line' }}</UiButton>
-        <UiButton v-if="!readOnly && !fileLevelOnly" size="sm" :disabled="!activeHunk" @click="lineMode ? stageSelectedLines() : stageActive()">{{ staged ? 'Unstage' : 'Stage' }} {{ lineMode ? 'lines' : 'hunk' }}</UiButton>
+        <UiButton size="sm" variant="ghost" title="Find in diff (/)" @click="openSearch">Find</UiButton>
+        <UiButton size="sm" variant="ghost" :disabled="!canEditCursor" @click="enterEditMode">{{ loadEditorFile ? 'Edit file' : 'Edit line' }}</UiButton>
+        <UiButton v-if="!readOnly && !fileLevelOnly" size="sm" variant="ghost" :disabled="!activeHunk" @click="lineMode ? stageSelectedLines() : stageActive()">{{ staged ? 'Unstage' : 'Stage' }} {{ lineMode ? 'lines' : 'hunk' }}</UiButton>
       </template>
     </div>
     <template v-if="fileBuffer === null">

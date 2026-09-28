@@ -46,7 +46,8 @@ const description = computed(
 .ref-overflow {
   flex: none;
   color: var(--text-mut);
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
+  font-variant-numeric: tabular-nums;
 }
 .ref-cluster:hover .ref-label {
   background: var(--hover);

@@ -56,6 +56,16 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     LogRef: (ref: string, limit: number) => logRef(ref, limit),
     DiffFiles: (a: string, b: string) => diffFiles(a, b),
   },
+  GraphService: {
+    LoadGraph: () => Promise.resolve({ Commits: [
+      { Hash: 'abc1234', ShortHash: 'abc1234', Message: 'tip', Parents: ['bbb2222'] },
+      { Hash: 'bbb2222', ShortHash: 'bbb2222', Message: 'base', Parents: [] },
+    ] }),
+  },
+  DiffService: {
+    DiffBetween: () => Promise.resolve(''),
+    ParseDiff: () => Promise.resolve([]),
+  },
   RemoteService: {
     FetchAll: () => fetchAll(),
   },
@@ -93,6 +103,26 @@ describe('BranchesView', () => {
     expect(rows[0]!.find('.branch-chip.ahead').text()).toBe('↑2')
     expect(rows[1]!.find('.branch-chip.behind').text()).toBe('↓3')
     expect(wrapper.findAll('.branch-sect')[1]!.text()).toContain('Remote')
+    wrapper.unmount()
+  })
+
+  it('filters branches and keeps map selection in sync with the list', async () => {
+    const wrapper = await mountView()
+    await wrapper.find('[aria-label="Filter branches"]').setValue('diff-view')
+    expect(wrapper.findAll('.branch-row')).toHaveLength(1)
+    await wrapper.find('[aria-label="Inspect origin/main"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.branch-row')).toHaveLength(4)
+    expect(wrapper.find('.branch-row.selected').text()).toContain('origin/main')
+    expect(wrapper.find('.bd-name').text()).toContain('origin/main')
+    wrapper.unmount()
+  })
+
+  it('compares against the chosen baseline', async () => {
+    const wrapper = await mountView()
+    await wrapper.find('[aria-label="Compare against"]').setValue('feature/graph-styles')
+    await flushPromises()
+    expect(diffFiles).toHaveBeenCalledWith('feature/graph-styles', 'main')
     wrapper.unmount()
   })
 
@@ -137,6 +167,18 @@ describe('BranchesView', () => {
     const wrapper = await mountView()
     await wrapper.find('.branches-list').trigger('keydown', { key: 'f' })
     expect(fetchAll).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('focuses the filter field on / and returns to the list on Enter', async () => {
+    const wrapper = await mountView()
+    const list = wrapper.find('.branches-list')
+    const input = wrapper.find<HTMLInputElement>('input[aria-label="Filter branches"]')
+    await list.trigger('keydown', { key: '/' })
+    expect(document.activeElement).toBe(input.element)
+    expect(wrapper.find('.vim-cmdline').exists()).toBe(false)
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(document.activeElement).toBe(list.element)
     wrapper.unmount()
   })
 
@@ -185,6 +227,7 @@ describe('BranchesView', () => {
     expect(pane.find('.bd-name').text()).toContain('main')
     expect(pane.find('.bd-current').exists()).toBe(true)
 
+    await wrapper.find('[role=tab]:last-child').trigger('click')
     // rail renders the per-ref log, tip badge on the first row
     expect(logRef).toHaveBeenCalledWith('main', 6)
     const railRows = pane.findAll('.bd-rail-row')
@@ -222,12 +265,11 @@ describe('BranchesView', () => {
     expect(branchDivergence).toHaveBeenCalledWith('main', 'feature/diff-view')
     expect(diffFiles).toHaveBeenCalledWith('main', 'feature/diff-view')
 
-    // fork base aaa1111 is not in the fetched log, so it is appended
+    await wrapper.find('[role=tab]:last-child').trigger('click')
+    // A merge base outside the fetched history must not invent a parent edge.
     const railRows = wrapper.findAll('.bd-rail-row')
-    expect(railRows).toHaveLength(3)
-    const forkRow = railRows[2]!
-    expect(forkRow.classes()).toContain('fork')
-    expect(forkRow.text()).toContain('forked from main · base subject')
+    expect(railRows).toHaveLength(2)
+    await wrapper.find('[role=tab]:first-child').trigger('click')
 
     // file change list vs current: rows with numeric deltas and a total
     const churn = wrapper.find('.bd-churn')

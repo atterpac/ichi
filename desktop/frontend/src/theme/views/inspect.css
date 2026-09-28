@@ -180,11 +180,16 @@
   bottom: 3px;
   overflow: hidden;
   color: var(--text-mut);
-  font: var(--fs-2xs) var(--font-mono);
+  font: var(--fs-2xs) var(--font-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.fi-scrub-label b,
+.fi-scrub-label i {
+  font-family: var(--font-mono);
+  font-style: normal;
+}
 .fi-scrub-label b {
   color: var(--accent-text);
   font-weight: var(--weight-medium);
@@ -227,17 +232,6 @@
 .fi-rail:focus-visible,
 .fi-blame:focus-visible {
   box-shadow: inset 0 0 0 1px var(--accent-line);
-}
-
-.fi-rail .vim-cmdline,
-.fi-blame .vim-cmdline {
-  position: sticky;
-  top: 0;
-  margin: 0;
-}
-
-.fi-rail .vim-cmdline {
-  margin: calc(-1 * var(--space-3)) 0 var(--space-3);
 }
 
 /* the accent spine spans only the commit rows, not the full column */
@@ -414,9 +408,7 @@
 .fi-detail h3 {
   margin: 0 0 var(--space-6);
   color: var(--head);
-  font-weight: var(--weight-medium);
-  font-size: var(--font-title);
-  line-height: 1.35;
+  font: var(--font-hero);
   overflow-wrap: anywhere;
 }
 
@@ -433,7 +425,7 @@
 
 .fi-detail dt {
   color: var(--text-mut);
-  font-size: var(--fs-xs);
+  font: var(--font-label);
 }
 
 .fi-detail dd {
@@ -470,7 +462,10 @@
   min-height: 30px;
   padding: 0 var(--space-6);
   border-top: 1px solid var(--border);
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
+}
+.fi-blame-foot .fi-bl-hash {
+  font-family: var(--font-mono);
 }
 
 .fi-foot-subj {

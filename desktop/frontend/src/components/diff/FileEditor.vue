@@ -99,13 +99,13 @@ defineExpose({ focus: () => view?.focus() })
     <div class="cursor-review-actions file-editor-toolbar">
       <span class="file-editor-mode" role="status" aria-live="polite" aria-atomic="true">{{ mode }}</span>
       <small class="file-editor-hint">{{ visual ? 'Selection active · d delete · y yank · Esc normal' : ':w save · :q close' }}</small>
-      <UiButton size="sm" :disabled="saving" @click="close()">Close</UiButton>
-      <UiButton size="sm" :disabled="saving" @click="saveBuffer">{{ saving ? 'Saving…' : 'Save' }}</UiButton>
+      <UiButton size="sm" variant="ghost" :disabled="saving" @click="close()">Close</UiButton>
+      <UiButton size="sm" variant="primary" :disabled="saving" @click="saveBuffer">{{ saving ? 'Saving…' : 'Save' }}</UiButton>
     </div>
     <div v-if="error" role="alert" class="file-editor-message">{{ error }}</div>
     <div v-if="discardPrompt" class="file-editor-message">
       Discard unsaved changes?
-      <UiButton size="sm" @click="close(true)">Discard</UiButton>
+      <UiButton size="sm" variant="danger" @click="close(true)">Discard</UiButton>
       <UiButton size="sm" @click="discardPrompt = false; view?.focus()">Keep editing</UiButton>
     </div>
     <div ref="host" class="file-editor-host" />
@@ -116,11 +116,11 @@ defineExpose({ focus: () => view?.focus() })
 .file-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .file-editor-host { flex: 1; min-height: 0; overflow: hidden; }
 .file-editor-toolbar { position: static; flex-shrink: 0; }
-.file-editor-toolbar > .file-editor-mode { padding: 3px 7px; border-radius: 3px; font-weight: 700; letter-spacing: 0.06em; white-space: nowrap; }
+.file-editor-toolbar > .file-editor-mode { white-space: nowrap; }
 .file-editor.is-visual { --editor-selection-edge: var(--accent-text); }
 .is-visual .file-editor-toolbar { box-shadow: inset 0 -2px var(--accent-text); }
 .is-visual .file-editor-mode { background: var(--accent); color: var(--accent-ink); }
 .is-visual .file-editor-hint { color: var(--text); }
-.file-editor-hint { color: var(--text-mut); font: 10px var(--font-mono); white-space: nowrap; }
-.file-editor-message { padding: 8px 12px; font-size: 12px; }
+.file-editor-hint { margin-right: var(--space-4); color: var(--text-mut); font: var(--fs-xs) var(--font-ui); white-space: nowrap; }
+.file-editor-message { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-6); font-size: var(--fs-sm); }
 </style>

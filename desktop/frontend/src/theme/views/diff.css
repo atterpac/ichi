@@ -67,7 +67,7 @@
   background: color-mix(in oklab, var(--red) 7%, transparent);
   box-shadow: inset 2px 0 0 color-mix(in oklab, var(--red) 55%, transparent);
   color: color-mix(in oklch, var(--red) 70%, var(--text-mut));
-  font: var(--fs-xs)/var(--diff-row-h, var(--fs-xl)) var(--font-mono);
+  font: var(--fs-xs)/var(--diff-row-h, var(--fs-xl)) var(--font-ui);
   white-space: pre;
   user-select: none;
 }
@@ -101,7 +101,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font: var(--fs-md) var(--font-mono);
+  font: var(--weight-medium) var(--fs-sm) var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -110,9 +110,9 @@
   flex: none;
   padding: 1px var(--space-4);
   border-radius: var(--radius-pill);
-  background: var(--surface-2);
+  background: color-mix(in oklab, var(--text) 7%, transparent);
   color: var(--text-mut);
-  font-size: var(--fs-xs);
+  font: var(--font-label);
 }
 
 .layout-select {
@@ -177,7 +177,7 @@
   border: 0;
   background: color-mix(in oklab, var(--surface-2) 40%, transparent);
   color: var(--text-mut);
-  font: var(--fs-xs)/var(--diff-row-h, var(--fs-xl)) var(--font-mono);
+  font: var(--fs-xs)/var(--diff-row-h, var(--fs-xl)) var(--font-ui);
   text-align: center;
   white-space: pre;
   position: sticky;
@@ -196,7 +196,7 @@
   cursor: default;
 }
 
-.diff-hunk.active {
+.diff-view:not(.cursor-review):focus .diff-hunk.active {
   border-top-color: color-mix(in oklch, var(--accent-line) 65%, var(--border));
   border-bottom-color: color-mix(in oklch, var(--accent-line) 45%, var(--border));
   background: color-mix(in oklch, var(--accent-soft) 72%, var(--read-bg));
@@ -226,7 +226,7 @@
     opacity var(--ease-fast);
 }
 
-.diff-hunk.active .hunk-stage-hint,
+.diff-view:focus .diff-hunk.active .hunk-stage-hint,
 .diff-hunk:hover .hunk-stage-hint {
   color: var(--text-dim);
   opacity: 1;
@@ -351,7 +351,7 @@
   background: var(--selected);
 }
 
-.diff-line.line-cursor {
+.diff-view:focus .diff-line.line-cursor {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -381,31 +381,32 @@
 .line-truncated {
   margin-left: var(--space-4);
   color: var(--text-mut);
+  font: var(--fs-xs) var(--font-ui);
   font-style: normal;
-  font-size: var(--fs-xs);
   user-select: none;
 }
 
 /* Changes cursor review: quiet code, one persistent point of focus. */
 .diff-view.cursor-review {
-  --diff-code-bg: var(--surface-base);
+  --diff-code-bg: var(--read-bg);
   --diff-code-text: var(--text-dim);
   --diff-code-padding: 8px;
   --diff-number-start: 58px;
   --diff-number-end: 96px;
   --diff-sign-width: 24px;
-  --diff-number-size: 10px;
+  --diff-number-size: var(--fs-2xs);
   --diff-number-opacity: 1;
   --diff-cursor-content: '›';
   background: var(--diff-code-bg);
 }
-.cursor-review .diff-file-head { background: var(--surface-base); padding: 10px 20px; min-height: 48px; }
-.cursor-review .diff-file-path { font-size: 12px; }
-.cursor-review-actions { position: sticky; top: 48px; left: 0; z-index: 2; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 20px; border-bottom: 1px solid var(--border); background: var(--surface-base); }
-.cursor-review-actions > span { margin-right: auto; color: var(--accent-text); font: 10px var(--font-mono); }
-.cursor-review .diff-hunk, .cursor-review .diff-hunk.active { border: 0; background: transparent; box-shadow: none; color: var(--text-mut); padding: 0 20px; font-size: 10px; }
-.cursor-review .hunk-header-text { font-weight: 400; }
-.cursor-review .diff-gap { background: transparent; font-size: 10px; }
+.cursor-review .diff-file-head { background: var(--read-bg); padding: var(--space-4) var(--space-10); min-height: 48px; border-bottom-color: var(--line-faint); }
+.cursor-review .diff-file-path { font-size: var(--fs-sm); }
+/* Tool strip: mode tag on the left, quiet ghost tools on the right. */
+.cursor-review-actions { position: sticky; top: 48px; left: 0; z-index: 2; display: flex; align-items: center; gap: var(--space-2); min-height: 36px; padding: var(--space-2) var(--space-8) var(--space-2) var(--space-10); border-bottom: 1px solid var(--line-faint); background: var(--read-bg); }
+.cursor-review-actions > span:first-child { margin-right: auto; padding: 2px var(--space-3); border-radius: var(--radius-xs); background: var(--accent-soft); color: var(--accent-text); font: var(--weight-emphasis) var(--fs-2xs)/1.4 var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; }
+.cursor-review .diff-hunk, .cursor-review .diff-hunk.active { border: 0; background: transparent; box-shadow: none; color: var(--text-mut); padding: 0 var(--space-10); font-size: var(--fs-2xs); }
+.cursor-review .hunk-header-text { font-weight: var(--weight-regular); }
+.cursor-review .diff-gap { background: transparent; font-size: var(--fs-2xs); }
 .cursor-review .diff-line { grid-template-columns: 20px 38px 38px var(--diff-sign-width) minmax(0, 1fr); color: var(--diff-code-text); }
 .diff-cursor-marker { color: var(--accent-text); text-align: center; font-size: 18px; user-select: none; }
 .cursor-review .line-no { font-size: var(--diff-number-size); opacity: 1; }
@@ -415,9 +416,12 @@
 .cursor-review .diff-line.add .line-content { background: color-mix(in srgb, var(--positive-text) 7%, transparent); color: var(--text); }
 .cursor-review .diff-line.del .line-content { background: color-mix(in srgb, var(--negative-text) 7%, transparent); }
 .cursor-review .diff-line:hover { background: var(--hover); }
-.cursor-review .diff-line.line-cursor, .cursor-review .diff-line.line-selected { background: var(--selected); }
+.cursor-review:focus .diff-line.line-cursor, .cursor-review .diff-line.line-selected { background: var(--selected); }
 .diff-inline-editor { height: var(--diff-row-h); width: 100%; margin: 0; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--text); caret-color: var(--accent-text); font: inherit; outline: none; }
 .diff-inline-editor:focus-visible { outline: none; box-shadow: inset 0 -1px var(--accent-line); }
 
 .diff-view.editing-file { display: flex; flex-direction: column; overflow: hidden; }
 .diff-view.editing-file > .diff-file-head { flex-shrink: 0; }
+
+/* Retain the review position without drawing a cursor in an inactive pane. */
+.diff-view:not(:focus) .diff-cursor-marker { visibility: hidden; }

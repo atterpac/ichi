@@ -47,6 +47,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'finder', label: 'Finder', key: 'f' },
     ],
   },
+  { title: 'Git settings', items: [{ id: 'profiles', label: 'Profiles', key: 'i' }] },
 ]
 
 export const NAV_KEY_MAP = new Map<string, string>(

@@ -518,15 +518,6 @@ onMounted(() => {
         @keydown="onKey"
         @focusin="setModeline({ mode: 'GRAPH', hints: 'j/k commit · l inspector · r refs · / search' })"
       >
-        <div
-          v-if="vim.search.active.value || vim.pending.value || vim.count.value"
-          class="vim-cmdline"
-        >
-          <template v-if="vim.search.active.value"
-            >/{{ vim.search.query.value }}<span class="vim-caret">▌</span></template
-          >
-          <template v-else>{{ vim.count.value }}{{ vim.pending.value }}</template>
-        </div>
         <div class="commit-table-head" :style="{ '--rail-width': `${railWidth}px` }">
           <span class="th-refs">Refs</span>
           <span>Graph</span>

@@ -41,6 +41,7 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   GraphService: {
     SearchCommits: () => searchCommits(),
   },
+  InspectService: { WorkingFileContent: async () => 'export const preview = true' },
   CompletionService: {
     ListFiles: () => listFiles(),
   },
@@ -70,12 +71,12 @@ describe('FinderBar', () => {
   })
   afterEach(() => { vi.useRealTimers() })
 
-  it('opens a focused native input with scope buttons and suggested navigation', async () => {
+  it('opens one focused search input with suggested navigation', async () => {
     const wrapper = await mountBar()
     try {
       expect(document.activeElement).toBe(wrapper.get('input').element)
       expect(wrapper.get('[role="dialog"]').attributes('aria-modal')).toBe('true')
-      expect(wrapper.findAll('.fb-scopes button').map(button => button.text())).toEqual(['All', 'Filesf:', 'Commitsc:', 'Branchesb:', 'Viewsv:', 'Reposr:', 'Workspacesw:', 'Profilesp:'])
+      expect(wrapper.find('.fb-scopes').exists()).toBe(false)
       expect(wrapper.findAll('.fb-row').every(row => row.attributes('aria-label')?.startsWith('view:'))).toBe(true)
       expect(listFiles).toHaveBeenCalled()
     } finally { wrapper.unmount() }
@@ -92,37 +93,43 @@ describe('FinderBar', () => {
       expect(searchCommits).toHaveBeenCalled()
     } finally { wrapper.unmount() }
   })
-  it('accepts a pasted prefix and checks out the filtered branch on Enter', async () => {
+  it('accepts a pasted prefix and inspects a branch without checking it out', async () => {
     const wrapper = await mountBar()
     try {
       await wrapper.get('input').setValue('b:di')
       await flushPromises()
-      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Branchesb:')
+      expect(wrapper.get('.fb-scope-chip').text()).toContain('b:')
       expect((wrapper.get('input').element as HTMLInputElement).value).toBe('di')
       press('Enter')
       await flushPromises()
-      expect(checkoutBranch).toHaveBeenCalledWith('feature/diff-view', false)
+      expect(checkoutBranch).not.toHaveBeenCalled()
+      expect(wrapper.emitted('navigate')?.[0]).toEqual(['branches', 'feature/diff-view'])
       expect(wrapper.emitted('close')).toBeTruthy()
     } finally { wrapper.unmount() }
   })
-  it('preserves the query when switching scopes by mouse or Tab', async () => {
-    const wrapper = await mountBar('diff')
+  it('suggests optional prefixes and previews files on demand', async () => {
+    const wrapper = await mountBar('f')
     try {
-      await wrapper.findAll('.fb-scopes button')[1]!.trigger('click')
-      expect((wrapper.get('input').element as HTMLInputElement).value).toBe('diff')
-      expect(wrapper.findAll('.fb-row')).toHaveLength(1)
-      press('Tab')
+      expect(wrapper.get('.fb-prefixes').text()).toContain('f:')
+      await wrapper.get('.fb-prefixes button').trigger('click')
+      expect(wrapper.get('.fb-scope-chip').text()).toContain('f:')
+      expect(wrapper.find('.fb-preview').exists()).toBe(false)
+      await wrapper.get('.fb-preview-toggle').trigger('click')
       await flushPromises()
-      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Commitsc:')
-      press('Tab', { shiftKey: true })
+      expect(wrapper.get('.fb-preview').text()).toContain('export const preview = true')
+      press('ArrowLeft')
       await flushPromises()
-      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Filesf:')
+      expect(wrapper.find('.fb-preview').exists()).toBe(false)
+      expect(document.activeElement).toBe(wrapper.get('input').element)
     } finally { wrapper.unmount() }
   })
-  it('offers create-from-query when no branch matches exactly', async () => {
+  it('does not offer create or delete mutations from branch search', async () => {
     const wrapper = await mountBar('b:fix/new-thing')
-    try { expect(wrapper.get('.fb-row.create').text()).toContain('create branch “fix/new-thing”') }
-    finally { wrapper.unmount() }
+    try {
+      expect(wrapper.findAll('.fb-row')).toHaveLength(0)
+      press('Enter')
+      expect(checkoutBranch).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
   })
   it('moves down through visible results and activates the selected view', async () => {
     const wrapper = await mountBar()
@@ -147,7 +154,7 @@ describe('FinderBar', () => {
     try {
       press('Backspace')
       await flushPromises()
-      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('All')
+      expect(wrapper.find('.fb-scope-chip').exists()).toBe(false)
       await wrapper.get('input').setValue('anything')
       press('Escape')
       expect(wrapper.emitted('close')).toBeTruthy()
@@ -207,9 +214,9 @@ describe('FinderBar', () => {
     try {
       expect(second.text()).toContain('f:shell')
       expect(second.text()).toContain('shell.css')
-      await second.get('.fb-row').trigger('click')
+      await second.get('[aria-label="search: f:shell"]').trigger('click')
       await flushPromises()
-      expect(second.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Filesf:')
+      expect(second.get('.fb-scope-chip').text()).toContain('f:')
       expect((second.get('input').element as HTMLInputElement).value).toBe('shell')
     } finally { second.unmount(); launcher.remove() }
   })
@@ -230,11 +237,11 @@ describe('FinderBar', () => {
     const wrapper = await mountBar('w:Personal')
     try {
       press('Enter'); await flushPromises()
-      expect(wrapper.get('.fb-scopes [aria-pressed="true"]').text()).toBe('Reposr:')
+      expect(wrapper.get('.fb-scope-chip').text()).toContain('r:')
       expect(wrapper.text()).toContain('Workspace: Personal')
       expect(wrapper.text()).toContain('Relay')
     } finally { wrapper.unmount() }
-    useGitProfiles().state.profiles = [{ ID: '/work.gitconfig', Label: 'Work', Name: 'Work User', Email: 'work@example.test', Source: '/work.gitconfig', SigningEnabled: 'false', SigningKey: '', SigningFormat: 'openpgp' }]
+    useGitProfiles().state.profiles = [{ ID: '/work.gitconfig', Label: 'Work', Name: 'Work User', Email: 'work@example.test', Source: '/work.gitconfig', SigningEnabled: 'false', TagSigningEnabled: 'false', SigningKey: '', SigningFormat: 'openpgp' }]
     const profile = await mountBar('p:work@example.test')
     try {
       expect(profile.text()).toContain('Work User')
