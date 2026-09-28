@@ -1,0 +1,16 @@
+# Ichi: warm charcoal and copper for a quiet, readable Git workspace.
+# Keep navigation copper, additions sage, removals coral, and warnings gold.
+# Blue and lilac give graph branches distinct hues without coloring the chrome.
+name: ichi
+colors:
+  bg_dark: "#17191b"
+  bg: "#202326"
+  bg_light: "#303438"
+  fg: "#e6e2da"
+  fg_dim: "#a39f98"
+  accent: "#e5ad87"
+  accent_dim: "#b7a4d9"
+  success: "#a3c49b"
+  error: "#e8938b"
+  warning: "#dbc17e"
+  info: "#8ebccc"

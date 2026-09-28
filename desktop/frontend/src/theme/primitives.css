@@ -1,5 +1,7 @@
 /* Shared sizing applies to native fields as well as Vue primitives. */
 :where(.ui-button, .ui-field, .ui-control) {
+  /* Secondary tier: a quiet fill reads as clickable without an outline box. */
+  --control-fill: color-mix(in oklab, var(--text) 6%, transparent);
   --control-height: var(--control-height-md);
   --control-pad: var(--control-pad-md);
   --control-font: var(--fs-md);
@@ -32,10 +34,10 @@
   height: var(--control-height);
   min-height: var(--control-height);
   padding: 0 var(--control-pad);
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-faint);
   border-radius: var(--control-radius);
-  background: transparent;
-  color: var(--text-dim);
+  background: var(--control-fill);
+  color: var(--text);
   font: var(--weight-medium) var(--control-font)/var(--control-line) var(--font-ui);
   white-space: nowrap;
   transition:
@@ -58,9 +60,12 @@
 }
 .ui-button:hover:not(:disabled),
 .ui-control:hover:not(:disabled) {
-  background: var(--hover);
-  border-color: var(--border-2);
-  color: var(--text);
+  background: color-mix(in oklab, var(--text) 11%, transparent);
+  border-color: var(--border);
+  color: var(--head);
+}
+.ui-button:active:not(:disabled) {
+  transform: translateY(0.5px);
 }
 .ui-button.active {
   border-color: var(--accent-line);
@@ -68,9 +73,10 @@
   color: var(--accent-text);
 }
 .ui-button.variant-primary {
-  border-color: var(--accent-text);
+  border-color: color-mix(in oklch, var(--accent) 80%, #000);
   background: var(--accent);
   color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 1px 2px rgb(0 0 0 / 0.2);
 }
 .ui-button.variant-primary:hover:not(:disabled) {
   background: color-mix(in oklch, var(--accent) 88%, white);
@@ -78,6 +84,8 @@
 }
 .ui-button.variant-danger {
   color: var(--negative-text);
+  background: color-mix(in oklab, var(--red) 8%, transparent);
+  border-color: color-mix(in oklab, var(--red) 18%, transparent);
 }
 .ui-button.variant-danger:hover:not(:disabled) {
   border-color: color-mix(in oklab, var(--red) 45%, var(--surface-panel));
@@ -86,15 +94,30 @@
 }
 .ui-button.variant-ghost {
   border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
 }
 .ui-button.variant-ghost:hover:not(:disabled) {
   border-color: transparent;
+  background: var(--hover);
 }
 .ui-button:disabled,
 .ui-control:disabled,
 .ui-field:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
+}
+/* A dimmed accent reads as broken; disabled primaries go neutral instead. */
+.ui-button.variant-primary:disabled {
+  opacity: 1;
+  border-color: color-mix(in oklab, var(--text) 14%, var(--surface-raised));
+  background: color-mix(in oklab, var(--text) 8%, var(--surface-raised));
+  color: var(--text-mut);
+  box-shadow: none;
+}
+.ui-button.variant-primary:disabled kbd {
+  background: transparent;
+  color: var(--text-mut);
 }
 .ui-button[aria-busy='true'] {
   cursor: progress;

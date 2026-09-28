@@ -1,0 +1,15 @@
+# Ichi Light: sand and paper surfaces, forest green navigation, warm ink.
+# Teal additions, brick removals, and ochre warnings stay readable on sand.
+name: ichi-light
+colors:
+  bg_dark: "#dfd5c2"
+  bg: "#ece3d2"
+  bg_light: "#f6eedf"
+  fg: "#343c32"
+  fg_dim: "#696e60"
+  accent: "#38634b"
+  accent_dim: "#79628e"
+  success: "#317365"
+  error: "#ad4c3d"
+  warning: "#86631e"
+  info: "#426c89"

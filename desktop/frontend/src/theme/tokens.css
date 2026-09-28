@@ -1,4 +1,4 @@
-/* Theme palettes live in themes.css (generated from the dado theme defs).
+/* Theme palettes live in themes.css (generated from local and dado theme defs).
    Everything below derives from those base variables, so every theme gets
    consistent hovers, borders, and tints for free. */
 
@@ -8,6 +8,7 @@
   --space-2: 4px;
   --space-3: 6px;
   --space-4: 8px;
+  --space-5: 10px;
   --space-6: 12px;
   --space-8: 16px;
   --space-10: 20px;
@@ -40,13 +41,19 @@
   --line-faint: color-mix(in oklab, var(--text) 8%, var(--surface-panel));
   --border: color-mix(in oklab, var(--text) 14%, var(--surface-panel));
   --border-2: color-mix(in oklab, var(--text) 28%, var(--surface));
-  --surface-base: var(--bg);
+  /* Surface ladder: chrome frames the window, the panel is the working card,
+     raised holds docked inspectors, overlay floats. The generator spaces these
+     per palette (see scripts/generate-themes.mjs). */
+  --surface-base: var(--surface-chrome-gen, var(--bg));
   --surface-panel: var(--surface);
   --surface-raised: var(--surface-raised-gen, var(--surface-2));
   --surface-overlay: var(--surface-overlay-gen, var(--surface-raised));
+  --surface-hover-strong: color-mix(in oklab, var(--text) 10%, transparent);
   --inspector-bg: var(--surface-raised);
   --chrome-bg: var(--surface-base);
-  --read-bg: var(--surface-raised);
+  --read-bg: var(--surface-panel);
+  --card-radius: var(--radius-xl);
+  --gutter: var(--space-6);
   --font-ui:
     'Inter Variable', Inter, 'Segoe UI', ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, sans-serif;
@@ -61,7 +68,12 @@
   --fs-xl: 20px;
   --font-meta: var(--fs-xs);
   --font-body: var(--fs-md);
-  --font-title: var(--fs-xl);
+  /* Type roles. Inter carries every label, heading and control; mono is only
+     for copyable data: hashes, paths, code, and aligned diff counts. */
+  --font-title: 600 15px/1.35 var(--font-ui); /* panel titles */
+  --font-hero: 600 17px/1.35 var(--font-ui); /* the one reading heading per pane */
+  --font-label: var(--weight-medium) var(--fs-xs)/1.4 var(--font-ui); /* section labels */
+  --font-data: var(--fs-xs)/1.4 var(--font-mono);
   --read-text: var(--text-dim);
 
   /* accent tints — opaque oklch mixes so the accent hue survives on dark surfaces */

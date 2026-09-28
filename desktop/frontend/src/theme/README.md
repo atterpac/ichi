@@ -18,6 +18,27 @@ file; isolated components may still use scoped Vue styles.
 
 ## Surface and elevation roles
 
+Ichi is the default app palette, owned here in `defs/ichi.yaml`. Warm charcoal
+surfaces and ivory text keep long history and diff sessions quiet; copper marks
+navigation and focus, sage marks additions, coral marks removals, and gold marks
+warnings. Blue and lilac complete the five graph lanes. The generator tunes
+metadata and semantic text to 4.5:1 contrast across all four surfaces.
+
+`defs/ichi-light.yaml` is the companion light palette: warm sand and paper
+surfaces, forest green navigation, and dark olive ink. Teal additions, brick
+removals, and ochre warnings separate Git states from navigation. Both Ichi
+palettes lead the theme picker; the charcoal variant remains the default.
+
+Run `pnpm gen:themes` after editing the palette and commit both generated files.
+Local definitions take precedence over imported dado definitions; Ichi appears
+first in the theme picker. Fresh or invalid settings use Ichi, while saved theme
+choices (including legacy aliases) remain intact.
+
+The generator also emits `--surface-chrome-gen`, a darker step behind the
+working card, and pushes dark raised panels slightly lighter so flat palettes
+still separate. Don't build surface tokens with `light-dark()`: WebKitGTK drops
+any `color-mix()` that nests one.
+
 Use `--surface-base` for window chrome, `--surface-panel` for primary lists/tables,
 `--surface-raised` for docked inspectors, and `--surface-overlay` for floating
 menus, Finder, and dialogs. `--read-bg` aliases the raised surface for existing
@@ -30,8 +51,12 @@ muted text is tuned to at least 4.5:1 on all four generated surfaces. Elevation 
 is for controls, 2 is a restrained docked-panel shadow, and 3 is for overlays.
 Use `--line-faint` for internal separators and `--border` between surfaces.
 
-Typography roles use `--font-ui`, `--font-mono`, and the `--fs-*` scale;
-`--font-title` is the larger commit inspector heading. Graph row heights are
+Typography roles: Inter (`--font-ui`) carries every label, heading, and
+control; mono is only for copyable data (hashes, paths, code, aligned diff
+counts). Use the shorthand roles `--font-title` (panel titles), `--font-hero`
+(one reading heading per pane), `--font-label` (section labels), and
+`--font-data` (small mono data) instead of ad-hoc sizes. Buttons have three
+tiers: primary (one per region), default (quiet fill), ghost (tools). Graph row heights are
 owned by `components/graph/rowDensity.ts` and shared by the canvas and table
 through `--graph-row-height`. Change those together, not with independent CSS
 height overrides.
@@ -71,3 +96,11 @@ for mutable branch/signature metadata. After 250ms without selection changes,
 prefetch up to 12 following and two preceding rows, one request at a time. Pending
 loads are shared with foreground selections. Graph reloads and unmounts clear the
 cache and stop queued prefetching. Working-tree data is always fetched live.
+
+The shell title bar uses symmetric columns to center a 32px search field (up to
+560px wide), with repository context on the left and Settings on the right.
+At narrow widths, context collapses before search moves to its own row. Keep
+native macOS traffic-light spacing inside the left column so it does not offset
+search. The footer Ichi button opens `IchiMenu.vue`, a focus-contained About
+panel with release notes, source, and feedback links. Desktop links open through
+the Wails browser API; browser previews use ordinary external links.
