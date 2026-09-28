@@ -16,6 +16,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
+        conflictsAppLab: fileURLToPath(new URL('./conflicts-app-lab.html', import.meta.url)),
+        operationsLab: fileURLToPath(new URL('./operations-lab.html', import.meta.url)),
+        branchesLab: fileURLToPath(new URL('./branches-lab.html', import.meta.url)),
         switcherLab: fileURLToPath(new URL('./switcher-lab.html', import.meta.url)),
         avatarLab: fileURLToPath(new URL('./avatar-lab.html', import.meta.url)),
         reviewLab: fileURLToPath(new URL('./review-lab.html', import.meta.url)),

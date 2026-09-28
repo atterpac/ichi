@@ -1,0 +1,626 @@
+.native-conflicts-lab {
+  color: var(--text);
+  font-family: var(--font-ui);
+}
+.native-conflicts-lab .native-theme {
+  max-width: 135px;
+}
+.native-conflicts-lab .titlebar-search {
+  padding-left: var(--space-4);
+}
+.native-conflicts-lab .titlebar-search .ui-field {
+  flex: 1;
+  min-width: 0;
+}
+.native-conflicts-lab .primary-nav button:disabled {
+  cursor: default;
+}
+.native-header-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+.native-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  color: var(--positive-text);
+  background: color-mix(in oklab, var(--green) 7%, var(--surface-panel));
+  border-bottom: 1px solid var(--line-faint);
+  font-size: var(--fs-xs);
+}
+.native-operation-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 38px;
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--orange) 4%, var(--surface-panel));
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+.native-operation-strip > svg:first-child {
+  color: var(--warning-text);
+}
+.native-operation-strip > strong {
+  color: var(--warning-text);
+  font-weight: var(--weight-medium);
+}
+.native-spacer {
+  flex: 1;
+}
+.native-divider {
+  color: var(--text-mut);
+  opacity: 0.5;
+}
+.native-workspace {
+  display: grid;
+  grid-template-columns: 245px minmax(0, 1fr) 270px;
+  flex: 1;
+  min-height: 0;
+}
+.native-workspace.without-inspector {
+  grid-template-columns: 245px minmax(0, 1fr);
+}
+.native-files {
+  padding: var(--space-3);
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+.native-files .changes-section {
+  position: static;
+  margin-bottom: var(--space-4);
+}
+.native-files .changes-section > span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.native-files .changes-section > span:last-child {
+  color: var(--warning-text);
+  font: var(--fs-xs) var(--font-mono);
+}
+.native-folder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+  padding: var(--space-3) var(--space-4);
+}
+.native-file-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  padding: var(--space-3) var(--space-4);
+  min-height: 30px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font: var(--fs-xs) var(--font-ui);
+}
+.native-file-row > span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.native-file-row > svg {
+  flex-shrink: 0;
+  color: var(--text-mut);
+}
+.native-file-row > small {
+  font: var(--fs-2xs) var(--font-mono);
+  color: var(--warning-text);
+}
+.native-file-row > small.resolved {
+  color: var(--positive-text);
+}
+.native-file-row:hover {
+  background: var(--hover);
+}
+.native-file-row.selected {
+  background: var(--selected);
+  border-color: var(--accent-line);
+  color: var(--head);
+}
+.native-file-summary {
+  display: flex;
+  justify-content: space-between;
+  margin: var(--space-8) var(--space-4);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--line-faint);
+  color: var(--text-mut);
+  font-size: var(--fs-2xs);
+}
+.native-left-foot {
+  margin-top: auto;
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-6) var(--space-4) var(--space-3);
+  color: var(--text-mut);
+  font-size: var(--fs-2xs);
+}
+.native-left-foot code {
+  color: var(--accent-text);
+  font: var(--fs-2xs) var(--font-mono);
+  margin-left: var(--space-2);
+}
+.native-empty {
+  padding: var(--space-6);
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+.native-editor {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.native-editor .diff-file-head {
+  flex-shrink: 0;
+  position: static;
+  min-height: 40px;
+}
+.native-editor .diff-file-head > svg {
+  color: var(--text-mut);
+  flex-shrink: 0;
+}
+.native-file-kind {
+  font-size: var(--fs-2xs);
+  color: var(--text-mut);
+  white-space: nowrap;
+}
+.native-editor-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+.native-hunk-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 28px;
+  padding: var(--space-2) var(--space-6);
+  color: var(--text-mut);
+  background: color-mix(in oklab, var(--accent) 6%, var(--surface-panel));
+  border-bottom: 1px solid var(--line-faint);
+  font-size: var(--fs-2xs);
+}
+.native-hunk-bar code {
+  font: var(--fs-2xs) var(--font-mono);
+}
+.native-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+.native-version {
+  min-width: 0;
+}
+.native-version + .native-version {
+  border-left: 1px solid var(--border);
+}
+.native-version header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  min-height: 38px;
+  border-bottom: 1px solid var(--line-faint);
+}
+.native-version header > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.native-version header small {
+  font-size: var(--fs-2xs);
+  color: var(--text-mut);
+  white-space: nowrap;
+}
+.native-code {
+  overflow: auto;
+  min-height: 155px;
+  padding: var(--space-3) 0 var(--space-6);
+  font: var(--fs-xs)/22px var(--font-mono);
+}
+.native-code > div {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+}
+.native-code code {
+  font: inherit;
+  white-space: pre;
+  padding-right: var(--space-6);
+}
+.native-line-no {
+  width: 36px;
+  flex-shrink: 0;
+  padding-right: var(--space-4);
+  text-align: right;
+  color: var(--text-mut);
+  opacity: 0.6;
+  user-select: none;
+  font-size: var(--fs-2xs);
+}
+.native-version.main .changed {
+  background: color-mix(in oklab, var(--cyan) 8%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--cyan) 55%, transparent);
+}
+.native-version.commit .changed {
+  background: color-mix(in oklab, var(--green) 8%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--green) 55%, transparent);
+}
+.native-result header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  min-height: 40px;
+  border-bottom: 1px solid var(--line-faint);
+}
+.native-result header > strong {
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-medium);
+}
+.native-result-state {
+  color: var(--warning-text);
+  font-size: var(--fs-2xs);
+}
+.native-result-state.staged {
+  color: var(--positive-text);
+}
+.native-result-body {
+  display: flex;
+  min-height: 250px;
+  padding-top: var(--space-4);
+}
+.native-line-gutter {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 36px;
+  text-align: right;
+  padding-right: var(--space-4);
+  color: var(--text-mut);
+  opacity: 0.5;
+  font: var(--fs-2xs)/22px var(--font-mono);
+  user-select: none;
+}
+.native-result textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 240px;
+  resize: vertical;
+  padding: 0 var(--space-6) var(--space-6) 0;
+  border: 0;
+  background: var(--surface-panel);
+  color: var(--text);
+  font: var(--fs-xs)/22px var(--font-mono);
+  tab-size: 2;
+}
+.native-result textarea::placeholder {
+  color: var(--text-mut);
+  opacity: 0.65;
+}
+.native-result textarea:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 -1px var(--accent-line);
+}
+.native-editor-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border);
+  min-height: 46px;
+}
+.native-editor-footer > span {
+  color: var(--text-mut);
+  font-size: var(--fs-xs);
+}
+.native-inspector {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--surface-raised);
+  overflow: auto;
+}
+.native-inspector > header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 40px;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.native-inspector > header strong {
+  font-weight: var(--weight-medium);
+}
+.native-inspector > header > span {
+  margin-left: auto;
+  font: var(--fs-2xs) var(--font-mono);
+  color: var(--text-mut);
+}
+.native-current-commit {
+  padding: var(--space-8) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+.native-label {
+  margin: 0 0 var(--space-6);
+  color: var(--text-mut);
+  font-size: var(--fs-2xs);
+}
+.native-current-commit > code {
+  color: var(--accent-text);
+  font: var(--fs-xs) var(--font-mono);
+}
+.native-current-commit h3 {
+  margin: var(--space-4) 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.6;
+}
+.native-current-commit > p:last-child {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+}
+.native-current-commit > p > span {
+  color: var(--text-mut);
+}
+.native-steps {
+  padding: var(--space-8) var(--space-6);
+}
+.native-step {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  color: var(--text-mut);
+}
+.native-step > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.native-step > div {
+  min-width: 0;
+}
+.native-step span {
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  display: block;
+}
+.native-step code {
+  display: block;
+  font: var(--fs-2xs) var(--font-mono);
+  margin-top: var(--space-2);
+  color: var(--text-mut);
+}
+.native-step.done > svg {
+  color: var(--positive-text);
+}
+.native-step.current {
+  color: var(--text);
+}
+.native-step.current > svg {
+  color: var(--warning-text);
+}
+.native-inspector-note {
+  margin: auto var(--space-6) 0;
+  padding: var(--space-6) 0;
+  border-top: 1px solid var(--border);
+}
+.native-inspector-note strong {
+  font-size: var(--fs-xs);
+  font-weight: var(--weight-medium);
+}
+.native-inspector-note p {
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  margin: var(--space-3) 0 0;
+  color: var(--text-mut);
+}
+.native-inspector-actions {
+  padding: 0 var(--space-6) var(--space-6);
+}
+.native-inspector-actions > div {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-4);
+}
+.native-base {
+  padding: var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+.native-base header {
+  color: var(--text-mut);
+  font-size: var(--fs-2xs);
+  margin-bottom: var(--space-4);
+}
+.native-base pre {
+  margin: 0;
+  overflow: auto;
+  color: var(--text-dim);
+  font: var(--fs-xs)/22px var(--font-mono);
+}
+.native-deletion {
+  min-height: 155px;
+  padding: var(--space-10);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-4);
+  color: var(--text-mut);
+  font-size: var(--fs-sm);
+}
+.native-deletion small {
+  font-size: var(--fs-xs);
+}
+.native-positive {
+  color: var(--positive-text) !important;
+}
+.native-collapsed-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border);
+}
+.native-finished {
+  margin: auto;
+  padding: var(--space-16);
+  text-align: center;
+}
+.native-finished > svg {
+  color: var(--positive-text);
+}
+.native-finished h2 {
+  font-size: var(--fs-xl);
+  font-weight: var(--weight-medium);
+}
+.native-finished p {
+  color: var(--text-mut);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-8);
+}
+.native-conflicts-lab .modeline a {
+  color: var(--text-mut);
+  text-decoration: none;
+}
+.native-conflicts-lab .modeline a:hover {
+  color: var(--accent-text);
+}
+@media (max-width: 1200px) {
+  .native-workspace {
+    grid-template-columns: 210px minmax(0, 1fr) 240px;
+  }
+  .native-workspace.without-inspector {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+  .native-version header {
+    flex-wrap: wrap;
+  }
+  .native-version header small {
+    display: none;
+  }
+  .native-header-tools > span {
+    display: none;
+  }
+  .native-conflicts-lab .repo-dirty {
+    display: none;
+  }
+}
+@media (max-width: 950px) {
+  .native-workspace {
+    grid-template-columns: 190px minmax(0, 1fr);
+    overflow: auto;
+  }
+  .native-inspector {
+    grid-column: 1/-1;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .native-inspector > header {
+    grid-column: 1/-1;
+  }
+  .native-steps {
+    grid-column: 2;
+    grid-row: 2/4;
+  }
+  .native-inspector-note {
+    grid-column: 1;
+  }
+  .native-inspector-actions {
+    grid-column: 1/-1;
+  }
+  .native-editor {
+    min-height: 550px;
+  }
+  .native-comparison {
+    grid-template-columns: 1fr;
+  }
+  .native-version + .native-version {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .native-code {
+    min-height: 120px;
+  }
+  .native-modeline-hints {
+    display: none;
+  }
+  .native-conflicts-lab .primary-nav button {
+    padding-inline: var(--space-4);
+  }
+}
+@media (max-width: 650px) {
+  .native-conflicts-lab .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-4);
+  }
+  .native-conflicts-lab .titlebar-search {
+    display: none;
+  }
+  .native-theme {
+    width: 88px;
+  }
+  .native-workspace,
+  .native-workspace.without-inspector {
+    grid-template-columns: 1fr;
+  }
+  .native-files {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 185px;
+  }
+  .native-file-summary,
+  .native-left-foot,
+  .native-folder {
+    display: none;
+  }
+  .native-editor {
+    min-height: 610px;
+  }
+  .native-inspector {
+    grid-column: 1;
+  }
+  .native-conflicts-lab .island-header {
+    overflow: auto;
+    flex-shrink: 0;
+    gap: var(--space-3);
+  }
+  .native-conflicts-lab .primary-nav button:disabled {
+    display: none;
+  }
+  .native-operation-strip {
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .native-file-kind {
+    display: none;
+  }
+  .native-editor-footer > span {
+    font-size: var(--fs-2xs);
+  }
+  .native-conflicts-lab .modeline {
+    font-size: var(--fs-2xs);
+  }
+}

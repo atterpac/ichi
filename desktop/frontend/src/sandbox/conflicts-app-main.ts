@@ -1,0 +1,11 @@
+import { createApp } from 'vue'
+import ConflictsAppLab from './operations/ConflictsAppLab.vue'
+import '../theme/fonts.css'
+import '../theme/tokens.css'
+import '../theme/themes.css'
+import '../theme/base.css'
+import '../theme/primitives.css'
+import '../theme/shell.css'
+import '../theme/views/changes.css'
+import '../theme/views/diff.css'
+createApp(ConflictsAppLab).mount('#app')

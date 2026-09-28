@@ -122,3 +122,46 @@ focus states, and narrow layouts against `src/theme/COMPONENT_RUBRIC.md`.
 Visit `/changes-designs.html` for three interactive sample layouts: Review desk,
 Diff first, and Staging board. File selection, stage/unstage, and form feedback
 use local sample state only. No Git services are called by this page.
+
+## Operations lab
+
+Open `/operations-lab.html` on the Vite server for three connected, interactive
+flows: conflict resolution, rebase planning, and recovery history. Everything
+uses in-memory fixtures; the lab imports no Git services and makes no disk writes.
+
+- **Resolve:** compare main and the replayed commit, inspect the base, combine
+  the example changes or edit the result, then save and stage each file. The
+  third file demonstrates a delete/modify conflict. Continue becomes available
+  after all three files are staged. Editing a staged result unstages it.
+- **Plan:** reorder commits with arrows, choose Pick/Reword/Fixup/Drop, and see
+  the proposed history. Starting the example enters resolution if the session
+  persistence commit is retained; dropping it demonstrates clean completion.
+- **Recover:** inspect three earlier points, create a named recovery branch,
+  and optionally switch the example to that branch. Skip and Abort also have
+  confirmation and completion states.
+
+The “Combine changes” action uses a hand-authored result for the sample; it is
+not a general merge algorithm. Replay outcomes are scripted. Dark/light themes
+and narrow layouts are supported. Reset or reload clears the sample state.
+
+The resolution flow has four switchable designs sharing the same edits and
+staging state: **Comparison desk**, **Result first**, **Inline decisions**, and
+**Resolution board**. Direct links accept `?layout=compare`, `?layout=focus`,
+`?layout=inline`, or `?layout=board`. Result first uses a reference-version
+switcher; Inline decisions stacks alternatives in reading order; the board
+opens files from status cards. Each design supports manual editing, deletion
+conflicts, staging, and returning to staged files for further edits.
+
+## In-app conflict workspace
+
+Open `/conflicts-app-lab.html` for the design using the production Ichi shell,
+theme tokens, typography, UiButton/UiInput/UiIconButton, RefLabel, and operation
+confirmation dialog. It follows the Changes layout: compact file tree, central
+comparison/result editor, and a rebase inspector. It reads the saved app theme;
+preview theme changes are local and do not update app settings.
+
+Filter files, use j/k or arrows in the file list, inspect the base, choose or
+combine sample versions, edit and stage results, then continue the rebase.
+The inspector can be collapsed. Skip/abort use the production confirmation
+component. Application navigation labels are static preview context. All data
+is in memory; no Git services are used. The earlier operations lab links here.
