@@ -40,11 +40,11 @@ func (s *RemoteService) mutate(op string, fn func(*git.Repository) error) error 
 		return err
 	}
 	s.state.Emit(EventProgress, map[string]any{"op": op, "phase": "start"})
+	defer s.state.emitStatusChanged()
 	if err := fn(repo); err != nil {
 		s.state.Emit(EventOperationErr, map[string]any{"op": op, "error": err.Error()})
 		return err
 	}
 	s.state.Emit(EventProgress, map[string]any{"op": op, "phase": "done"})
-	s.state.emitStatusChanged()
 	return nil
 }

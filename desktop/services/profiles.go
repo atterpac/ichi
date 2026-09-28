@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,14 +12,15 @@ import (
 
 // GitProfile describes identity settings, never credentials or private key material.
 type GitProfile struct {
-	ID             string
-	Label          string
-	Name           string
-	Email          string
-	SigningKey     string
-	SigningEnabled string
-	SigningFormat  string
-	Source         string
+	ID                string
+	Label             string
+	Name              string
+	Email             string
+	SigningKey        string
+	SigningEnabled    string
+	TagSigningEnabled string
+	SigningFormat     string
+	Source            string
 }
 type GitProfileCatalog struct {
 	Profiles []GitProfile
@@ -61,6 +63,9 @@ func readProfileConfig(args ...string) (map[string]string, []string, error) {
 			if lower == allowed {
 				values[allowed] = value
 			}
+		}
+		if lower == "ichi.profilelabel" {
+			values[lower] = value
 		}
 		if lower == "include.path" || strings.HasPrefix(lower, "includeif.") && strings.HasSuffix(lower, ".path") {
 			includes = append(includes, value)
@@ -114,7 +119,10 @@ func (s *RepoService) ListGitProfiles(extraFiles []string) GitProfileCatalog {
 			catalog.Warnings = append(catalog.Warnings, source+": "+err.Error())
 			return
 		}
-		catalog.Profiles = append(catalog.Profiles, GitProfile{ID: id, Label: label, Source: source, Name: values["user.name"], Email: values["user.email"], SigningKey: values["user.signingkey"], SigningEnabled: values["commit.gpgsign"], SigningFormat: values["gpg.format"]})
+		if values["ichi.profilelabel"] != "" && id != "global" {
+			label = values["ichi.profilelabel"]
+		}
+		catalog.Profiles = append(catalog.Profiles, GitProfile{ID: id, Label: label, Source: source, Name: values["user.name"], Email: values["user.email"], SigningKey: values["user.signingkey"], SigningEnabled: values["commit.gpgsign"], TagSigningEnabled: values["tag.gpgsign"], SigningFormat: values["gpg.format"]})
 	}
 	if values, _ := globalProfileConfig(); values["user.name"] != "" && values["user.email"] != "" {
 		add("global", "Global Git identity", "Global Git config")
@@ -161,6 +169,9 @@ func (s *RepoService) ListGitProfiles(extraFiles []string) GitProfileCatalog {
 	for _, root := range roots {
 		visit(root, true, 0)
 	}
+	managedHome, _ := os.UserConfigDir()
+	managed, _ := filepath.Glob(filepath.Join(managedHome, "ichi", "profiles", "*.gitconfig"))
+	extraFiles = append(extraFiles, managed...)
 	for _, path := range extraFiles {
 		visit(path, false, 0)
 	}
@@ -193,8 +204,8 @@ func loadProfileAssignments() (map[string]string, error) {
 	return assignments, nil
 }
 
-// SyncWorkspaceProfiles persists the repo-to-profile projection. It never edits
-// .gitconfig or .git/config, and rejects unavailable identities before saving.
+// SyncWorkspaceProfiles applies workspace identities to native repository Git
+// configuration and persists assignments. Removing an assignment restores defaults.
 func (s *RepoService) SyncWorkspaceProfiles(assignments map[string]string) error {
 	s.state.profileSync.Lock()
 	defer s.state.profileSync.Unlock()
@@ -248,8 +259,15 @@ func (s *RepoService) SyncWorkspaceProfiles(assignments map[string]string) error
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	s.state.mu.RLock()
+	previous := s.state.profiles
+	s.state.mu.RUnlock()
+	rollback, err := applyNativeProfiles(previous, next)
+	if err != nil {
 		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return errors.Join(err, rollback())
 	}
 	s.state.mu.Lock()
 	s.state.profiles = next
@@ -279,6 +297,107 @@ func (s *RepoService) RepositoryProfile() (*GitProfile, error) {
 		label = "Global Git identity"
 	} else if id != "" {
 		label = filepath.Base(id)
+		if profile, err := profileValues(id); err == nil && profile["ichi.profilelabel"] != "" {
+			label = profile["ichi.profilelabel"]
+		}
 	}
-	return &GitProfile{ID: id, Label: label, Source: id, Name: values["user.name"], Email: values["user.email"], SigningKey: values["user.signingkey"], SigningEnabled: values["commit.gpgsign"], SigningFormat: values["gpg.format"]}, nil
+	return &GitProfile{ID: id, Label: label, Source: id, Name: values["user.name"], Email: values["user.email"], SigningKey: values["user.signingkey"], SigningEnabled: values["commit.gpgsign"], TagSigningEnabled: values["tag.gpgsign"], SigningFormat: values["gpg.format"]}, nil
+}
+
+// SaveGitProfile edits an identity file, preserving its unrelated Git settings.
+// Empty ID creates a managed file; global identities can be duplicated instead.
+func (s *RepoService) SaveGitProfile(profile GitProfile) (*GitProfile, error) {
+	s.state.profileSync.Lock()
+	defer s.state.profileSync.Unlock()
+	profile.Label = strings.TrimSpace(profile.Label)
+	profile.Name = strings.TrimSpace(profile.Name)
+	profile.Email = strings.TrimSpace(profile.Email)
+	if profile.Label == "" || profile.Name == "" || profile.Email == "" {
+		return nil, fmt.Errorf("profile needs a label, name, and email")
+	}
+	for _, v := range []string{profile.Label, profile.Name, profile.Email, profile.SigningKey} {
+		if strings.ContainsAny(v, "\x00\r\n") {
+			return nil, fmt.Errorf("profile fields must be single-line values")
+		}
+	}
+	if profile.SigningFormat != "openpgp" && profile.SigningFormat != "ssh" && profile.SigningFormat != "x509" {
+		return nil, fmt.Errorf("choose a valid signing format")
+	}
+	for _, v := range []string{profile.SigningEnabled, profile.TagSigningEnabled} {
+		if v != "true" && v != "false" {
+			return nil, fmt.Errorf("choose whether signing is enabled")
+		}
+	}
+	if (profile.SigningEnabled == "true" || profile.TagSigningEnabled == "true") && strings.TrimSpace(profile.SigningKey) == "" {
+		return nil, fmt.Errorf("enter a signing key when signing is enabled")
+	}
+	if profile.ID == "global" {
+		return nil, fmt.Errorf("duplicate the global identity to create an editable workspace profile")
+	}
+	created := profile.ID == ""
+	if created {
+		dir, err := os.UserConfigDir()
+		if err != nil {
+			return nil, err
+		}
+		dir = filepath.Join(dir, "ichi", "profiles")
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, err
+		}
+		f, err := os.CreateTemp(dir, "profile-*.gitconfig")
+		if err != nil {
+			return nil, err
+		}
+		profile.ID = f.Name()
+		f.Close()
+	} else {
+		path, err := profilePath(profile.ID, "")
+		if err != nil {
+			return nil, err
+		}
+		profile.ID = path
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("profile must be a regular file")
+		}
+	}
+	success := false
+	defer func() {
+		if created && !success {
+			os.Remove(profile.ID)
+		}
+	}()
+	c, err := lockConfig(profile.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer c.release()
+	values := map[string]string{"ichi.profilelabel": profile.Label, "user.name": profile.Name, "user.email": profile.Email, "user.signingkey": profile.SigningKey, "commit.gpgsign": profile.SigningEnabled, "tag.gpgsign": profile.TagSigningEnabled, "gpg.format": profile.SigningFormat}
+	c.next, err = configValuesBytes(c.original, values)
+	if err != nil {
+		return nil, err
+	}
+	if err = c.write(); err != nil {
+		return nil, err
+	}
+	s.state.mu.RLock()
+	assignments := s.state.profiles
+	s.state.mu.RUnlock()
+	// Only refresh repositories that actually use the edited profile.
+	affected := map[string]string{}
+	for repo, id := range assignments {
+		if id == profile.ID {
+			affected[repo] = id
+		}
+	}
+	if _, err = applyNativeProfiles(affected, affected); err != nil {
+		return nil, errors.Join(err, c.restore())
+	}
+	success = true
+	profile.Source = profile.ID
+	s.state.Emit(EventRepoChanged, nil)
+	return &profile, nil
 }

@@ -67,9 +67,9 @@ func (s *StashService) mutate(fn func(*git.Repository) error) error {
 	if err != nil {
 		return err
 	}
+	defer s.state.emitStatusChanged()
 	if err := fn(repo); err != nil {
 		return err
 	}
-	s.state.emitStatusChanged()
 	return nil
 }

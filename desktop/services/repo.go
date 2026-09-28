@@ -38,6 +38,8 @@ type RepoService struct {
 }
 
 func (s *RepoService) Open(path string) (*RepoInfo, error) {
+	s.state.conflictMu.Lock()
+	defer s.state.conflictMu.Unlock()
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, fmt.Errorf("choose a repository folder")

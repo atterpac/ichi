@@ -27,7 +27,12 @@ export {
 };
 
 export {
+    ConflictDocument,
+    ConflictEntry,
     ConflictFile,
+    ConflictStep,
+    ConflictVersion,
+    ConflictWorkspace,
     GitProfile,
     GitProfileCatalog,
     GraphGlyph,

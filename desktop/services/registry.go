@@ -28,6 +28,7 @@ type State struct {
 	profiles     map[string]string
 	profileError error
 	profileSync  sync.Mutex
+	conflictMu   sync.Mutex
 }
 
 func NewState(repo *git.Repository, emitter EventEmitter) *State {

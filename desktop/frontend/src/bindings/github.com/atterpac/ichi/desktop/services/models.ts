@@ -9,6 +9,104 @@ import { Create as $Create } from "@wailsio/runtime";
 // @ts-ignore: Unused imports
 import * as git$0 from "../../internal/git/models.js";
 
+export class ConflictDocument {
+    "MarkerSize": number;
+    "RepoPath": string;
+    "Path": string;
+    "Token": string;
+    "Base": ConflictVersion;
+    "Current": ConflictVersion;
+    "Incoming": ConflictVersion;
+    "Result": string;
+    "Exists": boolean;
+    "Editable": boolean;
+    "Reason": string;
+
+    /** Creates a new ConflictDocument instance. */
+    constructor($$source: Partial<ConflictDocument> = {}) {
+        if (!("MarkerSize" in $$source)) {
+            this["MarkerSize"] = 0;
+        }
+        if (!("RepoPath" in $$source)) {
+            this["RepoPath"] = "";
+        }
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Token" in $$source)) {
+            this["Token"] = "";
+        }
+        if (!("Base" in $$source)) {
+            this["Base"] = (new ConflictVersion());
+        }
+        if (!("Current" in $$source)) {
+            this["Current"] = (new ConflictVersion());
+        }
+        if (!("Incoming" in $$source)) {
+            this["Incoming"] = (new ConflictVersion());
+        }
+        if (!("Result" in $$source)) {
+            this["Result"] = "";
+        }
+        if (!("Exists" in $$source)) {
+            this["Exists"] = false;
+        }
+        if (!("Editable" in $$source)) {
+            this["Editable"] = false;
+        }
+        if (!("Reason" in $$source)) {
+            this["Reason"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConflictDocument instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConflictDocument {
+        const $$createField4_0 = $$createType0;
+        const $$createField5_0 = $$createType0;
+        const $$createField6_0 = $$createType0;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Base" in $$parsedSource) {
+            $$parsedSource["Base"] = $$createField4_0($$parsedSource["Base"]);
+        }
+        if ("Current" in $$parsedSource) {
+            $$parsedSource["Current"] = $$createField5_0($$parsedSource["Current"]);
+        }
+        if ("Incoming" in $$parsedSource) {
+            $$parsedSource["Incoming"] = $$createField6_0($$parsedSource["Incoming"]);
+        }
+        return new ConflictDocument($$parsedSource as Partial<ConflictDocument>);
+    }
+}
+
+export class ConflictEntry {
+    "Path": string;
+    "Kind": string;
+
+    /** Creates a new ConflictEntry instance. */
+    constructor($$source: Partial<ConflictEntry> = {}) {
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConflictEntry instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConflictEntry {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConflictEntry($$parsedSource as Partial<ConflictEntry>);
+    }
+}
+
 export class ConflictFile {
     "Regions": (git$0.ConflictRegion | null)[];
     "Lines": string[];
@@ -29,8 +127,8 @@ export class ConflictFile {
      * Creates a new ConflictFile instance from a string or object.
      */
     static createFrom($$source: any = {}): ConflictFile {
-        const $$createField0_0 = $$createType2;
-        const $$createField1_0 = $$createType3;
+        const $$createField0_0 = $$createType3;
+        const $$createField1_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Regions" in $$parsedSource) {
             $$parsedSource["Regions"] = $$createField0_0($$parsedSource["Regions"]);
@@ -39,6 +137,161 @@ export class ConflictFile {
             $$parsedSource["Lines"] = $$createField1_0($$parsedSource["Lines"]);
         }
         return new ConflictFile($$parsedSource as Partial<ConflictFile>);
+    }
+}
+
+export class ConflictStep {
+    "Hash": string;
+    "Subject": string;
+    "State": string;
+
+    /** Creates a new ConflictStep instance. */
+    constructor($$source: Partial<ConflictStep> = {}) {
+        if (!("Hash" in $$source)) {
+            this["Hash"] = "";
+        }
+        if (!("Subject" in $$source)) {
+            this["Subject"] = "";
+        }
+        if (!("State" in $$source)) {
+            this["State"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConflictStep instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConflictStep {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConflictStep($$parsedSource as Partial<ConflictStep>);
+    }
+}
+
+export class ConflictVersion {
+    "Exists": boolean;
+    "Content": string;
+    "Mode": string;
+    "Editable": boolean;
+
+    /** Creates a new ConflictVersion instance. */
+    constructor($$source: Partial<ConflictVersion> = {}) {
+        if (!("Exists" in $$source)) {
+            this["Exists"] = false;
+        }
+        if (!("Content" in $$source)) {
+            this["Content"] = "";
+        }
+        if (!("Mode" in $$source)) {
+            this["Mode"] = "";
+        }
+        if (!("Editable" in $$source)) {
+            this["Editable"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConflictVersion instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConflictVersion {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConflictVersion($$parsedSource as Partial<ConflictVersion>);
+    }
+}
+
+export class ConflictWorkspace {
+    "RepoPath": string;
+    "Token": string;
+    "Kind": string;
+    "CurrentLabel": string;
+    "IncomingLabel": string;
+    "Branch": string;
+    "Onto": string;
+    "Commit": string;
+    "Subject": string;
+    "Author": string;
+    "OriginalHead": string;
+    "Step": number;
+    "Total": number;
+    "Files": ConflictEntry[];
+    "Staged": string[];
+    "Steps": ConflictStep[];
+
+    /** Creates a new ConflictWorkspace instance. */
+    constructor($$source: Partial<ConflictWorkspace> = {}) {
+        if (!("RepoPath" in $$source)) {
+            this["RepoPath"] = "";
+        }
+        if (!("Token" in $$source)) {
+            this["Token"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = "";
+        }
+        if (!("CurrentLabel" in $$source)) {
+            this["CurrentLabel"] = "";
+        }
+        if (!("IncomingLabel" in $$source)) {
+            this["IncomingLabel"] = "";
+        }
+        if (!("Branch" in $$source)) {
+            this["Branch"] = "";
+        }
+        if (!("Onto" in $$source)) {
+            this["Onto"] = "";
+        }
+        if (!("Commit" in $$source)) {
+            this["Commit"] = "";
+        }
+        if (!("Subject" in $$source)) {
+            this["Subject"] = "";
+        }
+        if (!("Author" in $$source)) {
+            this["Author"] = "";
+        }
+        if (!("OriginalHead" in $$source)) {
+            this["OriginalHead"] = "";
+        }
+        if (!("Step" in $$source)) {
+            this["Step"] = 0;
+        }
+        if (!("Total" in $$source)) {
+            this["Total"] = 0;
+        }
+        if (!("Files" in $$source)) {
+            this["Files"] = [];
+        }
+        if (!("Staged" in $$source)) {
+            this["Staged"] = [];
+        }
+        if (!("Steps" in $$source)) {
+            this["Steps"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConflictWorkspace instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConflictWorkspace {
+        const $$createField13_0 = $$createType6;
+        const $$createField14_0 = $$createType4;
+        const $$createField15_0 = $$createType8;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Files" in $$parsedSource) {
+            $$parsedSource["Files"] = $$createField13_0($$parsedSource["Files"]);
+        }
+        if ("Staged" in $$parsedSource) {
+            $$parsedSource["Staged"] = $$createField14_0($$parsedSource["Staged"]);
+        }
+        if ("Steps" in $$parsedSource) {
+            $$parsedSource["Steps"] = $$createField15_0($$parsedSource["Steps"]);
+        }
+        return new ConflictWorkspace($$parsedSource as Partial<ConflictWorkspace>);
     }
 }
 
@@ -52,6 +305,7 @@ export class GitProfile {
     "Email": string;
     "SigningKey": string;
     "SigningEnabled": string;
+    "TagSigningEnabled": string;
     "SigningFormat": string;
     "Source": string;
 
@@ -74,6 +328,9 @@ export class GitProfile {
         }
         if (!("SigningEnabled" in $$source)) {
             this["SigningEnabled"] = "";
+        }
+        if (!("TagSigningEnabled" in $$source)) {
+            this["TagSigningEnabled"] = "";
         }
         if (!("SigningFormat" in $$source)) {
             this["SigningFormat"] = "";
@@ -114,8 +371,8 @@ export class GitProfileCatalog {
      * Creates a new GitProfileCatalog instance from a string or object.
      */
     static createFrom($$source: any = {}): GitProfileCatalog {
-        const $$createField0_0 = $$createType5;
-        const $$createField1_0 = $$createType3;
+        const $$createField0_0 = $$createType10;
+        const $$createField1_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Profiles" in $$parsedSource) {
             $$parsedSource["Profiles"] = $$createField0_0($$parsedSource["Profiles"]);
@@ -188,7 +445,7 @@ export class GraphLane {
      * Creates a new GraphLane instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLane {
-        const $$createField0_0 = $$createType7;
+        const $$createField0_0 = $$createType12;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Glyphs" in $$parsedSource) {
             $$parsedSource["Glyphs"] = $$createField0_0($$parsedSource["Glyphs"]);
@@ -221,7 +478,7 @@ export class GraphLayout {
      * Creates a new GraphLayout instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLayout {
-        const $$createField0_0 = $$createType9;
+        const $$createField0_0 = $$createType14;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Rows" in $$parsedSource) {
             $$parsedSource["Rows"] = $$createField0_0($$parsedSource["Rows"]);
@@ -250,8 +507,8 @@ export class GraphLayoutRow {
      * Creates a new GraphLayoutRow instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLayoutRow {
-        const $$createField0_0 = $$createType11;
-        const $$createField1_0 = $$createType13;
+        const $$createField0_0 = $$createType16;
+        const $$createField1_0 = $$createType18;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Commit" in $$parsedSource) {
             $$parsedSource["Commit"] = $$createField0_0($$parsedSource["Commit"]);
@@ -393,9 +650,9 @@ export class RepoInfo {
      * Creates a new RepoInfo instance from a string or object.
      */
     static createFrom($$source: any = {}): RepoInfo {
-        const $$createField10_0 = $$createType14;
-        const $$createField11_0 = $$createType14;
-        const $$createField13_0 = $$createType16;
+        const $$createField10_0 = $$createType19;
+        const $$createField11_0 = $$createType19;
+        const $$createField13_0 = $$createType21;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Staged" in $$parsedSource) {
             $$parsedSource["Staged"] = $$createField10_0($$parsedSource["Staged"]);
@@ -411,20 +668,25 @@ export class RepoInfo {
 }
 
 // Private type creation functions
-const $$createType0 = git$0.ConflictRegion.createFrom;
-const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = $Create.Array($$createType1);
-const $$createType3 = $Create.Array($Create.Any);
-const $$createType4 = GitProfile.createFrom;
-const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = GraphGlyph.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = GraphLayoutRow.createFrom;
-const $$createType9 = $Create.Array($$createType8);
-const $$createType10 = git$0.Commit.createFrom;
-const $$createType11 = $Create.Nullable($$createType10);
-const $$createType12 = GraphLane.createFrom;
-const $$createType13 = $Create.Array($$createType12);
-const $$createType14 = git$0.ChangeStats.createFrom;
-const $$createType15 = RemoteInfo.createFrom;
-const $$createType16 = $Create.Array($$createType15);
+const $$createType0 = ConflictVersion.createFrom;
+const $$createType1 = git$0.ConflictRegion.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $Create.Array($Create.Any);
+const $$createType5 = ConflictEntry.createFrom;
+const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = ConflictStep.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = GitProfile.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = GraphGlyph.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = GraphLayoutRow.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = git$0.Commit.createFrom;
+const $$createType16 = $Create.Nullable($$createType15);
+const $$createType17 = GraphLane.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = git$0.ChangeStats.createFrom;
+const $$createType20 = RemoteInfo.createFrom;
+const $$createType21 = $Create.Array($$createType20);

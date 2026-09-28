@@ -60,6 +60,16 @@ export function RepositoryProfile(): $CancellablePromise<$models.GitProfile | nu
     });
 }
 
+/**
+ * SaveGitProfile edits an identity file, preserving its unrelated Git settings.
+ * Empty ID creates a managed file; global identities can be duplicated instead.
+ */
+export function SaveGitProfile(profile: $models.GitProfile): $CancellablePromise<$models.GitProfile | null> {
+    return $Call.ByID(3568201757, profile).then(($result: any) => {
+        return $$createType7($result);
+    });
+}
+
 export function SaveRepo(oldName: string, repo: config$0.Repo): $CancellablePromise<void> {
     return $Call.ByID(1702464948, oldName, repo);
 }
@@ -71,8 +81,8 @@ export function SetPath(path: string): $CancellablePromise<$models.RepoInfo | nu
 }
 
 /**
- * SyncWorkspaceProfiles persists the repo-to-profile projection. It never edits
- * .gitconfig or .git/config, and rejects unavailable identities before saving.
+ * SyncWorkspaceProfiles applies workspace identities to native repository Git
+ * configuration and persists assignments. Removing an assignment restores defaults.
  */
 export function SyncWorkspaceProfiles(assignments: { [_ in string]?: string }): $CancellablePromise<void> {
     return $Call.ByID(3931598085, assignments);

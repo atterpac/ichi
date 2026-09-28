@@ -27,9 +27,22 @@ export function ContinueConflict(): $CancellablePromise<void> {
     return $Call.ByID(971829952);
 }
 
+export function ControlConflict(repoPath: string, token: string, action: string): $CancellablePromise<void> {
+    return $Call.ByID(2869581558, repoPath, token, action);
+}
+
+/**
+ * Compatibility API; the desktop resolver uses Workspace and snapshot-checked writes.
+ */
 export function GetConflictState(): $CancellablePromise<git$0.ConflictState | null> {
     return $Call.ByID(2818566160).then(($result: any) => {
         return $$createType3($result);
+    });
+}
+
+export function LoadConflict(repoPath: string, path: string): $CancellablePromise<$models.ConflictDocument | null> {
+    return $Call.ByID(292729985, repoPath, path).then(($result: any) => {
+        return $$createType5($result);
     });
 }
 
@@ -43,7 +56,7 @@ export function MergeContinue(): $CancellablePromise<void> {
 
 export function ParseConflictFile(path: string): $CancellablePromise<$models.ConflictFile | null> {
     return $Call.ByID(1293333522, path).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
 }
 
@@ -55,8 +68,22 @@ export function RebaseContinue(): $CancellablePromise<void> {
     return $Call.ByID(2919777406);
 }
 
+/**
+ * ResolveConflict verifies the worktree and index snapshot before saving and staging
+ * exactly one path. Whole-version choices also support binary blobs and deletions.
+ */
+export function ResolveConflict(repoPath: string, path: string, token: string, choice: string, content: string): $CancellablePromise<void> {
+    return $Call.ByID(334135263, repoPath, path, token, choice, content);
+}
+
 export function StageResolvedFile(path: string): $CancellablePromise<void> {
     return $Call.ByID(2767421585, path);
+}
+
+export function Workspace(): $CancellablePromise<$models.ConflictWorkspace | null> {
+    return $Call.ByID(3024252336).then(($result: any) => {
+        return $$createType9($result);
+    });
 }
 
 export function WriteResolvedFile(path: string, lines: string[]): $CancellablePromise<void> {
@@ -68,5 +95,9 @@ const $$createType0 = git$0.StatusEntry.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = git$0.ConflictState.createFrom;
 const $$createType3 = $Create.Nullable($$createType2);
-const $$createType4 = $models.ConflictFile.createFrom;
+const $$createType4 = $models.ConflictDocument.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
+const $$createType6 = $models.ConflictFile.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = $models.ConflictWorkspace.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
