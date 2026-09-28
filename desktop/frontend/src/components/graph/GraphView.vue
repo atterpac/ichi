@@ -6,6 +6,8 @@ import { setModeline, resetModeline } from '../../composables/useModeline'
 import GraphCanvas from './GraphCanvas.vue'
 import { createCommitDetailCache } from './commitDetailCache'
 import RefCluster from './RefCluster.vue'
+import RefLabel from '../common/RefLabel.vue'
+import { branchLabels } from './branchLabels'
 import CommitDetailPanel from './CommitDetail.vue'
 import { rowLaneColorVar } from './laneColors'
 import { GRAPH_ROW_HEIGHTS } from './rowDensity'
@@ -62,6 +64,10 @@ const graphRows = computed(() =>
   ),
 )
 const laneCount = computed(() => Math.max(layout.value?.LaneCount ?? 1, 1))
+const commitBranches = computed(() => branchLabels(
+  graphRows.value.map((row) => row.Commit),
+  layout.value?.CurrentBranch || repo.value?.Branch || '',
+))
 const railWidth = computed(() => laneCount.value * 3 * 12 + 16)
 const rowHeight = computed(
   () => GRAPH_ROW_HEIGHTS[settings.graphRowDensity] ?? GRAPH_ROW_HEIGHTS.comfortable,
@@ -518,48 +524,56 @@ onMounted(() => {
         @keydown="onKey"
         @focusin="setModeline({ mode: 'GRAPH', hints: 'j/k commit · l inspector · r refs · / search' })"
       >
-        <div class="commit-table-head" :style="{ '--rail-width': `${railWidth}px` }">
-          <span class="th-refs">Refs</span>
-          <span>Graph</span>
-          <span>Subject</span>
-          <span>Hash</span>
-          <span v-if="settings.graphShowAuthor">Author</span>
-          <span>Date</span>
-        </div>
-        <div class="commit-list-canvas" :style="{ '--rail-width': `${railWidth}px` }">
-          <GraphCanvas :rows="graphRows" :lane-count="laneCount" />
-          <button
-            v-for="(row, index) in graphRows"
-            :key="row.Commit.Hash"
-            class="commit-row"
-            :data-commit-hash="row.Commit.Hash"
-            :tabindex="isSelected(row, index) ? 0 : -1"
-            :style="{
-              '--row-lane':
-                settings.graphCanvasStyle === 'mono'
-                  ? 'var(--accent)'
-                  : `var(${rowLaneColorVar(row)})`,
-            }"
-            :class="{ selected: isSelected(row, index), merge: row.Commit.IsMerge }"
-            type="button"
-            @click="selectCommit(row.Commit)"
-            @contextmenu.prevent="openRowMenu($event, row.Commit)"
-          >
-            <span class="commit-refs">
-              <RefCluster
-                v-if="row.Commit.Decorations?.length"
-                :decorations="row.Commit.Decorations"
-                @click.stop="openRowMenu($event, row.Commit)"
-              />
-            </span>
-            <span class="commit-rail" aria-hidden="true" />
-            <span class="commit-main">
-              <span class="commit-subject">{{ row.Commit.Message }}</span>
-            </span>
-            <span class="commit-hash">{{ row.Commit.ShortHash }}</span>
-            <span v-if="settings.graphShowAuthor" class="commit-table-author author-identity"><AuthorAvatar v-if="row.Commit.Hash !== '__ichi_working_changes__'" :name="row.Commit.Author" :commit="row.Commit.Hash" :size="18" /><span class="author-name">{{ row.Commit.Author }}</span></span>
-            <span class="commit-table-date">{{ formatDate(row.Commit.Date) }}</span>
-          </button>
+        <div class="commit-table" :style="{ '--rail-width': `${railWidth}px` }">
+          <div class="commit-table-head">
+            <span class="th-refs">Refs</span>
+            <span>Graph</span>
+            <span>Subject</span>
+            <span class="th-hash">Hash</span>
+            <span v-if="settings.graphShowAuthor" class="th-author">Author</span>
+            <span>Date</span>
+          </div>
+          <div class="commit-list-canvas">
+            <GraphCanvas :rows="graphRows" :lane-count="laneCount" />
+            <button
+              v-for="(row, index) in graphRows"
+              :key="row.Commit.Hash"
+              class="commit-row"
+              :data-commit-hash="row.Commit.Hash"
+              :tabindex="isSelected(row, index) ? 0 : -1"
+              :style="{
+                '--row-lane':
+                  settings.graphCanvasStyle === 'mono'
+                    ? 'var(--accent)'
+                    : `var(${rowLaneColorVar(row)})`,
+              }"
+              :class="{ selected: isSelected(row, index), merge: row.Commit.IsMerge }"
+              type="button"
+              @click="selectCommit(row.Commit)"
+              @contextmenu.prevent="openRowMenu($event, row.Commit)"
+            >
+              <span class="commit-refs">
+                <RefCluster
+                  v-if="row.Commit.Decorations?.length"
+                  :decorations="row.Commit.Decorations"
+                  @click.stop="openRowMenu($event, row.Commit)"
+                />
+                <RefLabel
+                  v-else-if="commitBranches.get(row.Commit.Hash)"
+                  class="commit-branch-hint"
+                  :name="commitBranches.get(row.Commit.Hash)!"
+                  kind="branch"
+                />
+              </span>
+              <span class="commit-rail" aria-hidden="true" />
+              <span class="commit-main">
+                <span class="commit-subject">{{ row.Commit.Message }}</span>
+              </span>
+              <span class="commit-hash">{{ row.Commit.ShortHash }}</span>
+              <span v-if="settings.graphShowAuthor" class="commit-table-author author-identity"><AuthorAvatar v-if="row.Commit.Hash !== '__ichi_working_changes__'" :name="row.Commit.Author" :commit="row.Commit.Hash" :size="18" /><span class="author-name">{{ row.Commit.Author }}</span></span>
+              <span class="commit-table-date">{{ formatDate(row.Commit.Date) }}</span>
+            </button>
+          </div>
         </div>
       </section>
 

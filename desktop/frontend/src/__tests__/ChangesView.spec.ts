@@ -17,6 +17,7 @@ const stageFile = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve()
 const unstageFile = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve())
 const discardFile = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve())
 const commit = vi.fn<(message: string) => Promise<void>>(() => Promise.resolve())
+const getCommitMessage = vi.fn(() => Promise.resolve('prev subject\n\nprev body'))
 
 const entry = (over: Record<string, unknown>) => ({
   Path: '',
@@ -80,7 +81,7 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     WorkingFileContent: () => Promise.resolve('line one\nline two'),
   },
   GraphService: {
-    GetCommitMessage: () => Promise.resolve('prev subject\n\nprev body'),
+    GetCommitMessage: () => getCommitMessage(),
   },
 }))
 
@@ -94,6 +95,40 @@ async function mountView() {
 }
 
 describe('ChangesView', () => {
+  it('clears the summary and description when amend is unchecked', async () => {
+    const wrapper = await mountView()
+    try {
+      const toggle = wrapper.get('.commit-amend input')
+      const summary = wrapper.get<HTMLInputElement>('[aria-label="Commit summary"]')
+      const body = wrapper.get<HTMLTextAreaElement>('[aria-label="Commit description"]')
+      await toggle.setValue(true)
+      await flushPromises()
+      expect(summary.element.value).toBe('prev subject')
+      expect(body.element.value).toBe('prev body')
+      await toggle.setValue(false)
+      expect(summary.element.value).toBe('')
+      expect(body.element.value).toBe('')
+    } finally { wrapper.unmount() }
+  })
+
+  it('ignores an old amend request after toggling amend off and on again', async () => {
+    let resolve!: (message: string) => void
+    getCommitMessage.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const wrapper = await mountView()
+    try {
+      const toggle = wrapper.get('.commit-amend input')
+      await toggle.setValue(true)
+      await toggle.setValue(false)
+      resolve('stale subject\n\nstale body')
+      await flushPromises()
+      expect(wrapper.get<HTMLInputElement>('[aria-label="Commit summary"]').element.value).toBe('')
+      expect(wrapper.get<HTMLTextAreaElement>('[aria-label="Commit description"]').element.value).toBe('')
+      await toggle.setValue(true)
+      await flushPromises()
+      expect(wrapper.get<HTMLInputElement>('[aria-label="Commit summary"]').element.value).toBe('prev subject')
+    } finally { wrapper.unmount() }
+  })
+
   it('opens the full file and returns to the diff after saving', async () => {
     saveEditorFile.mockClear()
     const wrapper = await mountView()
@@ -163,7 +198,10 @@ describe('ChangesView', () => {
     expect(rows[0]!.find('.change-name').text()).toBe('app.ts')
     expect(rows[0]!.find('.change-dir').text()).toBe('src')
     expect(rows[0]!.find('.d-add').text()).toBe('+1')
-    expect(rows[0]!.find('.d-del').text()).toBe('-1')
+    expect(rows[0]!.find('.d-del').text()).toBe('−1')
+    expect(rows.map(row => row.get('.file-status').attributes('aria-label'))).toEqual([
+      'Modified', 'Untracked', 'Added',
+    ])
     expect(rows[1]!.find('.change-name').text()).toBe('notes.md')
     expect(rows[1]!.find('.d-new').text()).toBe('new')
     expect(rows[2]!.find('.change-name').text()).toBe('new.ts')
@@ -459,9 +497,13 @@ describe('ChangesView', () => {
     })
     const wrapper = await mountView()
     try {
+      expect(wrapper.get('.pane-staged').classes()).toContain('is-empty')
+      expect(wrapper.get('.changes-section-resizer').attributes('disabled')).toBeDefined()
       await wrapper.get('[data-tree-key="u:src/a.ts"]').trigger('click')
       await wrapper.get('.changes-files').trigger('keydown', { key: 's' })
       await flushPromises()
+      expect(wrapper.get('.pane-staged').classes()).not.toContain('is-empty')
+      expect(wrapper.get('.changes-section-resizer').attributes('disabled')).toBeUndefined()
       expect(wrapper.get('.changes-selection-path').text()).toBe('src/b.ts')
       expect(wrapper.get('[data-tree-key="u:src/b.ts"]').classes()).toContain('selected')
       expect(document.activeElement).toBe(wrapper.get('[data-tree-key="u:src/b.ts"]').element)
@@ -470,6 +512,8 @@ describe('ChangesView', () => {
       expect(wrapper.get('[data-tree-key="section:unstaged"]').classes()).toContain('selected')
       expect(wrapper.get('.changes-selection-path').text()).toBe('Unstaged')
       expect(wrapper.text()).toContain('No unstaged files')
+      expect(wrapper.get('.pane-unstaged').classes()).toContain('is-empty')
+      expect(wrapper.get('.changes-section-resizer').attributes('disabled')).toBeDefined()
     } finally { wrapper.unmount(); statusEntries = original; stageFile.mockImplementation(async () => {}) }
   })
 

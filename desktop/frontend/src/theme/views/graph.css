@@ -39,9 +39,12 @@
   outline: none;
 }
 
+.commit-table {
+  min-width: max-content;
+}
+
 .commit-list-canvas {
   position: relative;
-  min-width: max-content;
 }
 
 .commit-table-head {
@@ -53,10 +56,8 @@
     var(--ref-width) var(--rail-width) minmax(180px, 1fr) 74px minmax(110px, 150px)
     76px;
   align-items: center;
-  min-width: max-content;
   height: 28px;
-  margin: 0 calc(-1 * var(--space-3)) var(--space-3);
-  padding: 0 var(--space-3);
+  margin-bottom: var(--space-3);
   border-bottom: 1px solid var(--line-faint);
   background: var(--surface-panel);
   box-shadow: 0 -1px 0 var(--surface-panel);
@@ -114,7 +115,7 @@
     grid-template-columns: var(--ref-width) var(--rail-width) minmax(160px, 1fr) 74px 76px;
   }
 
-  .commit-list:not(.no-author-column) .commit-table-head span:nth-child(5),
+  .commit-list:not(.no-author-column) .th-author,
   .commit-list:not(.no-author-column) .commit-table-author {
     display: none;
   }
@@ -130,8 +131,8 @@
     grid-template-columns: var(--ref-width) var(--rail-width) minmax(140px, 1fr) 70px;
   }
 
-  .commit-table-head span:nth-child(4),
-  .commit-table-head span:nth-child(5),
+  .commit-table-head .th-hash,
+  .commit-table-head .th-author,
   .commit-hash,
   .commit-table-author {
     display: none;
@@ -149,11 +150,10 @@
   background: var(--hover);
 }
 
-/* Selection is a tint plus an accent edge so it never reads as hover. */
+/* Selection uses a distinct tint and brighter subject text. */
 .commit-row.selected,
 .commit-row.selected:hover {
   background: var(--selected);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .commit-row.selected .commit-subject {
@@ -195,6 +195,20 @@
 .commit-table-head .th-refs {
   text-align: right;
   padding-right: var(--space-4);
+}
+
+.commit-branch-hint {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.commit-row:hover .commit-branch-hint,
+.commit-row:focus-visible .commit-branch-hint {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commit-branch-hint { transition: none; }
 }
 
 .commit-hash {
@@ -542,7 +556,7 @@ button.detail-file-row:hover {
   flex-direction: column;
 }
 
-.detail-file-row.heat-selected { background: var(--selected); box-shadow: inset 2px 0 0 var(--accent); border-radius: var(--radius-sm); }
+.detail-file-row.heat-selected { background: var(--selected); border-radius: var(--radius-sm); }
 
 .detail-loading { margin: var(--space-8) 0; color: var(--text-mut); font-size: var(--fs-sm); }
 

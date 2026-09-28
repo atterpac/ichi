@@ -434,7 +434,6 @@ const description = (file: WorkFile) =>
 }
 .heat-file.selected {
   background: var(--selected);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 .heat-file.selected .heat-name {
   color: var(--head);

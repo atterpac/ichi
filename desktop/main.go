@@ -5,13 +5,13 @@ import (
 	"embed"
 	"log"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 
+	"github.com/atterpac/ichi/desktop/services"
 	"github.com/atterpac/ichi/internal/git"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:dist
@@ -20,10 +20,23 @@ var assets embed.FS
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	_ = ctx
 
 	app := buildApp()
 	newMainWindow(app)
+	// Quit needs the native event loop. A signal received during startup stays
+	// pending in ctx until the application is ready to handle it.
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
+		go func() {
+			select {
+			case <-ctx.Done():
+				// Restore default handling so another Ctrl+C can force termination.
+				stop()
+				app.Quit()
+			case <-app.Context().Done():
+				// The window or application menu initiated shutdown.
+			}
+		}()
+	})
 
 	if err := app.Run(); err != nil {
 		log.Fatalf("application exited with error: %v", err)
@@ -69,19 +82,7 @@ func openStartupRepo() (*git.Repository, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := gitWorktreeRoot(wd)
-	if err != nil {
-		return nil, err
-	}
-	return git.OpenRepository(root)
-}
-
-func gitWorktreeRoot(path string) (string, error) {
-	out, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return services.OpenStartupRepository(wd)
 }
 
 // newMainWindow opens the primary application window.
@@ -93,11 +94,7 @@ func newMainWindow(app *application.App) {
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar: application.MacTitleBar{
-				AppearsTransparent: true,
-				HideTitle:          true,
-				FullSizeContent:    true,
-			},
+			TitleBar:                application.MacTitleBarHiddenInsetUnified,
 		},
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",

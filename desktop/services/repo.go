@@ -72,7 +72,11 @@ func (s *RepoService) Open(path string) (*RepoInfo, error) {
 		}
 	}
 	s.state.SetRepo(repo)
-	return s.Info()
+	info, err := s.Info()
+	if err == nil {
+		rememberRepository(repo.Path())
+	}
+	return info, err
 }
 
 func (s *RepoService) SetPath(path string) (*RepoInfo, error) {

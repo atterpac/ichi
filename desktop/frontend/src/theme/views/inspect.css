@@ -272,7 +272,6 @@
 
 .fi-commit.sel {
   background: var(--selected);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .fi-dot {
@@ -338,9 +337,7 @@
 }
 
 .fi-bl.cur {
-  box-shadow:
-    inset 2px 0 0 var(--accent),
-    inset 0 0 0 1px color-mix(in oklab, var(--accent) 25%, transparent);
+  background: var(--selected);
 }
 
 .fi-bl-gutter {

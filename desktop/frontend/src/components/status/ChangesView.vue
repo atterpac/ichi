@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import UiInput from '../common/UiInput.vue'
 import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
-import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { type Component, computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DiffView from '../diff/DiffView.vue'
 import SurfaceState from '../common/SurfaceState.vue'
 import { isEditable, isModified } from '../../composables/keyboard'
@@ -29,7 +29,7 @@ import {
   type FileDiff,
   type StatusEntry,
 } from '../../bindings/github.com/atterpac/ichi/internal/git'
-import { PhCaretRight, PhGitCommit, PhMinus, PhPlus, PhTreeStructure } from '@phosphor-icons/vue'
+import { PhCaretRight, PhGitCommit, PhMinus, PhPlus, PhTreeStructure, PhPencilSimple, PhArrowRight, PhCopy, PhWarning } from '@phosphor-icons/vue'
 
 const props = defineProps<{
   focusCommit?: boolean
@@ -292,7 +292,18 @@ function deltaFor(row: ChangeRow) {
   return deltas.value.get(`${row.staged ? 's' : 'u'}:${row.path}`) ?? null
 }
 
-/** per-status tone consumed by the status letters via --status-color */
+const STATUS_ICONS: Record<string, { icon: Component; label: string }> = {
+  M: { icon: PhPencilSimple, label: 'Modified' },
+  A: { icon: PhPlus, label: 'Added' },
+  D: { icon: PhMinus, label: 'Deleted' },
+  R: { icon: PhArrowRight, label: 'Renamed' },
+  C: { icon: PhCopy, label: 'Copied' },
+  '?': { icon: PhPlus, label: 'Untracked' },
+  '!': { icon: PhWarning, label: 'Conflict' },
+}
+function statusIcon(label: string) { return STATUS_ICONS[label] ?? STATUS_ICONS.M! }
+
+/** Per-status tone consumed by the status icons via --status-color. */
 const STATUS_COLORS: Record<string, string> = {
   M: 'var(--orange)',
   A: 'var(--green)',
@@ -967,10 +978,18 @@ function focusCommitBox() {
   summaryEl.value?.focus()
 }
 
-watch(amend, async (on) => {
-  if (!on || summary.value.trim()) return
+watch(amend, async (on, _previous, onCleanup) => {
+  if (!on) {
+    summary.value = ''
+    body.value = ''
+    return
+  }
+  if (summary.value.trim()) return
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
   try {
     const message = await GraphService.GetCommitMessage('HEAD')
+    if (cancelled || !amend.value || summary.value.trim()) return
     const [first = '', ...rest] = message.split('\n')
     summary.value = first
     body.value = rest.join('\n').trim()
@@ -1113,7 +1132,7 @@ onUnmounted(endChangeListResize)
 
 const sectionSplit = ref(55)
 const sectionStack = ref<HTMLElement | null>(null)
-const sectionsResizable = computed(() => splitSections.value.every(section => !section.collapsed))
+const sectionsResizable = computed(() => splitSections.value.every(section => !section.collapsed && section.count > 0))
 function clampSectionSplit(value: number) { return Math.max(15, Math.min(85, value)) }
 function resizeSectionsKey(event: KeyboardEvent) {
   event.stopPropagation()
@@ -1223,7 +1242,7 @@ const summaryLimit = 50
                 :title="item.row.oldPath ? `${item.row.oldPath} → ${item.row.path}` : item.row.path"
                 @click="emit('navigate', 'conflicts', item.row.path)"
               >
-                <span class="file-status">{{ item.row.label }}</span>
+                <span class="file-status" role="img" :aria-label="statusIcon(item.row.label).label" :title="statusIcon(item.row.label).label"><component :is="statusIcon(item.row.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
                 <span class="change-file-label"
                   ><span class="change-name">{{ item.row.name }}</span
                   ><span v-if="item.row.dir" class="change-dir">{{ item.row.dir }}</span></span
@@ -1240,8 +1259,8 @@ const summaryLimit = 50
                 @keydown="resizeSectionsKey" @pointerdown.prevent.stop="startSectionResize"
                 @pointermove="moveSectionResize" @pointerup="endSectionResize" @pointercancel="endSectionResize"
                 @dblclick="sectionSplit = 55" />
-              <div class="changes-pane" :class="[`pane-${section.id}`, { 'is-collapsed': section.collapsed }]"
-                :style="{ flexGrow: section.collapsed ? 0 : section.id === 'unstaged' ? sectionSplit : 100 - sectionSplit }">
+              <div class="changes-pane" :class="[`pane-${section.id}`, { 'is-collapsed': section.collapsed, 'is-empty': !section.count }]"
+                :style="{ flexGrow: section.collapsed || !section.count ? 0 : section.id === 'unstaged' ? sectionSplit : 100 - sectionSplit }">
                 <div class="changes-section" :class="`section-${section.id}`">
                   <button class="section-toggle" :data-tree-key="`section:${section.id}`" :class="{ selected: treeCursorKey === `section:${section.id}` }" :aria-expanded="!section.collapsed" type="button" @click="toggleSection(section.id)">
                     <PhCaretRight class="section-chevron disclosure-icon" :class="{ expanded: !section.collapsed }" :size="12" weight="bold" aria-hidden="true" />
@@ -1289,11 +1308,11 @@ const summaryLimit = 50
                         @click="selectRow(item.index)"
                       >
                         <span class="change-tree-guides" aria-hidden="true"><i v-for="level in item.depth" :key="level" :style="{ left: `${(level - 1) * 12 + 12}px` }" /></span>
-                        <span class="file-status">{{ item.row.label }}</span>
+                        <span class="file-status" role="img" :aria-label="statusIcon(item.row.label).label" :title="statusIcon(item.row.label).label"><component :is="statusIcon(item.row.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
                         <span class="change-name">{{ item.row.name }}</span>
                         <span v-if="deltaFor(item.row)" class="change-delta">
                           <em class="d-add">+{{ deltaFor(item.row)!.ins }}</em>
-                          <em class="d-del">-{{ deltaFor(item.row)!.del }}</em>
+                          <em class="d-del">−{{ deltaFor(item.row)!.del }}</em>
                         </span>
                         <span v-else-if="isBinaryRow(item.row)" class="change-delta">binary</span>
                         <span v-else-if="item.row.untracked" class="change-delta"
@@ -1327,7 +1346,7 @@ const summaryLimit = 50
                       "
                       @click="selectRow(item.index)"
                     >
-                      <span class="file-status">{{ item.row.label }}</span>
+                      <span class="file-status" role="img" :aria-label="statusIcon(item.row.label).label" :title="statusIcon(item.row.label).label"><component :is="statusIcon(item.row.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
                       <span class="change-file-label"
                         ><span class="change-name">{{ item.row.name }}</span
                         ><span v-if="item.row.dir" class="change-dir">{{
@@ -1336,7 +1355,7 @@ const summaryLimit = 50
                       >
                       <span v-if="deltaFor(item.row)" class="change-delta">
                         <em class="d-add">+{{ deltaFor(item.row)!.ins }}</em>
-                        <em class="d-del">-{{ deltaFor(item.row)!.del }}</em>
+                        <em class="d-del">−{{ deltaFor(item.row)!.del }}</em>
                       </span>
                       <span v-else-if="isBinaryRow(item.row)" class="change-delta">binary</span>
                       <span v-else-if="item.row.untracked" class="change-delta"
@@ -1403,7 +1422,7 @@ const summaryLimit = 50
             class="diff-file-head"
             :style="{ '--status-color': statusColor(currentRow.label) }"
           >
-            <span class="file-status">{{ currentRow.label }}</span>
+            <span class="file-status" role="img" :aria-label="statusIcon(currentRow.label).label" :title="statusIcon(currentRow.label).label"><component :is="statusIcon(currentRow.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
             <span class="diff-file-path">{{ currentRow.path }}</span>
             <span v-if="currentRow.staged" class="diff-side">staged</span>
             <span v-else-if="isUntrackedPreview" class="diff-side">untracked</span>

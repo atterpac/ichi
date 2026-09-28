@@ -42,8 +42,8 @@ xbuild-windows arch="amd64": build-frontend
 # generate platform icon assets from build/appicon.png; remove stale Assets.car
 # so macOS loads CFBundleIconFile=icons from icons.icns.
 generate-icons:
-    rm -f build/darwin/Assets.car
-    cd build && wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+    # rm -f build/darwin/Assets.car
+    # cd build && wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
 
 # create the macOS development .app wrapper used by local runs
 [macos]

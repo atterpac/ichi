@@ -113,6 +113,8 @@
   padding: 0;
 }
 .changes-pane.is-collapsed { flex: 0 0 auto; }
+.changes-pane.is-empty { flex: 0 0 auto; }
+.changes-pane.is-empty .changes-section-files { flex: none; }
 .changes-section-files {
   flex: 1;
   min-height: 0;
@@ -157,16 +159,16 @@
   justify-content: space-between;
   gap: var(--space-3);
   margin: 0 0 var(--space-2);
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   color: var(--text-dim);
   font-weight: var(--weight-medium);
   letter-spacing: 0;
-  min-height: var(--control-height-lg);
+  min-height: 32px;
   padding: var(--space-2) var(--space-4);
   font-size: var(--fs-sm);
   border-top: 0;
   border-bottom: 1px solid var(--line-faint);
-  background: var(--surface-raised);
+  background: transparent;
 }
 
 .changes-files > .changes-section:first-of-type {
@@ -227,7 +229,7 @@
     color var(--ease-fast);
   min-height: var(--control-height-sm);
   padding: 0 var(--control-pad-sm);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
 }
 
 .changes-section:hover .section-action,
@@ -285,7 +287,7 @@
   white-space: nowrap;
   direction: rtl;
   text-align: left;
-  font: var(--fs-xs) var(--font-mono);
+  font: var(--fs-xs) var(--font-ui);
 }
 
 .change-row {
@@ -316,7 +318,6 @@
 .change-row.selected {
   background: var(--selected);
   color: var(--text);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .change-row.conflict .change-name {
@@ -324,8 +325,8 @@
 }
 
 .change-name {
-  flex: 0 1 auto;
-  min-width: 40px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -378,8 +379,16 @@
   color: var(--text-mut);
 }
 
-.change-row:hover .change-delta {
-  display: none;
+.change-row .change-delta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(3ch, 1fr));
+  min-width: 8ch;
+  text-align: right;
+}
+
+.change-row .change-delta:has(.d-new),
+.change-row .change-delta:not(:has(em)) {
+  display: block;
 }
 
 .file-status.staged {
@@ -392,14 +401,12 @@
   color: var(--negative-text);
 }
 
-/* changes-view status letters — bare colored mono letter in a fixed,
-   left-aligned column. Rows set --status-color (M amber, A green, D red,
-   R purple, ? muted, ! red); left alignment keeps the column perfectly
-   straight regardless of glyph shape. The commit inspector follows the same unboxed treatment. */
+/* Status icons share a fixed column and retain their semantic colors. */
 .changes-view .file-status,
 .changes-view .file-status.staged,
 .changes-view .file-status.conflict {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: flex-start;
   width: 14px;
@@ -412,15 +419,28 @@
 }
 
 .change-hover-action {
+  position: absolute;
+  left: var(--space-4);
+  top: 50%;
+  transform: translate(-5px, -50%);
   display: grid;
   visibility: hidden;
   flex: none;
-  margin-left: auto;
+  margin-left: 0;
   place-items: center;
   border-radius: var(--radius-xs);
   color: var(--text-mut);
-  width: var(--control-height-sm);
+  width: 24px;
   height: var(--control-height-sm);
+}
+
+.change-row.grouped .change-hover-action {
+  left: calc(var(--space-3) + var(--tree-depth, 1) * 12px);
+}
+
+.change-row:has(.change-hover-action):hover .file-status,
+.change-row:has(.change-hover-action):focus-visible .file-status {
+  visibility: hidden;
 }
 
 .change-hover-action.stage-action {
@@ -672,7 +692,6 @@
 .changes-files .change-dir-row.selected {
   background: var(--selected);
   color: var(--text);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* Keep navigation and action scope visible while the tree itself scrolls. */
@@ -688,11 +707,12 @@
 .changes-selection-actions .is-danger:hover:not(:disabled) { background: color-mix(in oklab, var(--red) 12%, transparent); color: var(--negative-text); }
 .changes-section-empty { margin: 0; padding: var(--space-3) var(--space-6) var(--space-5, 10px); color: var(--text-mut); font-size: var(--fs-xs); }
 .change-dir-row { position: relative; min-height: 28px; }
-.change-dir-row .section-count { margin-left: auto; padding-left: 6px; font-size: var(--fs-xs); }
+.change-dir-row .section-count { margin-left: auto; padding-left: 6px; font-size: var(--fs-2xs); font-weight: var(--weight-regular); }
 .change-tree-guides { position: absolute; inset: 0; pointer-events: none; }
 .change-tree-guides i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-faint); }
 .changes-files .section-toggle { flex: 1; text-align: left; padding: 2px 6px; border-radius: var(--radius-xs); }
-.changes-files .section-toggle .section-count { margin-left: auto; }
+.changes-files .section-toggle .section-count { font-size: var(--fs-xs); font-weight: var(--weight-regular); }
+.changes-files .section-toggle .section-count::before { content: '·'; margin-right: var(--space-3); }
 .changes-files .section-action { opacity: 0; }
 .changes-section:hover .section-action, .changes-section:focus-within .section-action { opacity: 1; }
 .change-row:focus-visible .change-hover-action { visibility: visible; }
@@ -701,7 +721,6 @@
 /* A single row tint indicates both selection and keyboard focus. */
 .changes-files :is(.section-toggle, .change-dir-row, .change-row):focus-visible {
   outline: none;
-  box-shadow: inset 2px 0 0 var(--accent);
   background: var(--selected);
   color: var(--text);
 }

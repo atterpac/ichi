@@ -45,7 +45,6 @@
 .branches-list:focus .branch-row.selected,
 .branch-row.selected {
   background: var(--selected);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .branch-cur {
@@ -186,7 +185,6 @@
 
 .st-file.cursor {
   background: color-mix(in oklch, var(--accent) 16%, var(--surface));
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .st-file-tick {
@@ -257,7 +255,6 @@
 
 .branch-group.selected {
   background: var(--selected);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .branch-twist {
