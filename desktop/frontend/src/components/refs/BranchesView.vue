@@ -13,8 +13,8 @@ import { setModeline, resetModeline } from '../../composables/useModeline'
 import { useShellSettings } from '../../composables/useShellSettings'
 import { notify } from '../../composables/useToasts'
 import { useVimList } from '../../composables/useVimList'
-import { RefService, RemoteService, StashService, GraphService, DiffService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
-import type { Branch, Divergence, FileChurn, RefCommit, Commit, FileDiff } from '../../bindings/github.com/atterpac/ichi/internal/git'
+import { RefService, RemoteService, StashService, DiffService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import type { Branch, FileChurn, FileDiff } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
 const props = defineProps<{ focusBranch?: string }>()
 const emit = defineEmits<{ (e: 'navigate', view: string, focus?: string): void }>()
@@ -35,17 +35,11 @@ const remotes = ref<Branch[]>([])
 const pendingOperation = ref<OperationConfirmRequest | null>(null)
 const listEl = ref<HTMLElement | null>(null)
 const folded = ref(new Set<string>())
-const detailFork = ref<Divergence | null>(null)
-const detailLog = ref<RefCommit[]>([])
 const detailChurn = ref<FileChurn[]>([])
 
 const query = ref('')
 const scope = ref('all')
 const baseline = ref('')
-const previewTab = ref<'files' | 'commits'>('files')
-const graphCommits = ref<Commit[]>([])
-const graphLoading = ref(false)
-const graphError = ref('')
 const detailError = ref('')
 const detailLoading = ref(false)
 const preview = ref<FileDiff | null>(null)
@@ -53,22 +47,11 @@ const diffViewer = ref<InstanceType<typeof DiffView> | null>(null)
 const previewLoading = ref(false)
 const previewError = ref('')
 let previewReq = 0
-let graphReq = 0
 const allBranches = computed(() => [...locals.value, ...remotes.value])
 const comparison = computed(() => baseline.value || current.value?.Name || '')
 const filteredLocals = computed(() => scope.value === 'remote' ? [] : locals.value.filter(matches))
 const filteredRemotes = computed(() => scope.value === 'local' ? [] : remotes.value.filter(matches))
 function matches(b: Branch) { return b.Name.toLowerCase().includes(query.value.toLowerCase()) }
-async function loadMap() {
-  const req = ++graphReq
-  graphLoading.value = true
-  graphError.value = ''
-  try {
-    const graph = await GraphService.LoadGraph(120)
-    if (req === graphReq) graphCommits.value = (graph?.Commits ?? []).filter((c): c is Commit => c !== null)
-  } catch (err) { if (req === graphReq) graphError.value = String(err) }
-  finally { if (req === graphReq) graphLoading.value = false }
-}
 async function selectMapBranch(branch: Branch) {
   query.value = ''
   scope.value = 'all'
@@ -177,8 +160,6 @@ async function refresh() {
     locals.value = all.filter((b) => !b.IsRemote)
     remotes.value = all.filter((b) => b.IsRemote)
     error.value = ''
-    if (all.length) void loadMap()
-    else { graphReq++; graphCommits.value = []; graphError.value = ''; graphLoading.value = false }
     if (baseline.value && !all.some(b => b.Name === baseline.value)) baseline.value = ''
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
@@ -379,9 +360,7 @@ const upstreamRemote = computed(() => {
   return b?.IsTracking ? splitRemote(b.Upstream).remote : 'origin'
 })
 
-// Pane middle: commit rail (per-ref log ending at the fork point) and the
-// tree diff against the checked-out branch. One request id guards all three
-// fetches per cursor.
+// Refresh the file comparison when the selection or baseline changes.
 let detailReq = 0
 watch(
   [() => settings.branchesDetailVisible, () => detailBranch.value?.Name, () => comparison.value, () => locals.value],
@@ -392,54 +371,18 @@ watch(
     previewLoading.value = false
     previewError.value = ''
     detailError.value = ''
-    detailLog.value = []
     detailChurn.value = []
-    detailFork.value = null
     detailLoading.value = false
-    if (!open || !selected) {
-      detailFork.value = null
-      detailLog.value = []
-      detailChurn.value = []
-      return
-    }
+    if (!open || !selected || !head || selected === head) return
     detailLoading.value = true
     const failed = (err: unknown) => { if (req === detailReq) detailError.value = String(err); return null }
-    const isHead = !head || selected === head
-    const [log, fork, churn] = await Promise.all([
-      RefService.LogRef(selected, 6).catch(failed),
-      isHead ? null : RefService.BranchDivergence(head!, selected).catch(failed),
-      isHead ? null : RefService.DiffFiles(head!, selected).catch(failed),
-    ])
+    const churn = await RefService.DiffFiles(head, selected).catch(failed)
     if (req !== detailReq) return
     detailLoading.value = false
-    detailLog.value = (log ?? []).filter(Boolean)
-    detailFork.value = fork
     detailChurn.value = (churn ?? []).filter(Boolean)
   },
   { immediate: true },
 )
-
-type RailRow = { hash: string; subject: string; when: string; fork: boolean; tip: boolean }
-
-// Only display commits returned by Git; a missing merge base is outside this window.
-const rail = computed<RailRow[]>(() => {
-  const rows: RailRow[] = detailLog.value.map((c, i) => ({
-    hash: c.Hash,
-    subject: c.Subject,
-    when: c.When,
-    fork: false,
-    tip: i === 0,
-  }))
-  const base = detailFork.value?.Base
-  if (!base) return rows
-  const at = rows.findIndex((r) => r.hash === base)
-  if (at >= 0) {
-    const cut = rows.slice(0, at + 1)
-    cut[at] = { ...cut[at]!, fork: true }
-    return cut
-  }
-  return rows
-})
 
 const FILE_LIST_LIMIT = 500
 
@@ -562,7 +505,7 @@ onMounted(async () => {
   listEl.value?.focus()
 })
 watch([query, scope], () => vim.moveTo(0))
-onUnmounted(() => { detailReq++; graphReq++; previewReq++; resetModeline() })
+onUnmounted(() => { detailReq++; previewReq++; resetModeline() })
 </script>
 
 <template>
@@ -635,15 +578,15 @@ onUnmounted(() => { detailReq++; graphReq++; previewReq++; resetModeline() })
             <span v-if="!row.b.IsRemote" class="branch-up">{{ row.b.IsTracking ? `→ ${row.b.Upstream}` : 'no upstream' }}</span>
             <span class="branch-fill"></span>
             <span class="branch-msg">{{ row.b.LastMsg }}</span>
-            <span v-if="row.b.Ahead" class="branch-chip ahead">↑{{ row.b.Ahead }}</span>
-            <span v-if="row.b.Behind" class="branch-chip behind">↓{{ row.b.Behind }}</span>
+            <span v-if="row.b.Ahead" class="branch-chip ahead" :title="`Ahead of ${row.b.Upstream || 'upstream'}`">↑{{ row.b.Ahead }}</span>
+            <span v-if="row.b.Behind" class="branch-chip behind" :title="`Behind ${row.b.Upstream || 'upstream'}`">↓{{ row.b.Behind }}</span>
             <span class="branch-hash">{{ row.b.LastCommit }}</span>
           </button>
         </template>
       </section>
 
       <div class="branch-workspace">
-      <BranchAncestryMap :commits="graphCommits" :branches="allBranches" :selected="detailBranch" :loading="graphLoading" :error="graphError" @select="selectMapBranch" @retry="loadMap" />
+      <BranchAncestryMap :branches="allBranches" :selected="detailBranch" @open="emit('navigate', 'graph', $event)" />
       <aside v-if="settings.branchesDetailVisible" class="branch-detail" aria-label="Branch details" tabindex="0" data-keyboard-pane @keydown="returnFromPane($event, listEl)">
         <template v-if="detailBranch">
           <h3 class="bd-name">
@@ -681,32 +624,12 @@ onUnmounted(() => { detailReq++; graphReq++; previewReq++; resetModeline() })
           </div>
 
 
-          <div class="branch-preview-tabs" role="tablist" aria-label="Branch preview">
-            <button role="tab" :aria-selected="previewTab === 'files'" @click="previewTab = 'files'">Files <span>{{ changedFiles.total.files }}</span></button>
-            <button role="tab" :aria-selected="previewTab === 'commits'" @click="previewTab = 'commits'">Recent commits</button>
-          </div>
-          <div v-if="previewTab === 'commits' && rail.length" class="bd-rail-block">
-            <span class="bd-subhead">History</span>
-            <div class="bd-rail">
-              <div v-for="row in rail" :key="row.hash" class="bd-rail-row" :class="{ fork: row.fork }">
-                <div class="bd-rail-glyph"><i class="bd-rail-dot"></i></div>
-                <div class="bd-rail-body">
-                  <div class="bd-rail-line">
-                    <span class="bd-rail-hash">{{ row.hash }}</span>
-                    <span class="bd-rail-subj">{{ row.fork && current && detailBranch.Name !== current.Name && (detailFork?.AheadB ?? 0) > 0 ? `merge base with ${comparison} · ${row.subject}` : row.subject }}</span>
-                    <span v-if="row.tip" class="bd-rail-badge">tip</span>
-                  </div>
-                  <span v-if="row.when" class="bd-rail-when">{{ row.when }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="previewTab === 'files' && changedFiles.total.files && comparison" class="bd-churn">
+          <h4 class="branch-files-heading">Changed files <span>{{ changedFiles.total.files }}</span></h4>
+          <div v-if="changedFiles.total.files && comparison" class="bd-churn">
             <span class="bd-subhead">Diff · vs {{ comparison }}</span>
             <div v-for="f in changedFiles.files" :key="f.Path" class="bd-churn-row" role="button" tabindex="0" @click="openFile(f.Path)" @keydown.enter.prevent="openFile(f.Path)" @keydown.space.prevent="openFile(f.Path)">
               <PhFile class="bd-churn-icon" :size="14" aria-hidden="true" />
-              <span class="bd-churn-path" :title="f.Path"><span class="bd-churn-dir">{{ splitPath(f.Path).dir }}</span><span class="bd-churn-base">{{ splitPath(f.Path).base }}</span></span>
+              <span class="bd-churn-path" :title="f.Path"><span class="bd-churn-base">{{ splitPath(f.Path).base }}</span><span class="bd-churn-dir">{{ splitPath(f.Path).dir || 'Repository root' }}</span></span>
               <span class="bd-churn-delta">
                 <em v-if="f.Added" class="add">+{{ f.Added }}</em>
                 <em v-if="f.Deleted" class="del">−{{ f.Deleted }}</em>
@@ -717,7 +640,7 @@ onUnmounted(() => { detailReq++; graphReq++; previewReq++; resetModeline() })
             <span class="bd-churn-total">{{ changedFiles.total.files }} files · +{{ changedFiles.total.added }} −{{ changedFiles.total.deleted }}</span>
           </div>
 
-          <p v-if="previewTab === 'files' && !detailLoading && !detailError && !changedFiles.total.files" class="bd-empty">No file changes against {{ comparison || 'the current branch' }}.</p>
+          <p v-if="!detailLoading && !detailError && !changedFiles.total.files" class="bd-empty">No file changes against {{ comparison || 'the current branch' }}.</p>
           <p v-if="previewLoading">Loading diff…</p>
           <p v-if="previewError" role="alert">{{ previewError }}</p>
           <UiButton v-if="preview" size="sm" @click="closePreview">Close diff</UiButton>
@@ -770,20 +693,22 @@ onUnmounted(() => { detailReq++; graphReq++; previewReq++; resetModeline() })
 .branch-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; }
 .branch-workspace > .branch-map { flex-shrink: 0; }
 .branch-detail { overflow: visible; flex: 1; border-left: 0; box-shadow: none; background: var(--surface-panel); padding: var(--space-12); gap: var(--space-10); }
-.branch-preview-tabs { display: flex; gap: var(--space-10); border-bottom: 1px solid var(--line-faint); }
-.branch-preview-tabs button { display: inline-flex; align-items: center; gap: var(--space-3); margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; padding: var(--space-4) 0; background: transparent; color: var(--text-mut); font: var(--weight-medium) var(--fs-md) var(--font-ui); }
-.branch-preview-tabs button:hover { color: var(--text); }
-.branch-preview-tabs button span { padding: 0 var(--space-3); border-radius: var(--radius-pill); background: var(--hover); color: var(--text-dim); font: var(--weight-medium) var(--fs-2xs)/16px var(--font-ui); font-variant-numeric: tabular-nums; }
-.branch-preview-tabs button[aria-selected=true] { color: var(--head); border-bottom-color: var(--accent); }
+.branch-files-heading { display: flex; align-items: center; gap: var(--space-4); margin: 0; color: var(--head); font: var(--weight-medium) var(--fs-md) var(--font-ui); }
+.branch-files-heading span { color: var(--text-mut); font-variant-numeric: tabular-nums; }
 .branch-compare { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); color: var(--text-mut); font: var(--font-label); }
 .branch-compare select { max-width: 320px; min-width: 0; }
 .bd-meta, .bd-div { max-width: 460px; }
 .bd-churn { gap: 0; }
 .bd-churn .bd-subhead { margin-bottom: var(--space-3); }
-.bd-churn-row { display: flex; align-items: center; gap: var(--space-4); height: 30px; padding: 0 var(--space-4); border-radius: var(--radius-sm); cursor: pointer; }
+.bd-churn-row { display: flex; align-items: center; gap: var(--space-4); min-height: 52px; padding: var(--space-4); border-bottom: 1px solid var(--line-faint); border-radius: var(--radius-sm); cursor: pointer; }
 .bd-churn-row:hover { background: var(--hover); }
 .bd-churn-row:focus-visible { outline-offset: -2px; }
 .bd-churn-icon { flex: none; color: var(--text-mut); }
+.bd-churn-path { display: flex; flex: 1; flex-direction: column; gap: var(--space-1); }
+.bd-churn-base { overflow: hidden; text-overflow: ellipsis; }
+.bd-churn-dir { font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; }
+.bd-churn { border: 1px solid var(--line-faint); border-radius: var(--radius-md); padding: var(--space-8); background: var(--surface-base); }
+.bd-churn-total { padding-top: var(--space-6); }
 .branch-diff { display: flex; height: 420px; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); }
 .bd-actions { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-4); padding-top: var(--space-8); border-top: 1px solid var(--line-faint); }
 @media (max-width: 760px) {

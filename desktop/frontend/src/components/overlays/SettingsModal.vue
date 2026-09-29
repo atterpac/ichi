@@ -5,6 +5,7 @@ import { useShellSettings } from '../../composables/useShellSettings'
 import { useDialogFocus } from '../../composables/useDialogFocus'
 import { DEFAULT_THEME, THEMES } from '../../theme/themes'
 import GraphPreview from './GraphPreview.vue'
+import ToastSettings from './ToastSettings.vue'
 import WorkspaceSettings from './WorkspaceSettings.vue'
 import UiButton from '../common/UiButton.vue'
 import {
@@ -24,7 +25,7 @@ const emit = defineEmits<{
 }>()
 
 type Category = {
-  id: 'workspaces' | 'general' | 'appearance' | 'graph' | 'diff' | 'keybindings'
+  id: 'workspaces' | 'general' | 'appearance' | 'graph' | 'diff' | 'keybindings' | 'developer'
   label: string
   icon: Component
 }
@@ -48,6 +49,7 @@ const categories: Category[] = [
   { id: 'appearance', label: 'Appearance', icon: PhPalette },
   { id: 'graph', label: 'Graph', icon: PhGitFork },
   { id: 'diff', label: 'Diff', icon: PhGitDiff },
+  { id: 'developer', label: 'Developer', icon: PhSlidersHorizontal },
   { id: 'keybindings', label: 'Keybindings', icon: PhKeyboard },
 ]
 const diffLayoutOptions = [
@@ -148,6 +150,7 @@ function close() {
 
         <div class="set-content">
           <WorkspaceSettings v-if="active === 'workspaces'" :initial-profile="initialProfile" @profiles="emit('profiles')" />
+          <ToastSettings v-else-if="active === 'developer'" />
           <template v-else-if="active === 'general'">
             <p class="set-section">Safety</p>
             <label class="set-row">

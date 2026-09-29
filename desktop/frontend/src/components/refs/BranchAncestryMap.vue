@@ -1,118 +1,108 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { Branch, Commit } from '../../bindings/github.com/atterpac/ichi/internal/git'
+import { computed, ref, watch } from 'vue'
+import type { Branch } from '../../bindings/github.com/atterpac/ichi/internal/git'
+import { GraphService, RefService, type GraphLayout } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import GraphCanvas from '../graph/GraphCanvas.vue'
 
-const props = defineProps<{ commits: Commit[]; branches: Branch[]; selected: Branch | null; loading: boolean; error: string }>()
-const emit = defineEmits<{ select: [branch: Branch]; retry: [] }>()
-
-// Compress history into branch relationships. Distances deliberately aren't a
-// time/commit scale: only the reference line, forks, and branch tips are drawn.
-const layout = computed(() => {
-  const byHash = new Map(props.commits.map(c => [c.Hash, c]))
-  function tip(branch: Branch) {
-    return props.commits.find(c => branch.LastCommit && c.Hash.startsWith(branch.LastCommit))?.Hash
-  }
-  function ancestors(hash: string | undefined) {
-    const distances = new Map<string, number>()
-    const queue: [string, number][] = hash ? [[hash, 0]] : []
-    for (let i = 0; i < queue.length; i++) {
-      const [next, distance] = queue[i]!
-      if (distances.has(next)) continue
-      distances.set(next, distance)
-      for (const parent of byHash.get(next)?.Parents ?? []) queue.push([parent, distance + 1])
-    }
-    return distances
-  }
-  const reference = props.branches.find(b => !b.IsRemote && b.Name === 'main')
-    ?? props.branches.find(b => b.IsRemote && b.Name === 'origin/main')
-    ?? props.branches.find(b => b.IsRemote && b.Name.endsWith('/main'))
-    ?? props.branches.find(b => !b.IsRemote && b.Name === 'master')
-    ?? props.branches.find(b => b.IsCurrent)
-    ?? props.branches.find(b => !b.IsRemote)
-    ?? props.branches[0]
-  if (!reference) return { rows: [], reference: '' }
-  const referenceTip = tip(reference)
-  const history = ancestors(referenceTip)
-  // Use the lab's five-lane composition. Keep the selected branch in the
-  // picture without letting a large repository turn the overview into a graph.
-  const selected = props.selected && props.selected !== reference ? props.selected : null
-  const candidates = props.branches.filter(b => b !== reference && b !== selected)
-    .sort((a, b) => Number(a.IsRemote) - Number(b.IsRemote))
-  const others = [...(selected ? [selected] : []), ...candidates].slice(0, 4)
-  const ordered = [reference, ...others]
-  const colors = ['var(--text-mut)', 'var(--accent)', 'var(--positive-text)', 'var(--accent-text)', 'var(--text-dim)']
-  const rows = ordered.map((branch, index) => {
-    const hash = tip(branch)
-    const branchHistory = ancestors(hash)
-    const shared = [...branchHistory.keys()].filter(h => history.has(h))
-      .sort((a, b) => (history.get(a)! + branchHistory.get(a)!) - (history.get(b)! + branchHistory.get(b)!))[0]
-    const y = [155, 95, 215, 35, 275][index]!
-    let relation = ''
-    let known = true
-    let x = 445
-    let forkX = 245
-    if (branch === reference) relation = branch.IsCurrent ? 'checked out' : 'reference'
-    else if (!shared) { relation = 'relationship outside loaded history'; known = false; x = 345 }
-    else if (hash === referenceTip) relation = 'same tip'
-    else if (history.has(hash!)) { relation = 'behind'; x = 345; forkX = 145 }
-    else if (branchHistory.has(referenceTip!)) { relation = 'ahead'; x = 545 }
-    else { relation = 'diverged'; x = 445; forkX = 145 }
-    const path = branch === reference ? `M 50 155 H ${x}`
-      : !known ? `M 245 ${y} H ${x}`
-      : `M ${forkX} 155 C ${forkX + 50} 155, ${forkX + 50} ${y}, ${forkX + 100} ${y} H ${x}`
-    const name = branch.Name.length > 39 ? branch.Name.slice(0, 36) + '…' : branch.Name
-    return { branch, x, y, relation, known, path, name,
-      color: colors[index], labelWidth: Math.min(380, name.length * 8.6 + 30),
-      markerX: branch !== reference && known && x > forkX + 100 ? forkX + 100 : null,
-      reference: branch === reference }
-  })
-  return { rows, reference: reference.Name }
-
+const props = defineProps<{ branches: Branch[]; selected: Branch | null }>()
+const emit = defineEmits<{ open: [hash: string] }>()
+const reference = computed(() => props.branches.find(b => !b.IsRemote && b.Name === 'main')
+  ?? props.branches.find(b => b.Name === 'origin/main')
+  ?? props.branches.find(b => !b.IsRemote && b.Name === 'master')
+  ?? props.branches.find(b => b.Name.endsWith('/main') || b.Name.endsWith('/master')))
+const layout = ref<GraphLayout | null>(null)
+const base = ref('')
+const comparisonFailed = ref(false)
+const loading = ref(false)
+const error = ref('')
+const limit = ref(80)
+const revision = ref(0)
+const rowHeight = 44
+watch(() => props.selected?.Name, () => { limit.value = 80 }, { flush: 'sync' })
+watch([() => props.selected, reference, limit, revision], async (_, __, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  layout.value = null
+  base.value = ''
+  error.value = ''
+  comparisonFailed.value = false
+  const selected = props.selected
+  if (!selected) { loading.value = false; return }
+  loading.value = true
+  try {
+    const compare = reference.value && reference.value.Name !== selected.Name
+    const [graph, divergence] = await Promise.all([
+      GraphService.LoadBranchGraph(selected.Name, limit.value),
+      compare ? RefService.BranchDivergence(reference.value!.Name, selected.Name).catch(() => {
+        if (!cancelled) comparisonFailed.value = true
+        return null
+      }) : null,
+    ])
+    if (cancelled) return
+    layout.value = graph
+    base.value = divergence?.Base ?? ''
+  } catch (err) { if (!cancelled) error.value = String(err) }
+  finally { if (!cancelled) loading.value = false }
+}, { immediate: true })
+const rows = computed(() => layout.value?.Rows ?? [])
+const isBase = (hash: string) => !!base.value && hash.startsWith(base.value)
+const baseVisible = computed(() => rows.value.some(row => row.Commit && isBase(row.Commit.Hash)))
+const continues = computed(() => {
+  const hashes = new Set(rows.value.map(row => row.Commit?.Hash))
+  return rows.value.some(row => row.Commit?.Parents.some(parent => !hashes.has(parent)))
 })
 </script>
 <template>
-  <section class="branch-map" aria-label="Branch overview">
-    <header><span>Branch map</span><span v-if="branches.length > 5">{{ layout.rows.length }} of {{ branches.length }} branches · select a branch to bring it into view</span></header>
-    <p v-if="loading">Loading branch overview…</p>
-    <p v-else-if="error">{{ error }} <button @click="emit('retry')">Retry</button></p>
-    <p v-else-if="!branches.length">No branches yet.</p>
-    <div v-else class="branch-map-scroll" tabindex="0" aria-label="Scroll branch map" data-keyboard-pane>
-      <svg viewBox="0 0 950 310" preserveAspectRatio="xMinYMid meet" role="group" aria-label="Schematic branch overview; spacing is illustrative">
-        <g v-for="row in layout.rows" :key="`path:${row.branch.IsRemote}:${row.branch.Name}`" :style="{ '--branch-color': row.color }" :class="{ active: selected === row.branch, unknown: !row.known }">
-          <path :d="row.path" class="map-edge" />
-          <circle v-if="row.markerX" :cx="row.markerX" :cy="row.y" r="5" class="map-node" />
-        </g>
-        <circle v-for="x in [50, 145, 245, 345]" :key="x" :cx="x" cy="155" r="5" class="map-node map-history" />
-        <g v-for="row in layout.rows" :key="`${row.branch.IsRemote}:${row.branch.Name}`" :style="{ '--branch-color': row.color }" class="map-branch" :class="{ active: selected === row.branch }">
-          <circle :cx="row.x" :cy="row.y" r="5" class="map-node" />
-          <g role="button" tabindex="0" :aria-label="`Inspect ${row.branch.Name}`" :aria-pressed="selected === row.branch" class="map-label" @click="emit('select', row.branch)" @keydown.enter.prevent="emit('select', row.branch)" @keydown.space.prevent="emit('select', row.branch)">
-            <rect :x="row.x + 18" :y="row.y - 17" :width="row.labelWidth" height="34" rx="6" />
-            <text :x="row.x + 32" :y="row.y + 5.5">{{ row.name }}{{ row.branch.IsCurrent ? ' ●' : '' }}</text>
-            <title>{{ row.branch.Name }} · {{ row.relation }}</title>
-          </g>
-        </g>
-      </svg>
-    </div>
+  <section class="branch-map" aria-label="Selected branch graph">
+    <header><div><span class="eyebrow">Branch history</span><strong>{{ selected?.Name || 'Select a branch' }}</strong></div><span>Newest first · {{ rows.length }} commits</span></header>
+    <p v-if="!selected">Select a branch to explore its history.</p>
+    <p v-else-if="loading" role="status">Loading branch history…</p>
+    <p v-else-if="error" role="alert">{{ error }} <button @click="revision++">Retry</button></p>
+    <template v-else-if="rows.length">
+      <div class="branch-history-scroll" tabindex="0" aria-label="Branch commit history" data-keyboard-pane>
+        <div class="branch-history-content">
+          <GraphCanvas :rows="rows" :lane-count="layout?.LaneCount ?? 1" :row-height="rowHeight" />
+          <div class="branch-commit-list">
+            <button v-for="(row, index) in rows" :key="row.Commit?.Hash" class="branch-commit-row" :class="{ 'merge-base': row.Commit && isBase(row.Commit.Hash) }" :style="{ height: `${rowHeight}px` }" @click="row.Commit && emit('open', row.Commit.Hash)">
+              <span class="branch-commit-subject">{{ row.Commit?.Message }}</span>
+              <span v-if="index === 0" class="branch-commit-badge">tip</span>
+              <span v-if="row.Commit && isBase(row.Commit.Hash)" class="branch-commit-badge">base with {{ reference?.Name }}</span>
+              <span class="branch-commit-author">{{ row.Commit?.Author }}</span>
+              <code>{{ row.Commit?.ShortHash }}</code>
+            </button>
+          </div>
+        </div>
+      </div>
+      <footer>
+        <span v-if="comparisonFailed">Connection to {{ reference?.Name }} unavailable.</span>
+        <span v-else-if="base && !baseVisible">Common ancestor with {{ reference?.Name }} is outside these {{ rows.length }} commits.</span>
+        <span v-else-if="reference && selected?.Name !== reference.Name && !base">No common ancestor with {{ reference.Name }}.</span>
+        <span v-else>Only ancestors of {{ selected?.Name }} · select a commit to open in Graph</span>
+        <button v-if="continues && limit < 500" @click="limit = Math.min(500, limit + 80)">Load more history</button>
+        <span v-else-if="continues">Older history continues in Graph.</span>
+      </footer>
+    </template>
+    <p v-else>No commits on this branch.</p>
   </section>
 </template>
 <style scoped>
-/* Faint dot grid marks this as a schematic canvas rather than a list. */
-.branch-map { min-width: 0; padding: var(--space-6) var(--space-12) var(--space-2); border-bottom: 1px solid var(--line-faint); background: radial-gradient(circle, color-mix(in oklab, var(--text) 7%, transparent) 1px, transparent 1.5px) 0 0 / 16px 16px, var(--surface-panel); }
-header { display: flex; justify-content: space-between; gap: var(--space-6); color: var(--text-mut); font: var(--font-label); }
-header span:first-child { color: var(--text-dim); }
-.branch-map-scroll { overflow: auto; }
-svg { display: block; width: 100%; max-width: 1040px; height: 230px; min-width: 680px; }
-.map-edge { fill: none; stroke: var(--text-mut); stroke-width: 2; opacity: .45; }
-.active .map-edge { stroke: var(--branch-color); opacity: 1; stroke-width: 3; }
-.unknown .map-edge { stroke-dasharray: 5 5; }
-.map-node { fill: var(--surface-panel); stroke: var(--text-mut); stroke-width: 2; }
-.active .map-node { fill: var(--branch-color); stroke: var(--branch-color); }
-.map-label { cursor: pointer; outline: none; }
-.map-label rect { fill: var(--surface-raised); stroke: var(--line-faint); stroke-width: 1; transition: fill var(--ease-fast); }
-.map-label:hover rect { fill: color-mix(in oklab, var(--text) 8%, var(--surface-raised)); }
-.map-label text { fill: var(--text-dim); font: 500 16px var(--font-ui); }
-.active .map-label rect { fill: color-mix(in oklch, var(--branch-color) 16%, var(--surface-raised)); stroke: color-mix(in oklch, var(--branch-color) 45%, transparent); }
-.active .map-label text { fill: var(--head); }
-.map-label:focus-visible rect { stroke: var(--accent-text); stroke-width: 2; }
-p { padding: var(--space-10) 0; color: var(--text-mut); }
+.branch-map { min-width: 0; border-bottom: 1px solid var(--line-faint); background: var(--surface-panel); }
+header { display: flex; justify-content: space-between; align-items: center; gap: var(--space-6); padding: var(--space-8) var(--space-12); color: var(--text-mut); font: var(--font-label); }
+header > div { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+header strong { color: var(--head); font: 500 var(--fs-md) var(--font-ui); overflow-wrap: anywhere; }
+.eyebrow { color: var(--text-mut); }
+.branch-history-scroll { max-height: 330px; overflow: auto; border-top: 1px solid var(--line-faint); }
+.branch-history-content { display: flex; align-items: flex-start; min-width: max-content; }
+.branch-history-content :deep(.graph-canvas) { position: static; inset: auto; flex-shrink: 0; z-index: auto; }
+.branch-commit-list { flex: 1; min-width: 0; }
+.branch-commit-row { display: flex; align-items: center; gap: var(--space-4); width: 100%; padding: 0 var(--space-8) 0 var(--space-3); border: 0; border-bottom: 1px solid var(--line-faint); background: transparent; text-align: left; color: var(--text); font: var(--fs-sm) var(--font-ui); cursor: pointer; }
+.branch-commit-row:hover, .branch-commit-row:focus-visible { background: var(--hover); }
+.branch-commit-subject { flex: 1; min-width: 180px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-commit-author, code { color: var(--text-mut); font-size: var(--fs-xs); }
+.branch-commit-author { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-commit-badge { flex-shrink: 0; padding: 2px 6px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-text); font-size: var(--fs-xs); }
+.merge-base { background: color-mix(in oklab, var(--accent) 6%, transparent); }
+footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-6); padding: var(--space-6) var(--space-12); color: var(--text-mut); font: var(--font-label); }
+footer button { flex-shrink: 0; }
+p { padding: var(--space-8) var(--space-12); color: var(--text-mut); }
 </style>

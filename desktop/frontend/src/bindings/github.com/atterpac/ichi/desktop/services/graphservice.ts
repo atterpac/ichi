@@ -35,21 +35,30 @@ export function IsCommitPushed(hash: string): $CancellablePromise<boolean> {
     return $Call.ByID(835241989, hash);
 }
 
+/**
+ * LoadBranchGraph loads only commits reachable from the selected branch.
+ */
+export function LoadBranchGraph(ref: string, limit: number): $CancellablePromise<$models.GraphLayout | null> {
+    return $Call.ByID(2146552743, ref, limit).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function LoadCommit(hash: string): $CancellablePromise<git$0.CommitDetail | null> {
     return $Call.ByID(538336828, hash).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType4($result);
     });
 }
 
 export function LoadGraph(limit: number): $CancellablePromise<git$0.Graph | null> {
     return $Call.ByID(207611783, limit).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType6($result);
     });
 }
 
 export function LoadGraphLayout(limit: number): $CancellablePromise<$models.GraphLayout | null> {
     return $Call.ByID(3171989245, limit).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType2($result);
     });
 }
 
@@ -71,11 +80,11 @@ export function SearchCommits(query: string, limit: number): $CancellablePromise
 
 // Private type creation functions
 const $$createType0 = $Create.Map($Create.Any, $Create.Any);
-const $$createType1 = git$0.CommitDetail.createFrom;
+const $$createType1 = $models.GraphLayout.createFrom;
 const $$createType2 = $Create.Nullable($$createType1);
-const $$createType3 = git$0.Graph.createFrom;
+const $$createType3 = git$0.CommitDetail.createFrom;
 const $$createType4 = $Create.Nullable($$createType3);
-const $$createType5 = $models.GraphLayout.createFrom;
+const $$createType5 = git$0.Graph.createFrom;
 const $$createType6 = $Create.Nullable($$createType5);
 const $$createType7 = git$0.Commit.createFrom;
 const $$createType8 = $Create.Nullable($$createType7);

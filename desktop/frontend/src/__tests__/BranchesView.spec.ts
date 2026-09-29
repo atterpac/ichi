@@ -57,6 +57,7 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     DiffFiles: (a: string, b: string) => diffFiles(a, b),
   },
   GraphService: {
+    LoadBranchGraph: () => Promise.resolve({ Rows: [], LaneCount: 1 }),
     LoadGraph: () => Promise.resolve({ Commits: [
       { Hash: 'abc1234', ShortHash: 'abc1234', Message: 'tip', Parents: ['bbb2222'] },
       { Hash: 'bbb2222', ShortHash: 'bbb2222', Message: 'base', Parents: [] },
@@ -106,15 +107,13 @@ describe('BranchesView', () => {
     wrapper.unmount()
   })
 
-  it('filters branches and keeps map selection in sync with the list', async () => {
+  it('filters branches and focuses the graph on the selected branch', async () => {
     const wrapper = await mountView()
     await wrapper.find('[aria-label="Filter branches"]').setValue('diff-view')
-    expect(wrapper.findAll('.branch-row')).toHaveLength(1)
-    await wrapper.find('[aria-label="Inspect origin/main"]').trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('.branch-row')).toHaveLength(4)
-    expect(wrapper.find('.branch-row.selected').text()).toContain('origin/main')
-    expect(wrapper.find('.bd-name').text()).toContain('origin/main')
+    expect(wrapper.findAll('.branch-row')).toHaveLength(1)
+    expect(wrapper.find('[aria-label="Selected branch graph"]').text()).toContain('feature/diff-view')
+    expect(wrapper.find('.bd-name').text()).toContain('feature/diff-view')
     wrapper.unmount()
   })
 
@@ -219,7 +218,7 @@ describe('BranchesView', () => {
     wrapper.unmount()
   })
 
-  it('shows the detail pane by default with commit rail and divergence', async () => {
+  it('shows file details and upstream divergence without duplicate commit history', async () => {
     const wrapper = await mountView()
     await flushPromises()
     const pane = wrapper.find('.branch-detail')
@@ -227,14 +226,9 @@ describe('BranchesView', () => {
     expect(pane.find('.bd-name').text()).toContain('main')
     expect(pane.find('.bd-current').exists()).toBe(true)
 
-    await wrapper.find('[role=tab]:last-child').trigger('click')
-    // rail renders the per-ref log, tip badge on the first row
-    expect(logRef).toHaveBeenCalledWith('main', 6)
-    const railRows = pane.findAll('.bd-rail-row')
-    expect(railRows).toHaveLength(2)
-    expect(railRows[0]!.text()).toContain('tip subject')
-    expect(railRows[0]!.find('.bd-rail-badge').exists()).toBe(true)
-    // current branch: no file-change section, no fork row
+    expect(pane.text()).toContain('Changed files')
+    expect(pane.text()).not.toContain('Recent commits')
+    expect(logRef).not.toHaveBeenCalled()
     expect(pane.find('.bd-churn').exists()).toBe(false)
 
     // main is ↑2 ↓0 and tracking, so the divergence bar renders ahead-only
@@ -257,19 +251,13 @@ describe('BranchesView', () => {
     wrapper.unmount()
   })
 
-  it('grounds the rail at the fork point and shows churn for other branches', async () => {
+  it('shows changed files immediately for other branches', async () => {
     const wrapper = await mountView()
     const list = wrapper.find('.branches-list')
     await list.trigger('keydown', { key: 'j' })
     await flushPromises()
     expect(branchDivergence).toHaveBeenCalledWith('main', 'feature/diff-view')
     expect(diffFiles).toHaveBeenCalledWith('main', 'feature/diff-view')
-
-    await wrapper.find('[role=tab]:last-child').trigger('click')
-    // A merge base outside the fetched history must not invent a parent edge.
-    const railRows = wrapper.findAll('.bd-rail-row')
-    expect(railRows).toHaveLength(2)
-    await wrapper.find('[role=tab]:first-child').trigger('click')
 
     // file change list vs current: rows with numeric deltas and a total
     const churn = wrapper.find('.bd-churn')

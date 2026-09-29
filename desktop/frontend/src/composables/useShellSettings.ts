@@ -2,7 +2,12 @@ import { reactive, watch } from 'vue'
 import { DEFAULT_THEME, isThemeId, THEMES, type ThemeId } from '../theme/themes'
 import { isPlaceholderStyle, type PlaceholderStyle } from '../components/common/avatarPlaceholder'
 
+import { toastDesigns, type ToastStyle } from '../components/overlays/toastDesigns'
+export type { ToastStyle } from '../components/overlays/toastDesigns'
+
 export interface ShellSettings {
+  toastStyle: ToastStyle
+  developerMode: boolean
   theme: ThemeId
   graphLimit: number
   graphShowAuthor: boolean
@@ -39,6 +44,8 @@ const LEGACY_THEMES: Record<string, ThemeId> = {
 }
 
 const defaults: ShellSettings = {
+  toastStyle: 'card',
+  developerMode: false,
   theme: DEFAULT_THEME,
   graphLimit: 120,
   graphShowAuthor: true,
@@ -70,6 +77,10 @@ function load(): Partial<ShellSettings> {
     if (typeof stored.theme === 'string' && stored.theme in LEGACY_THEMES) {
       stored.theme = LEGACY_THEMES[stored.theme]
     }
+    const retiredToastStyles: Record<string, ToastStyle> = { classic: 'card', compact: 'capsule', soft: 'bulletin', terminal: 'card', ticket: 'card' }
+    if (typeof stored.toastStyle === 'string' && stored.toastStyle in retiredToastStyles) stored.toastStyle = retiredToastStyles[stored.toastStyle]
+    if (!toastDesigns.some(design => design.id === stored.toastStyle)) delete stored.toastStyle
+    if (typeof stored.developerMode !== 'boolean') delete stored.developerMode
     if (!isPlaceholderStyle(stored.avatarPlaceholder)) delete stored.avatarPlaceholder
     if (!isThemeId(stored.theme)) delete stored.theme
     // retired layout values (e.g. 'fluid') fall back to the default
