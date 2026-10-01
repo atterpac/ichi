@@ -920,7 +920,7 @@ onUnmounted(() => {
                     <button type="button" class="wip-action" :disabled="activeOperations" title="Stash all changes, including untracked files (Alt+Enter)" @click.stop="stashDraft">Stash</button>
                   </span>
                 </template>
-                <span v-else class="commit-subject">{{ row.Commit.Message }}</span>
+                <span v-else class="commit-subject" :title="row.Commit.IsStash ? row.Commit.Message : undefined">{{ row.Commit.IsStash ? row.Commit.Message.replace(/^(?:WIP on|On) [^:]+:\s*/, '') : row.Commit.Message }}</span>
               </span>
               <span class="commit-hash">{{ row.Commit.ShortHash }}</span>
               <span v-if="settings['graph.showAuthor']" class="commit-table-author author-identity"><AuthorAvatar v-if="!settings['graph.authorAvatars'] && row.Commit.Hash !== '__ichi_working_changes__'" :name="row.Commit.Author" :commit="row.Commit.Hash" :size="rowHeight - 10" /><span class="author-name">{{ row.Commit.Author }}</span></span>

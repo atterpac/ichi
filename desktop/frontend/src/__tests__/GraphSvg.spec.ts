@@ -45,7 +45,7 @@ describe('SVG graph renderer', () => {
       'M0,16 H5',
       'M5,16 H10',
     ])
-    expect(node.find('.node-marker path').exists()).toBe(true)
+    expect(node.find('.node-marker circle').exists()).toBe(true)
     expect(wrapper.find('.graph-ref-connector').exists()).toBe(false)
     wrapper.unmount()
   })
@@ -122,4 +122,36 @@ it('keeps slice coordinates and glyph objects stable across horizontal scrolling
     expect(wrapper.findAll('.node-stems path').map(path => path.attributes('d'))).toEqual(routesBefore)
     expect(wrapper.get('.graph-band').attributes('x')).toBe('0')
   } finally { wrapper.unmount() }
+})
+
+it('keeps dotted rail phase anchored when the virtual window clips its beginning', async () => {
+  const wrapper = mount(GraphSvg, {
+    props: {
+      rows, laneCount: 1, startIndex: 3, totalRows: 20, rowHeight: 24,
+      segments: [{ Lane: 0, FromRow: 1, ToRow: 15, ColorID: 0, CommitHash: 'base', Dashed: true }],
+    },
+  })
+  try {
+    const rail = () => wrapper.get('[data-glyph="vertical"]')
+    expect(rail().attributes('style')).toContain('stroke-dashoffset: -2.5')
+    await wrapper.setProps({ startIndex: 4 })
+    expect(rail().attributes('style')).toContain('stroke-dashoffset: -2')
+  } finally { wrapper.unmount() }
+})
+
+
+it.each(['elbow', 'rounded', 'curve', 'diagonal'] as const)('joins a stash from above its base with %s bends', (bend) => {
+  const base = {
+    Commit: { Hash: 'base', Author: 'Author', Decorations: [] },
+    Lanes: [{ Column: 0, Glyphs: [{ Kind: 'empty' }, { Kind: 'node', ColorID: 0, ConnectTop: true, ConnectBottom: true }, { Kind: 'empty' }] }],
+    Routes: [
+      { ParentHash: 'parent', FromLane: 0, ToLane: 1, ColorID: 0, Crossings: [] },
+      { ParentHash: 'stash', FromLane: 0, ToLane: 2, ColorID: 1, Crossings: [1], Dashed: true, Incoming: true },
+    ],
+  } as unknown as GraphLayoutRow
+  const wrapper = mount(GraphSvg, { props: { rows: [base], laneCount: 3, rowHeight: 32, appearance: { 'graph.bendStyle': bend } } })
+  expect(wrapper.get('[data-parent="stash"]').attributes('transform')).toBe('translate(0 32) scale(1 -1)')
+  expect(wrapper.get('[data-parent="stash"]').attributes('stroke-dasharray')).toBe('0 3.5')
+  expect(wrapper.get('[data-parent="parent"]').attributes('transform')).toBeUndefined()
+  wrapper.unmount()
 })

@@ -51,6 +51,8 @@ type GraphRoute struct {
 	Continues  bool
 	Crossings  []int
 	Dashed     bool `json:",omitempty"`
+	// Incoming joins a separate stash rail above this row to its base node.
+	Incoming bool `json:",omitempty"`
 }
 
 type GraphLane struct {
@@ -199,6 +201,23 @@ func buildGraphLayout(graph *git.Graph, initialColumns int, compact bool) *Graph
 	}
 
 	for index, commit := range commits {
+		// Stashes are annotations, never owners of a history lane. Route them
+		// after history is placed so their age cannot move the branch sideways.
+		if commit.IsStash {
+			row := GraphLayoutRow{Commit: commit, Routes: []GraphRoute{}}
+			if !compact {
+				for _, rail := range active {
+					lane := emptyGraphLane()
+					if rail != nil {
+						lane.ColorID, lane.CommitHash = rail.colorID, rail.hash
+						lane.Glyphs[1] = GraphGlyph{Kind: "vertical", ColorID: rail.colorID, CommitHash: rail.hash}
+					}
+					row.Lanes = append(row.Lanes, lane)
+				}
+			}
+			layout.Rows = append(layout.Rows, row)
+			continue
+		}
 		col, incoming := targets[commit.Hash]
 		if !incoming {
 			col = freeLane(-1)
@@ -246,7 +265,15 @@ func buildGraphLayout(graph *git.Graph, initialColumns int, compact bool) *Graph
 				if parentIndex == 0 {
 					target = col
 				} else {
-					target = freeLane(col)
+					// Side branches open to the right of the continuing history.
+					// Reusing a hole on its left makes the trunk appear to swap sides.
+					target = col + 1
+					for target < len(active) && active[target] != nil {
+						target++
+					}
+					if target == len(active) {
+						active = append(active, nil)
+					}
 				}
 				colorID := nodeColor
 				if target != col {
@@ -300,6 +327,7 @@ func buildGraphLayout(graph *git.Graph, initialColumns int, compact bool) *Graph
 		layout.Rows = append(layout.Rows, row)
 	}
 	layout.LaneCount = len(active)
+	placeStashRails(layout, positions, compact, &nextColor)
 	for i := range layout.Rows {
 		if compact {
 			continue
@@ -309,6 +337,106 @@ func buildGraphLayout(graph *git.Graph, initialColumns int, compact bool) *Graph
 		}
 	}
 	return layout
+}
+
+// Stash rails occupy a clear lane to the right for their entire lifetime and
+// turn into the base on the base row, rather than pulling history onto their rail.
+func placeStashRails(layout *GraphLayout, positions map[string]int, compact bool, nextColor *int) {
+	for start := range layout.Rows {
+		row := &layout.Rows[start]
+		if !row.Commit.IsStash {
+			continue
+		}
+		end := start
+		if len(row.Commit.Parents) > 0 {
+			if base, ok := positions[row.Commit.Parents[0]]; ok && base > start {
+				end = base
+			}
+		}
+		lane, baseLane := 1, 0
+		for i := start; i <= end; i++ {
+			for column, cell := range layout.Rows[i].Lanes {
+				if cell.Column != nil {
+					column = *cell.Column
+				}
+				for _, glyph := range cell.Glyphs {
+					if glyph.Kind != "empty" {
+						lane = max(lane, column+1)
+						if i == end && isNodeGlyph(glyph.Kind) {
+							baseLane = column
+						}
+					}
+				}
+			}
+			for _, route := range layout.Rows[i].Routes {
+				lane = max(lane, route.FromLane+1, route.ToLane+1)
+			}
+		}
+		for _, segment := range layout.Segments {
+			if segment.FromRow <= end && segment.ToRow > start {
+				lane = max(lane, segment.Lane+1)
+			}
+		}
+		color := *nextColor
+		*nextColor++
+		cell := emptyGraphLane()
+		cell.ColorID, cell.CommitHash = color, row.Commit.Hash
+		cell.Glyphs[1] = GraphGlyph{Kind: "stash-node", ColorID: color, CommitHash: row.Commit.Hash, ConnectBottom: end > start}
+		if compact {
+			cell.Column = &lane
+			row.Lanes = []GraphLane{cell}
+		} else {
+			for len(row.Lanes) <= lane {
+				row.Lanes = append(row.Lanes, emptyGraphLane())
+			}
+			row.Lanes[lane] = cell
+		}
+		layout.LaneCount = max(layout.LaneCount, lane+1)
+		if end == start {
+			continue
+		}
+		baseHash := row.Commit.Parents[0]
+		row.Routes = append(row.Routes, GraphRoute{ParentHash: baseHash, FromLane: lane, ToLane: lane, ColorID: color, Dashed: true, Crossings: []int{}})
+		if compact && start+1 < end {
+			layout.Segments = append(layout.Segments, GraphRailSegment{Lane: lane, FromRow: start + 1, ToRow: end, ColorID: color, CommitHash: baseHash, Dashed: true})
+		} else if !compact {
+			for i := start + 1; i < end; i++ {
+				for len(layout.Rows[i].Lanes) <= lane {
+					layout.Rows[i].Lanes = append(layout.Rows[i].Lanes, emptyGraphLane())
+				}
+				through := emptyGraphLane()
+				through.ColorID, through.CommitHash = color, baseHash
+				through.Glyphs[1] = GraphGlyph{Kind: "vertical", ColorID: color, CommitHash: baseHash}
+				layout.Rows[i].Lanes[lane] = through
+			}
+		}
+		crossings := []int{}
+		for column := baseLane + 1; column < lane; column++ {
+			occupied := false
+			for _, segment := range layout.Segments {
+				if segment.Lane == column && segment.FromRow < end && segment.ToRow >= end {
+					occupied = true
+				}
+			}
+			for c, cell := range layout.Rows[end].Lanes {
+				if cell.Column != nil {
+					c = *cell.Column
+				}
+				if c == column && (cell.Glyphs[1].Kind == "vertical" || cell.Glyphs[1].ConnectTop) {
+					occupied = true
+				}
+			}
+			for _, route := range layout.Rows[end].Routes {
+				if route.Incoming && route.ToLane == column {
+					occupied = true
+				}
+			}
+			if occupied {
+				crossings = append(crossings, column)
+			}
+		}
+		layout.Rows[end].Routes = append(layout.Rows[end].Routes, GraphRoute{ParentHash: row.Commit.Hash, FromLane: baseLane, ToLane: lane, ColorID: color, Dashed: true, Incoming: true, Crossings: crossings})
+	}
 }
 
 func emptyGraphLane() GraphLane {

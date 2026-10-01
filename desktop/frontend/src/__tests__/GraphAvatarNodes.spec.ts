@@ -50,12 +50,12 @@ describe('Graph avatar nodes', () => {
       global: { stubs: { AuthorAvatar: true } },
     })
     const nodes = wrapper.findAll('.graph-avatar-node')
-    expect(nodes).toHaveLength(3)
+    expect(nodes).toHaveLength(2)
     expect(nodes[0]!.classes()).toContain('head')
-    expect(nodes[1]!.classes()).toContain('merge')
+    expect(wrapper.find('[data-glyph="merge-node"] .node-marker circle').exists()).toBe(true)
     expect(nodes[0]!.attributes('style')).toContain('left: 23px')
-    expect(nodes[1]!.attributes('style')).toContain('top: 63px')
-    expect(wrapper.findAll('author-avatar-stub')[2]!.attributes('name')).toBe('Author 2')
+    expect(nodes[1]!.attributes('style')).toContain('top: 105px')
+    expect(wrapper.findAll('author-avatar-stub')[1]!.attributes('name')).toBe('Author 2')
     settings['graph.authorAvatars'] = false
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.graph-avatar-node').exists()).toBe(false)

@@ -351,3 +351,64 @@ func TestStashesSitAboveTheirBaseWithDashedLinks(t *testing.T) {
 		}
 	}
 }
+
+func TestSideBranchesStayRightOfContinuingHistory(t *testing.T) {
+	graph := layoutFixture([]string{"left-tip", "left-root"}, []string{"head", "merge"}, []string{"left-root"}, []string{"merge", "main", "side"}, []string{"side", "main"}, []string{"main"})
+	layout := layoutGitGraph(graph, 12)
+	assertGraphContinuity(t, layout)
+	for _, route := range layout.Rows[3].Routes {
+		if route.ParentHash == "main" && route.ToLane != route.FromLane {
+			t.Fatal("first parent must retain the continuing lane")
+		}
+		if route.ParentHash == "side" && route.ToLane <= route.FromLane {
+			t.Fatal("new side branch reused a hole left of the continuing history")
+		}
+	}
+}
+
+func TestStashesKeepHistoryStraightAndJoinAtTheirBases(t *testing.T) {
+	graph := layoutFixture([]string{"stash-new", "base"}, []string{"head", "middle"}, []string{"stash-old", "root", "index"}, []string{"middle", "base"}, []string{"base", "root"}, []string{"root"}, []string{"index"})
+	graph.CommitMap["stash-new"].IsStash = true
+	graph.CommitMap["stash-old"].IsStash = true
+	for _, compact := range []bool{false, true} {
+		layout := buildGraphLayout(graph, 12, compact)
+		columns := map[string]int{}
+		for _, row := range layout.Rows {
+			for column, lane := range row.Lanes {
+				if lane.Column != nil {
+					column = *lane.Column
+				}
+				if isNodeGlyph(lane.Glyphs[1].Kind) {
+					columns[row.Commit.Hash] = column
+				}
+			}
+		}
+		for _, hash := range []string{"head", "middle", "base", "root"} {
+			if columns[hash] != 0 {
+				t.Fatalf("stash displaced %s to lane %d", hash, columns[hash])
+			}
+		}
+		if columns["stash-new"] < 1 || columns["stash-old"] <= columns["stash-new"] {
+			t.Fatalf("overlapping stashes need separate right lanes: %v", columns)
+		}
+		for _, pair := range [][2]string{{"stash-new", "base"}, {"stash-old", "root"}} {
+			found := false
+			for _, row := range layout.Rows {
+				for _, route := range row.Routes {
+					if route.Incoming && route.ParentHash == pair[0] {
+						found = true
+						if row.Commit.Hash != pair[1] || route.FromLane != 0 || route.ToLane != columns[pair[0]] || !route.Dashed {
+							t.Fatalf("incorrect stash attachment: %+v", route)
+						}
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("missing base attachment for %s", pair[0])
+			}
+		}
+		if len(layout.Rows[2].Routes) != 1 {
+			t.Fatal("stash index parent leaked into history")
+		}
+	}
+}

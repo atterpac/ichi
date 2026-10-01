@@ -770,6 +770,11 @@ export class GraphRoute {
     "Crossings": number[];
     "Dashed"?: boolean;
 
+    /**
+     * Incoming joins a separate stash rail above this row to its base node.
+     */
+    "Incoming"?: boolean;
+
     /** Creates a new GraphRoute instance. */
     constructor($$source: Partial<GraphRoute> = {}) {
         if (!("ParentHash" in $$source)) {

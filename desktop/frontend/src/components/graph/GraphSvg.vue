@@ -90,7 +90,7 @@ const geometryRows = computed(() =>
         settings.value['graph.authorAvatars'] &&
         row.Commit &&
         node &&
-        ['node', 'head-node', 'merge-node'].includes(node.glyph.kind),
+        ['node', 'head-node'].includes(node.glyph.kind),
     }
   }),
 )
@@ -105,6 +105,7 @@ const visibleSegments = computed(() => {
       key: `${segment.Lane}:${segment.FromRow}:${segment.ToRow}`,
       x: GRAPH_RAIL_PADDING + (segment.Lane * 3 + 1) * GRAPH_GLYPH_WIDTH,
       y: start * rowHeight.value, height: (end - start) * rowHeight.value,
+      dashOffset: -((start - segment.FromRow) * rowHeight.value % 3.5),
       glyph: { kind: 'vertical', color: color(segment.ColorID), dashed: segment.Dashed } satisfies Glyph,
     }]
   })
@@ -134,7 +135,7 @@ const renderRows = computed(() => geometryRows.value.map(row => {
               :y="row.y + 2"
               :width="width - row.bandStart"
               :height="Math.max(1, rowHeight - 4)"
-              opacity=".12"
+              opacity=".065"
             />
             <rect
               class="graph-band-edge"
@@ -142,7 +143,7 @@ const renderRows = computed(() => geometryRows.value.map(row => {
               :y="row.y + 2"
               width="2"
               :height="Math.max(1, rowHeight - 4)"
-              opacity=".85"
+              opacity=".32"
             />
             <path
               v-if="showRefConnections && row.commit?.Decorations?.length"
@@ -158,7 +159,7 @@ const renderRows = computed(() => geometryRows.value.map(row => {
       <g class="graph-lanes" :transform="`translate(${-scrollOffset} 0)`">
         <SvgGraphGlyph v-for="segment in visibleSegments" :key="segment.key"
           :transform="`translate(${segment.x} ${segment.y})`" :glyph="segment.glyph"
-          :height="segment.height" :stroke-width="profile.lineWidth" :profile="profile"
+          :height="segment.height" :style="{ strokeDashoffset: segment.dashOffset }" :stroke-width="profile.lineWidth" :profile="profile"
           :bend="settings['graph.bendStyle']" :crossing="settings['graph.collisionStyle']" :shape="settings['graph.nodeGlyph']" />
         <g v-for="row in renderRows" :key="row.key" :transform="`translate(0 ${row.y})`" :data-graph-row="row.key">
           <SvgGraphGlyph
@@ -214,7 +215,7 @@ const renderRows = computed(() => geometryRows.value.map(row => {
           '--node-color': row.node.glyph.color,
         }"
       >
-        <AuthorAvatar :name="row.commit.Author" :commit="row.commit.Hash" :size="Math.max(10, rowHeight - 8)" />
+        <AuthorAvatar :name="row.commit.Author" :commit="row.commit.Hash" :size="Math.max(10, Math.min(20, rowHeight - 12))" />
       </span>
     </template>
   </div>
@@ -233,7 +234,7 @@ const renderRows = computed(() => geometryRows.value.map(row => {
   position: absolute;
   display: flex;
   transform: translate(-50%, -50%);
-  border: 2px solid var(--node-color);
+  border: 1.5px solid var(--node-color);
   border-radius: 50%;
   background: var(--surface);
   pointer-events: none;

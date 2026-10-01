@@ -30,6 +30,7 @@ const geometry = computed(() =>
 <template>
   <g
     class="graph-route"
+    :transform="route.Incoming ? `translate(0 ${height}) scale(1 -1)` : undefined"
     :data-parent="route.ParentHash"
     :data-from-lane="route.FromLane"
     :data-to-lane="route.ToLane"

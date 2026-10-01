@@ -20,7 +20,7 @@ const props = withDefaults(
 )
 const x = computed(() => props.width / 2)
 const y = computed(() => props.height / 2)
-const isDiamondKind = computed(() => props.kind === 'merge-node' || props.kind === 'stash-node')
+const isDiamondKind = computed(() => props.kind === 'stash-node')
 const radius = computed(() =>
   props.kind === 'unstaged-node'
     ? Math.max(5.5, props.profile.nodeRadius + 1)
@@ -33,10 +33,9 @@ const radius = computed(() =>
 const hollow = computed(
   () => props.kind === 'stash-node' || props.profile.hollowNodes || props.shape === 'ring',
 )
-// The stash is a row-height tile tinted in its lane color around Phosphor's tray.
+// Keep shelved work compact and distinct from commit portraits.
 const stashBox = computed(() => {
-  // Fill the row, keeping the same 2px inset as the row's color band.
-  const size = Math.max(12, props.height - 4)
+  const size = Math.max(12, Math.min(20, props.height - 8))
   const icon = Math.round(size * 0.6)
   return {
     left: x.value - size / 2,
@@ -111,7 +110,7 @@ const nodeShape = computed(() => {
         :height="stashBox.size"
         :rx="stashBox.size * 0.22"
         fill="currentColor"
-        fill-opacity=".2"
+        fill-opacity=".1"
         stroke="none"
       />
       <PhTray
