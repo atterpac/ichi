@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import { disposeAppScope, initializeAppScope } from './composables/appScope'
 import './theme/fonts.css'
 import './theme/tokens.css'
 import './theme/themes.css'
@@ -18,4 +19,18 @@ import './theme/views/diff.css'
 import './theme/views/refs.css'
 import './theme/overlays/finder.css'
 
-createApp(App).mount('#app')
+const app = createApp(App)
+let disposed = false
+let mounted = false
+void initializeAppScope().then(() => {
+  if (!disposed) {
+    app.mount('#app')
+    mounted = true
+  }
+})
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    disposed = true
+    if (mounted) app.unmount()
+    disposeAppScope()
+  })

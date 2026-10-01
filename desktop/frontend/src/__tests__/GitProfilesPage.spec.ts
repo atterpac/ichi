@@ -3,10 +3,10 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { reactive } from 'vue'
 import { GitProfile } from '../bindings/github.com/atterpac/ichi/desktop/services/models'
 const mocks = vi.hoisted(() => ({
-  save: vi.fn(),
-  assign: vi.fn(),
-  refresh: vi.fn(),
-  register: vi.fn(),
+  save: vi.fn<(profile: GitProfile) => Promise<GitProfile>>(),
+  assign: vi.fn<(workspace: string, profile: string) => Promise<void>>(),
+  refresh: vi.fn<() => Promise<void>>(),
+  register: vi.fn<(path: string) => Promise<void>>(),
 }))
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', async () => {
   const models = await import('../bindings/github.com/atterpac/ichi/desktop/services/models')

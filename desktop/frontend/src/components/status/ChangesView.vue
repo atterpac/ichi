@@ -1,7 +1,15 @@
 <script setup lang="ts">
+import WindowedList from '../common/WindowedList.vue'
 import UiInput from '../common/UiInput.vue'
+import FileStatusIcon from '../common/FileStatusIcon.vue'
+import { changesCacheGeneration, forgetChangesSnapshot, invalidateChangesSnapshots, peekChangesSnapshot, saveChangesSnapshot } from './changesSnapshotCache'
+import { buildChangeList, changeRows, changeTreeScope, fallbackChangeKey, indexPaths, type ChangeRow, type SectionId, type SectionVM } from './changeTreeModel'
+import { fileStatusPresentation } from '../common/fileStatusPresentation'
+import { useGitOperation } from '../../composables/useGitOperation'
+import { untrackedPreview, useChangeDiff } from './useChangeDiff'
+import { summaryDeltas, type WorktreeDeltas } from '../graph/worktreeHeat'
 import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
-import { type Component, computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DiffView from '../diff/DiffView.vue'
 import SurfaceState from '../common/SurfaceState.vue'
 import { isEditable, isModified } from '../../composables/keyboard'
@@ -9,29 +17,26 @@ import UiButton from '../common/UiButton.vue'
 import OperationConfirmModal, {
   type OperationConfirmRequest,
 } from '../overlays/OperationConfirmModal.vue'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings } from '../../customization/usePreferences'
 import { setModeline, resetModeline } from '../../composables/useModeline'
-import { notify } from '../../composables/useToasts'
 import { useVimList } from '../../composables/useVimList'
 import {
   DiffService,
   GraphService,
   InspectService,
-  RepoService,
   WorktreeService,
   type RepoInfo,
+  type WorktreeSnapshot,
 } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import {
-  FileStatus,
-  LineType,
   type DiffHunk,
   type DiffLine,
-  type FileDiff,
   type StatusEntry,
 } from '../../bindings/github.com/atterpac/ichi/internal/git'
-import { PhCaretRight, PhGitCommit, PhMinus, PhPlus, PhTreeStructure, PhPencilSimple, PhArrowRight, PhCopy, PhWarning } from '@phosphor-icons/vue'
+import { PhCaretRight, PhGitCommit, PhMinus, PhPlus, PhTreeStructure } from '@phosphor-icons/vue'
 
 const props = defineProps<{
+  repositoryPath?: string
   focusCommit?: boolean
   /** row key (`c:`/`s:`/`u:` + path) to land the cursor on */
   focusKey?: string
@@ -41,77 +46,17 @@ const emit = defineEmits<{
   navigate: [view: string, focus?: string]
 }>()
 
-type ChangeRow = {
-  key: string
-  path: string
-  oldPath: string
-  name: string
-  dir: string
-  staged: boolean
-  untracked: boolean
-  conflict: boolean
-  label: string
-}
-
 const loading = ref(true)
 const error = ref('')
 const entries = ref<StatusEntry[]>([])
 const repo = ref<RepoInfo | null>(null)
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 const pendingOperation = ref<OperationConfirmRequest | null>(null)
 
-function statusLabel(status: FileStatus) {
-  switch (status) {
-    case FileStatus.FileAdded:
-      return 'A'
-    case FileStatus.FileDeleted:
-      return 'D'
-    case FileStatus.FileRenamed:
-      return 'R'
-    case FileStatus.FileCopied:
-      return 'C'
-    case FileStatus.FileConflict:
-      return '!'
-    case FileStatus.FileModified:
-    default:
-      return 'M'
-  }
-}
-
-function toRow(entry: StatusEntry, staged: boolean, conflict = false): ChangeRow {
-  const name = entry.Path.split('/').pop() ?? entry.Path
-  return {
-    key: `${conflict ? 'c' : staged ? 's' : 'u'}:${entry.Path}`,
-    path: entry.Path,
-    oldPath: entry.OldPath,
-    name,
-    dir: entry.Path.slice(0, entry.Path.length - name.length).replace(/\/$/, ''),
-    staged,
-    untracked: entry.IsUntracked,
-    conflict,
-    label: conflict
-      ? '!'
-      : staged
-        ? statusLabel(entry.IndexStatus)
-        : entry.IsUntracked
-          ? '?'
-          : statusLabel(entry.WorkStatus),
-  }
-}
-
-const conflictRows = computed(() =>
-  entries.value.filter((e) => e.IsConflict).map((e) => toRow(e, false, true)),
-)
-const unstagedRows = computed(() =>
-  entries.value
-    .filter((e) => !e.IsConflict && (e.IsUntracked || e.WorkStatus !== FileStatus.FileUnchanged))
-    .map((e) => toRow(e, false)),
-)
-const stagedRows = computed(() =>
-  entries.value
-    .filter((e) => !e.IsConflict && !e.IsUntracked && e.IndexStatus !== FileStatus.FileUnchanged)
-    .map((e) => toRow(e, true)),
-)
+const rowGroups = computed(() => changeRows(entries.value))
+const conflictRows = computed(() => rowGroups.value.conflicts)
+const unstagedRows = computed(() => rowGroups.value.unstaged)
+const stagedRows = computed(() => rowGroups.value.staged)
 const allRowCount = computed(
   () => conflictRows.value.length + unstagedRows.value.length + stagedRows.value.length,
 )
@@ -120,119 +65,27 @@ const allRowCount = computed(
    The vim cursor runs over exactly the rows the template renders, so
    collapse state and grouping are resolved here, in render order. */
 
-type SectionId = 'conflicts' | 'unstaged' | 'staged'
-type FileItem = { row: ChangeRow; index: number }
-type TreeItem =
-  | { kind: 'dir'; dir: string; label: string; key: string; collapsed: boolean; count: number; depth: number; parentKey: string }
-  | (FileItem & { kind: 'file'; key: string; depth: number; parentKey: string })
-type DirectoryNode = { path: string; name: string; children: Map<string, DirectoryNode>; files: ChangeRow[]; count: number }
-type SectionVM = {
-  id: SectionId
-  label: string
-  count: number
-  collapsed: boolean
-  bulk: 'stage' | 'unstage' | null
-  groups: TreeItem[] | null
-  flat: FileItem[] | null
-}
-
 const collapsedSections = ref<Set<SectionId>>(new Set())
 const collapsedDirs = ref<Set<string>>(new Set())
 const treeCursorKey = ref<string | null>(null)
 
 const groupingActive = computed(() => {
-  if (settings.changesGroupByDir === 'always') return true
-  if (settings.changesGroupByDir === 'never') return false
+  if (settings['changes.groupByDir'] === 'always') return true
+  if (settings['changes.groupByDir'] === 'never') return false
   return allRowCount.value > 15
 })
 
 /** flip tree ⇄ flat; resolves 'auto' to an explicit choice */
 function toggleGrouping() {
   treeCursorKey.value = null
-  settings.changesGroupByDir = groupingActive.value ? 'never' : 'always'
+  settings['changes.groupByDir'] = groupingActive.value ? 'never' : 'always'
 }
 
-const listModel = computed(() => {
-  const sections: SectionVM[] = []
-  const visible: ChangeRow[] = []
-
-  const buildSection = (
-    id: SectionId,
-    label: string,
-    sectionRows: ChangeRow[],
-    bulk: SectionVM['bulk'],
-  ) => {
-    if (!sectionRows.length && id === 'conflicts') return
-    const collapsed = collapsedSections.value.has(id)
-    const vm: SectionVM = {
-      id,
-      label,
-      count: sectionRows.length,
-      collapsed,
-      bulk,
-      groups: null,
-      flat: null,
-    }
-    if (!collapsed) {
-      if (groupingActive.value && id !== 'conflicts') {
-        const root: DirectoryNode = { path: '', name: '.', children: new Map(), files: [], count: 0 }
-        for (const row of sectionRows) {
-          let node = root
-          node.count++
-          for (const name of row.dir.split('/').filter(Boolean)) {
-            if (!node.children.has(name)) node.children.set(name, {
-              path: node.path ? `${node.path}/${name}` : name,
-              name, children: new Map(), files: [], count: 0,
-            })
-            node = node.children.get(name)!
-            node.count++
-          }
-          node.files.push(row)
-        }
-        const tree: TreeItem[] = []
-        const appendDirectory = (initial: DirectoryNode, depth: number, parentKey: string) => {
-          let node = initial
-          let label = node.name
-          // Compact directory-only chains without hiding a branch or direct file.
-          while (!node.files.length && node.children.size === 1) {
-            node = [...node.children.values()][0]!
-            label += `/${node.name}`
-          }
-          const dir = node.path || '.'
-          const key = `${id}:${dir}`
-          const collapsed = collapsedDirs.value.has(key)
-          tree.push({ kind: 'dir', dir, label, key, collapsed, count: node.count, depth, parentKey })
-          if (collapsed) return
-          for (const child of [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name))) {
-            appendDirectory(child, depth + 1, `dir:${key}`)
-          }
-          for (const row of [...node.files].sort((a, b) => a.name.localeCompare(b.name))) {
-            tree.push({ kind: 'file', row, index: visible.length, key: row.key, depth: depth + 1, parentKey: `dir:${key}` })
-            visible.push(row)
-          }
-        }
-        for (const child of [...root.children.values()].sort((a, b) => a.name.localeCompare(b.name))) {
-          appendDirectory(child, 0, `section:${id}`)
-        }
-        // Repository-root files follow every directory, in their own fold.
-        if (root.files.length) appendDirectory({ ...root, children: new Map(), count: root.files.length }, 0, `section:${id}`)
-        vm.groups = tree
-      } else {
-        vm.flat = sectionRows.map((row) => {
-          const item = { row, index: visible.length }
-          visible.push(row)
-          return item
-        })
-      }
-    }
-    sections.push(vm)
-  }
-
-  buildSection('conflicts', 'Conflicts', conflictRows.value, null)
-  buildSection('unstaged', 'Unstaged', unstagedRows.value, 'stage')
-  buildSection('staged', 'Staged', stagedRows.value, 'unstage')
-  return { sections, visible }
-})
+const listModel = computed(() => buildChangeList(rowGroups.value, {
+  grouped: groupingActive.value,
+  collapsedSections: collapsedSections.value,
+  collapsedDirs: collapsedDirs.value,
+}))
 
 const rows = computed(() => listModel.value.visible)
 const currentRow = computed<ChangeRow | undefined>(() => rows.value[vim.cursor.value])
@@ -262,76 +115,56 @@ function toggleDir(key: string) {
   collapsedDirs.value = next
 }
 
-/* per-file +/− deltas straight from the already-loaded diff maps */
+const counts = ref<WorktreeDeltas>({})
 const deltas = computed(() => {
   const out = new Map<string, { ins: number; del: number }>()
-  const tally = (map: Map<string, FileDiff>, prefix: string) => {
-    for (const [path, diff] of map) {
-      let ins = 0
-      let del = 0
-      for (const hunk of diff.Hunks) {
-        for (const line of hunk?.Lines ?? []) {
-          if (line?.Type === LineType.LineAdded) ins++
-          else if (line?.Type === LineType.LineRemoved) del++
-        }
-      }
-      out.set(`${prefix}:${path}`, { ins, del })
-    }
+  for (const row of [...unstagedRows.value, ...stagedRows.value]) {
+    const delta = counts.value[row.key]
+    if (!row.untracked && delta && !delta.binary) out.set(row.key, { ins: delta.added, del: delta.removed })
   }
-  tally(workingDiffs.value, 'u')
-  tally(stagedDiffs.value, 's')
   return out
 })
 
 function isBinaryRow(row: ChangeRow) {
-  return (row.staged ? stagedDiffs.value : workingDiffs.value).get(row.path)?.Binary ?? false
+  return counts.value[row.key]?.binary ?? false
 }
 
 function deltaFor(row: ChangeRow) {
   if (row.conflict || row.untracked || isBinaryRow(row)) return null
-  return deltas.value.get(`${row.staged ? 's' : 'u'}:${row.path}`) ?? null
+  return deltas.value.get(row.key) ?? null
 }
 
-const STATUS_ICONS: Record<string, { icon: Component; label: string }> = {
-  M: { icon: PhPencilSimple, label: 'Modified' },
-  A: { icon: PhPlus, label: 'Added' },
-  D: { icon: PhMinus, label: 'Deleted' },
-  R: { icon: PhArrowRight, label: 'Renamed' },
-  C: { icon: PhCopy, label: 'Copied' },
-  '?': { icon: PhPlus, label: 'Untracked' },
-  '!': { icon: PhWarning, label: 'Conflict' },
-}
-function statusIcon(label: string) { return STATUS_ICONS[label] ?? STATUS_ICONS.M! }
+function statusColor(label: string) { return fileStatusPresentation(label).color }
 
-/** Per-status tone consumed by the status icons via --status-color. */
-const STATUS_COLORS: Record<string, string> = {
-  M: 'var(--orange)',
-  A: 'var(--green)',
-  D: 'var(--red)',
-  R: 'var(--purple)',
-  C: 'var(--cyan)',
-  '?': 'var(--text-mut)',
-  '!': 'var(--red)',
-}
-
-function statusColor(label: string) {
-  return STATUS_COLORS[label] ?? 'var(--accent)'
-}
-
+const statusRefreshing = ref(false)
+const showingCached = ref(false)
+let loadedSnapshot: WorktreeSnapshot | null = null
+let snapshotGeneration = changesCacheGeneration()
+let statusRequest = 0
 async function loadStatus() {
+  const request = ++statusRequest
+  statusRefreshing.value = true
+  clearPatches()
+  forgetChangesSnapshot(props.repositoryPath ?? '')
+  const cacheVersion = changesCacheGeneration()
   try {
-    const [status, info] = await Promise.all([
-      WorktreeService.Status(),
-      RepoService.Info(),
-      loadDiffMaps(),
-    ])
-    entries.value = status ?? []
-    repo.value = info
+    const snapshot = await WorktreeService.Summary()
+    if (request !== statusRequest || disposed) return
+    if (cacheVersion !== changesCacheGeneration()) { await loadStatus(); return }
+    loadedSnapshot = snapshot
+    snapshotGeneration = cacheVersion
+    entries.value = snapshot?.Summary?.Entries ?? []
+    counts.value = summaryDeltas(snapshot?.Summary?.Working ?? [], snapshot?.Summary?.Staged ?? [])
+    repo.value = snapshot?.Info ?? null
     error.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    if (request === statusRequest && !disposed) error.value = err instanceof Error ? err.message : String(err)
   } finally {
-    loading.value = false
+    if (request === statusRequest && !disposed) {
+      showingCached.value = false
+      loading.value = false
+      statusRefreshing.value = false
+    }
   }
 }
 
@@ -342,12 +175,10 @@ async function refresh(preferKey?: string) {
   const previous = rows.value.slice()
   const oldIndex = previous.findIndex(row => row.key === key)
   const oldRow = previous[oldIndex]
-  const candidates = oldRow ? [...previous.slice(oldIndex + 1), ...previous.slice(0, oldIndex).reverse()]
-    .filter(row => row.staged === oldRow.staged && row.conflict === oldRow.conflict).map(row => row.key) : []
   const listHadFocus = !!listEl.value?.contains(document.activeElement)
   await loadStatus()
   if (groupingActive.value && treeScope(previousTreeKey)) return
-  const remainingKey = [key, ...candidates].find(candidate => rows.value.some(row => row.key === candidate))
+  const remainingKey = fallbackChangeKey(previous, rows.value, key)
   if (remainingKey) {
     vim.moveTo(rows.value.findIndex(row => row.key === remainingKey))
     if (groupingActive.value) treeCursorKey.value = remainingKey
@@ -364,33 +195,26 @@ async function refresh(preferKey?: string) {
 
 // ---- staging actions --------------------------------------------------
 
-const runningOperations = ref(0)
+const { busy: runningOperations, run: runOperation } = useGitOperation({
+  refresh: () => refresh(),
+  blocked: () => statusRefreshing.value || committing.value,
+  invalidate: invalidateChangesSnapshots,
+})
 async function run(op: () => Promise<void>, preferKey?: string) {
-  runningOperations.value++
-  try {
-    await op()
-  } catch (err) {
-    notify({
-      tone: 'danger',
-      title: 'Operation failed',
-      message: err instanceof Error ? err.message : String(err),
-    })
-  } finally {
-    try { await refresh(preferKey) } finally { runningOperations.value-- }
-  }
+  await runOperation(op, {}, () => refresh(preferKey))
 }
 
 function stageRow(row: ChangeRow) {
   if (row.staged || row.conflict) return
   void run(async () => {
-    await WorktreeService.StageFile(row.path)
+    await WorktreeService.StageFiles(indexPaths([row]))
   })
 }
 
 function unstageRow(row: ChangeRow) {
   if (!row.staged || row.conflict) return
   void run(async () => {
-    await WorktreeService.UnstageFile(row.path)
+    await WorktreeService.UnstageFiles(indexPaths([row]))
   })
 }
 
@@ -400,24 +224,31 @@ function toggleRow(row: ChangeRow) {
   else stageRow(row)
 }
 
+
 function stageRows(targets: ChangeRow[]) {
-  const unstaged = targets.filter((row) => !row.staged && !row.conflict)
-  if (!unstaged.length) {
-    targets.forEach(unstageRow)
-    return
+  const unstaged = targets.filter(row => !row.staged && !row.conflict)
+  const staged = targets.filter(row => row.staged && !row.conflict)
+  if (unstaged.length) void run(() => WorktreeService.StageFiles(indexPaths(unstaged)))
+  else if (staged.length) void run(() => WorktreeService.UnstageFiles(indexPaths(staged)))
+}
+
+async function discardPaths(paths: string[]) {
+  const result = await WorktreeService.DiscardFiles(paths)
+  if (!result) throw new Error('Discard result unavailable')
+  if (result.Error) {
+    const completed = result.Completed ?? []
+    const completedNames = completed.slice(0, 5).join(', ') + (completed.length > 5 ? ', …' : '')
+    throw new Error(`${completed.length} files discarded${completedNames ? ` (${completedNames})` : ''}. Failed on ${result.FailedPath}: ${result.Error}. ${result.Remaining?.length ?? 0} files not attempted.`)
   }
-  void run(async () => {
-    for (const row of unstaged) await WorktreeService.StageFile(row.path)
-  })
 }
 
 function discardRow(row: ChangeRow) {
   if (row.staged || row.conflict) return
   const doDiscard = () =>
     run(async () => {
-      await WorktreeService.DiscardFileChanges(row.path)
+      await discardPaths([row.path])
     })
-  if (!settings.confirmDestructiveActions) {
+  if (!settings['operations.confirmDestructive']) {
     void doDiscard()
     return
   }
@@ -451,15 +282,7 @@ const vim = useVimList(rows, {
 
 const treeActionBusy = ref(false)
 
-function treeScope(key: string | null) {
-  const match = /^(section|dir):(conflicts|unstaged|staged)(?::(.*))?$/.exec(key ?? '')
-  if (!match) return null
-  const section = match[2] as SectionId
-  const dir = match[3]
-  const source = section === 'conflicts' ? conflictRows.value : section === 'staged' ? stagedRows.value : unstagedRows.value
-  const targets = source.filter(row => match[1] === 'section' || dir === '.' || row.path.startsWith(`${dir}/`))
-  return { section, dir, targets, path: dir === '.' ? 'Repository root' : dir ?? (section === 'staged' ? 'Staged' : section === 'unstaged' ? 'Unstaged' : 'Conflicts') }
-}
+function treeScope(key: string | null) { return changeTreeScope(key, rowGroups.value) }
 
 const selectedScope = computed(() => groupingActive.value ? treeScope(treeCursorKey.value) : null)
 const selectionDetails = computed(() => {
@@ -502,11 +325,10 @@ function actOnTree(key: string, action: 's' | 'u' | 'a' | 'x') {
     treeActionBusy.value = true
     try {
       await run(async () => {
-        for (const row of eligible) {
-          if (operation === 'u') await WorktreeService.UnstageFile(row.path)
-          else if (operation === 'x') await WorktreeService.DiscardFileChanges(row.path)
-          else await WorktreeService.StageFile(row.path)
-        }
+        if (operation === 'u') await WorktreeService.UnstageFiles(indexPaths(eligible))
+        else if (operation === 'x') {
+          await discardPaths(eligible.map(row => row.path))
+        } else await WorktreeService.StageFiles(indexPaths(eligible))
       })
       await nextTick()
       const items = [...(listEl.value?.querySelectorAll<HTMLElement>('[data-tree-key]') ?? [])]
@@ -518,7 +340,7 @@ function actOnTree(key: string, action: 's' | 'u' | 'a' | 'x') {
       else listEl.value?.focus()
     } finally { treeActionBusy.value = false }
   }
-  if (operation === 'x' && settings.confirmDestructiveActions) {
+  if (operation === 'x' && settings['operations.confirmDestructive']) {
     const untracked = eligible.filter(row => row.untracked).length
     pendingOperation.value = {
       title: 'Discard folder changes?',
@@ -532,55 +354,82 @@ function actOnTree(key: string, action: 's' | 'u' | 'a' | 'x') {
   } else void apply()
 }
 
-// Tree containers participate in keyboard navigation alongside file rows.
+type TreeNavItem = { key: string; parent: string; section: SectionId; container: boolean; collapsed: boolean; index?: number; toggle: () => void }
+const treeNav = computed<TreeNavItem[]>(() => listModel.value.sections.flatMap(section => {
+  const items: TreeNavItem[] = [{ key: `section:${section.id}`, parent: '', section: section.id, container: true, collapsed: section.collapsed, toggle: () => toggleSection(section.id) }]
+  for (const item of section.groups ?? section.flat ?? []) {
+    if ('kind' in item && item.kind === 'dir') {
+      items.push({ key: `dir:${item.key}`, parent: item.parentKey, section: section.id, container: true, collapsed: item.collapsed, toggle: () => toggleDir(item.key) })
+    } else {
+      items.push({ key: item.row.key, parent: 'parentKey' in item ? item.parentKey : `section:${section.id}`, section: section.id, container: false, collapsed: false, index: item.index, toggle: () => {} })
+    }
+  }
+  return items
+}))
+const sectionWindows: Partial<Record<SectionId, { scrollToIndex: (index: number) => void }>> = {}
+function setSectionWindow(id: SectionId, instance: unknown) {
+  if (instance) sectionWindows[id] = instance as { scrollToIndex: (index: number) => void }
+  else delete sectionWindows[id]
+}
+function changeItemKey(item: { key?: string; row?: ChangeRow }) { return item.key ?? item.row!.key }
+async function scrollChangeKey(key: string | null, focus = false) {
+  const item = treeNav.value.find(item => item.key === key)
+  if (!item) return
+  if (!key?.startsWith('section:')) {
+    const section = listModel.value.sections.find(section => section.id === item.section)!
+    const index = (section.groups ?? section.flat ?? []).findIndex(item => changeItemKey(item) === key || `dir:${changeItemKey(item)}` === key)
+    sectionWindows[item.section]?.scrollToIndex(index)
+  }
+  await nextTick()
+  const element = [...(listEl.value?.querySelectorAll<HTMLElement>('[data-tree-key]') ?? [])].find(element => element.dataset.treeKey === key)
+  if (focus) element?.focus()
+  element?.scrollIntoView?.({ block: 'nearest' })
+}
+
+// Navigation uses the complete model; offscreen rows need no mounted DOM node.
 function handleTreeKey(event: KeyboardEvent): boolean {
   if (!groupingActive.value || !listEl.value) return false
-  const items = [...listEl.value.querySelectorAll<HTMLElement>('.section-toggle, .change-dir-row, .change-row')]
-  const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('.section-toggle, .change-dir-row, .change-row') : null
-  const current = target ?? items.find(item => item.dataset.treeKey === treeCursorKey.value) ?? items.find(item => item.dataset.fileIndex === String(vim.cursor.value)) ?? items[0]
+  const items = treeNav.value
+  const target = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('[data-tree-key]') : null
+  const current = items.find(item => item.key === target?.dataset.treeKey)
+    ?? items.find(item => item.key === treeCursorKey.value)
+    ?? items.find(item => item.index === vim.cursor.value) ?? items[0]
   if (!current) return false
-  const focusItem = (item: HTMLElement | undefined) => {
+  const focusItem = (item: TreeNavItem | undefined) => {
     if (!item) return
-    treeCursorKey.value = item.dataset.treeKey ?? null
-    if (item.dataset.fileIndex !== undefined) vim.moveTo(Number(item.dataset.fileIndex))
-    item.focus()
-    item.scrollIntoView?.({ block: 'nearest' })
+    treeCursorKey.value = item.key
+    if (item.index !== undefined) vim.moveTo(item.index)
+    void scrollChangeKey(item.key, true)
   }
   const index = items.indexOf(current)
-  const container = current.matches('.section-toggle, .change-dir-row')
-  const section = current.closest('.changes-pane')?.querySelector<HTMLElement>('.section-toggle') ?? undefined
-  const parent = items.find(item => item.dataset.treeKey === current.dataset.treeParent) ?? section
+  const parent = items.find(item => item.key === current.parent)
   switch (event.key) {
     case 's': case 'u': case 'a': case 'x':
-      if (!container) return false
-      actOnTree(current.dataset.treeKey ?? '', event.key)
+      if (!current.container) return false
+      actOnTree(current.key, event.key)
       return true
-    case 'j': case 'ArrowDown':
-    case 'k': case 'ArrowUp':
+    case 'j': case 'ArrowDown': case 'k': case 'ArrowUp':
       if (vim.mode.value !== 'normal') return false
       focusItem(items[Math.max(0, Math.min(items.length - 1, index + (['j', 'ArrowDown'].includes(event.key) ? 1 : -1)))])
       return true
     case 'h': case 'ArrowLeft':
-      if (container && current.getAttribute('aria-expanded') === 'true') { current.click(); focusItem(current) }
-      else if (parent && parent !== current) {
-        if (!container && parent.getAttribute('aria-expanded') === 'true') parent.click()
+      if (current.container && !current.collapsed) { current.toggle(); focusItem(current) }
+      else if (parent) {
+        if (!current.container && !parent.collapsed) parent.toggle()
         focusItem(parent)
       }
       return true
     case 'l': case 'ArrowRight':
-      if (container) {
-        if (current.getAttribute('aria-expanded') === 'false') current.click()
+      if (current.container) {
+        if (current.collapsed) current.toggle()
         else focusItem(items[index + 1])
       }
       return true
     case 'Enter':
-      if (container) { current.click(); return true }
-      if (current.dataset.fileIndex !== undefined) vim.moveTo(Number(current.dataset.fileIndex))
+      if (current.container) { current.toggle(); return true }
+      if (current.index !== undefined) vim.moveTo(current.index)
       return false
-    default:
-      // File operations must not act on a hidden or unrelated file when a
-      // container has focus. Search and view toggles still belong to the list.
-      return container && ['d', 'v', 'V', 'y'].includes(event.key)
+    default: return current.container && ['d', 'v', 'V', 'y'].includes(event.key)
   }
 }
 
@@ -655,12 +504,7 @@ function onListKey(event: KeyboardEvent) {
 }
 
 function scrollToCursor() {
-  if (groupingActive.value && treeCursorKey.value) {
-    const current = [...(listEl.value?.querySelectorAll<HTMLElement>('[data-tree-key]') ?? [])].find(item => item.dataset.treeKey === treeCursorKey.value)
-    if (current) { current.scrollIntoView?.({ block: 'nearest' }); return }
-  }
-  const items = listEl.value?.querySelectorAll<HTMLElement>('.change-row')
-  items?.[vim.cursor.value]?.scrollIntoView?.({ block: 'nearest' })
+  void scrollChangeKey(groupingActive.value && treeCursorKey.value ? treeCursorKey.value : rows.value[vim.cursor.value]?.key ?? null)
 }
 
 watch(
@@ -691,207 +535,33 @@ function onTreeFocus(event: FocusEvent) {
 // ---- diff pane ---------------------------------------------------------
 
 const diffView = ref<InstanceType<typeof DiffView> | null>(null)
-const diffLoading = ref(false)
-const diffError = ref('')
-const untrackedContent = ref<string | null>(null)
-
-/* Perf instrumentation — logs fetch/parse/render timings and payload sizes
-   to the webview console. Grep for [ichi:perf]; remove once diff perf is
-   settled. */
-function perfLog(label: string, data: Record<string, unknown>) {
-  console.log('[ichi:perf]', label, data)
-}
-
-/** log once the DOM for the current change has actually been painted */
-function perfLogAfterRender(label: string, start: number, data: Record<string, unknown>) {
-  void nextTick(() => {
-    const finish = () =>
-      perfLog(label, { ...data, ms: Math.round((performance.now() - start) * 10) / 10 })
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(finish)
-    else finish()
-  })
-}
-
-/* All working/staged diffs are fetched in two batched git calls on every
-   status (re)load and served from these maps — cursor movement never
-   touches the backend. Contents are markRaw: diff data is immutable, so
-   proxying thousands of line objects is pure overhead. */
-const workingDiffs = ref<Map<string, FileDiff>>(new Map())
-const stagedDiffs = ref<Map<string, FileDiff>>(new Map())
-const untrackedCache = new Map<string, string>()
-
-async function parseDiffMap(raw: string): Promise<Map<string, FileDiff>> {
-  const map = new Map<string, FileDiff>()
-  if (!raw.trim()) return map
-  const parsed = await DiffService.ParseDiff(raw)
-  for (const diff of parsed ?? []) {
-    if (diff) map.set(diff.Path, markRaw(diff))
-  }
-  return map
-}
-
-function mapLineCount(map: Map<string, FileDiff>) {
-  let lines = 0
-  for (const diff of map.values()) {
-    for (const hunk of diff.Hunks) lines += hunk?.Lines.length ?? 0
-  }
-  return lines
-}
-
-async function loadDiffMaps() {
-  const start = performance.now()
-  const [workingRaw, stagedRaw] = await Promise.all([
-    DiffService.WorkingDiff().catch(() => ''),
-    DiffService.StagedDiff().catch(() => ''),
-  ])
-  const fetched = performance.now()
-  const [working, staged] = await Promise.all([parseDiffMap(workingRaw), parseDiffMap(stagedRaw)])
-  workingDiffs.value = working
-  stagedDiffs.value = staged
-  untrackedCache.clear()
-  perfLog('batch diff load', {
-    fetchMs: Math.round(fetched - start),
-    parseMs: Math.round(performance.now() - fetched),
-    workingKB: Math.round(workingRaw.length / 1024),
-    stagedKB: Math.round(stagedRaw.length / 1024),
-    workingFiles: working.size,
-    stagedFiles: staged.size,
-    workingLines: mapLineCount(working),
-    stagedLines: mapLineCount(staged),
-  })
-}
-
-const fileDiff = computed<FileDiff | null>(() => {
-  const row = currentRow.value
-  if (!row) return null
-  const map = row.staged ? stagedDiffs.value : workingDiffs.value
-  return map.get(row.path) ?? null
-})
-
-const UNTRACKED_PREVIEW_LINES = 400
-
-/** untracked files render through DiffView as a synthetic all-added diff */
-function makeUntrackedDiff(path: string, content: string): FileDiff {
-  const all = content.split('\n')
-  const lines = all.slice(0, UNTRACKED_PREVIEW_LINES).map((raw, index) => ({
-    Type: LineType.LineAdded,
-    Content: raw,
-    OldLineNo: 0,
-    NewLineNo: index + 1,
-    Selected: false,
-  }))
-  if (all.length > UNTRACKED_PREVIEW_LINES) {
-    lines.push({
-      Type: LineType.LineContext,
-      Content: `… preview truncated (${(all.length - UNTRACKED_PREVIEW_LINES).toLocaleString()} more lines)`,
-      OldLineNo: 0,
-      NewLineNo: 0,
-      Selected: false,
-    })
-  }
-  return markRaw({
-    Path: path,
-    OldPath: '',
-    Binary: false,
-    NewFile: true,
-    Deleted: false,
-    Hunks: [
-      {
-        Header: 'new file',
-        OldStart: 0,
-        OldCount: 0,
-        NewStart: 1,
-        NewCount: lines.length,
-        Lines: lines,
-        Selected: false,
-        Expanded: true,
-      },
-    ],
-  } as unknown as FileDiff)
-}
-
-const untrackedDiff = computed<FileDiff | null>(() => {
-  const row = currentRow.value
-  if (!row || untrackedContent.value === null) return null
-  return makeUntrackedDiff(row.path, untrackedContent.value)
-})
-
-const displayDiff = computed<FileDiff | null>(() => fileDiff.value ?? untrackedDiff.value)
-const isUntrackedPreview = computed(() => !fileDiff.value && untrackedDiff.value !== null)
-
-/* Untracked files can't ride the batch diff, so their content loads lazily:
-   debounced past held-key traversal, cancellable, and cached per path. */
-type CancellableRequest = Promise<string> & { cancel?: () => void }
-let untrackedTimer: ReturnType<typeof setTimeout> | undefined
-let untrackedInflight: CancellableRequest | null = null
-
-watch(currentRow, (row) => {
-  const start = performance.now()
-  clearTimeout(untrackedTimer)
-  untrackedInflight?.cancel?.()
-  untrackedInflight = null
-  diffError.value = ''
-  untrackedContent.value = null
-  diffLoading.value = false
-  if (row && fileDiff.value) {
-    let totalLines = 0
-    let totalChars = 0
-    let maxLineChars = 0
-    for (const hunk of fileDiff.value.Hunks) {
-      for (const line of hunk?.Lines ?? []) {
-        if (!line) continue
-        totalLines++
-        totalChars += line.Content.length
-        if (line.Content.length > maxLineChars) maxLineChars = line.Content.length
-      }
+let disposed = false
+const { diff: fileDiff, loading: diffLoading, error: diffError, clear: clearPatches, retry: retryPatch } = useChangeDiff({
+  row: currentRow,
+  refreshing: statusRefreshing,
+  running: runningOperations,
+  showingCached,
+  statusError: error,
+  async fetch(row) {
+    if (row.untracked) {
+      const preview = await InspectService.WorkingFilePreview(row.path)
+      if (!preview) throw new Error('File preview unavailable')
+      return untrackedPreview(row.path, preview.Content, { truncated: preview.Truncated, binary: preview.Binary })
     }
-    perfLogAfterRender('cursor → diff render', start, {
-      path: row.path,
-      staged: row.staged,
-      hunks: fileDiff.value.Hunks.length,
-      totalLines,
-      totalKB: Math.round(totalChars / 1024),
-      maxLineChars,
-    })
-  }
-  if (!row?.untracked || fileDiff.value) return
-
-  const cached = untrackedCache.get(row.path)
-  if (cached !== undefined) {
-    untrackedContent.value = cached
-    return
-  }
-  diffLoading.value = true
-  untrackedTimer = setTimeout(() => {
-    const fetchStart = performance.now()
-    const request = InspectService.WorkingFileContent(row.path) as CancellableRequest
-    untrackedInflight = request
-    request
-      .then((content) => {
-        if (currentRow.value?.key !== row.key) return
-        untrackedCache.set(row.path, content)
-        untrackedContent.value = content
-        diffLoading.value = false
-        perfLog('untracked fetch', {
-          path: row.path,
-          kb: Math.round(content.length / 1024),
-          ms: Math.round(performance.now() - fetchStart),
-        })
-      })
-      .catch((err) => {
-        if (currentRow.value?.key !== row.key) return
-        diffError.value = err instanceof Error ? err.message : String(err)
-        diffLoading.value = false
-      })
-      .finally(() => {
-        if (untrackedInflight === request) untrackedInflight = null
-      })
-  }, 80)
+    const diff = await DiffService.WorktreeFile(row.path, row.oldPath, row.staged)
+    return diff ? markRaw(diff) : null
+  },
 })
+const displayDiff = computed(() => fileDiff.value)
+const isUntrackedPreview = computed(() => !!currentRow.value?.untracked && !!fileDiff.value)
 
 onUnmounted(() => {
-  clearTimeout(untrackedTimer)
-  untrackedInflight?.cancel?.()
+  if (loadedSnapshot && !statusRefreshing.value && !runningOperations.value && !committing.value && !error.value && !diffLoading.value && !diffError.value) {
+    saveChangesSnapshot(props.repositoryPath ?? '', loadedSnapshot, currentRow.value?.key ?? '', fileDiff.value, snapshotGeneration)
+  }
+  disposed = true
+  statusRequest++
+  clearPatches()
 })
 
 async function focusDiff() {
@@ -941,11 +611,11 @@ function runBulk(bulk: 'stage' | 'unstage') {
   })
 }
 
-/** context-gap expansion reads the index-side content of the current file */
+/** Context gaps must read the same new side as the selected patch. */
 function loadCurrentFileContent(): Promise<string> {
   const path = currentRow.value?.path
   if (!path) return Promise.resolve('')
-  return InspectService.WorkingFileContent(path)
+  return currentRow.value?.staged ? InspectService.IndexFileContent(path) : InspectService.WorkingFileContent(path)
 }
 
 function loadEditorFile(): Promise<string> {
@@ -955,10 +625,17 @@ function loadEditorFile(): Promise<string> {
 }
 
 async function saveEditorFile(original: string, content: string) {
+  if (statusRefreshing.value) throw new Error('Wait for the worktree refresh to finish')
+  invalidateChangesSnapshots()
   const row = currentRow.value
   if (!row || row.staged) throw new Error('No working file selected')
   await DiffService.SaveEditorFile(row.path, original, content)
-  await refresh(row.key)
+  // Keep the editor mounted across save-only writes. Refresh when it closes.
+  clearPatches()
+}
+
+async function onFileEditorClosed(saved: boolean) {
+  if (saved) await refresh(currentRow.value?.key)
 }
 
 // ---- commit box ---------------------------------------------------------
@@ -968,7 +645,7 @@ const summary = ref('')
 const body = ref('')
 const amend = ref(false)
 const committing = ref(false)
-useRepoSwitchGuard(() => committing.value || treeActionBusy.value || runningOperations.value > 0 ? 'Wait for the Git operation to finish.' : summary.value.trim() || body.value.trim() ? 'Finish or clear your commit message before switching repositories.' : '')
+useRepoSwitchGuard(() => committing.value || treeActionBusy.value || runningOperations.value ? 'Wait for the Git operation to finish.' : summary.value.trim() || body.value.trim() ? 'Finish or clear your commit message before switching repositories.' : '')
 
 const canCommit = computed(
   () => summary.value.trim().length > 0 && (stagedRows.value.length > 0 || amend.value),
@@ -1000,29 +677,20 @@ watch(amend, async (on, _previous, onCleanup) => {
 
 async function commit() {
   if (!canCommit.value || committing.value) return
+  const success = { title: amend.value ? 'Commit amended' : 'Commit created', message: summary.value.trim() }
   const message = body.value.trim()
     ? `${summary.value.trim()}\n\n${body.value.trim()}`
     : summary.value.trim()
-  committing.value = true
   try {
-    if (amend.value) await WorktreeService.CommitAmend(message)
-    else await WorktreeService.Commit(message)
-    notify({
-      tone: 'success',
-      title: amend.value ? 'Commit amended' : 'Commit created',
-      message: summary.value.trim(),
-    })
-    summary.value = ''
-    body.value = ''
-    amend.value = false
-    await refresh()
-    listEl.value?.focus()
-  } catch (err) {
-    notify({
-      tone: 'danger',
-      title: 'Commit failed',
-      message: err instanceof Error ? err.message : String(err),
-    })
+    const succeeded = await runOperation(async () => {
+      committing.value = true
+      if (amend.value) await WorktreeService.CommitAmend(message)
+      else await WorktreeService.Commit(message)
+      summary.value = ''
+      body.value = ''
+      amend.value = false
+    }, { success, failure: 'Commit failed' })
+    if (succeeded) listEl.value?.focus()
   } finally {
     committing.value = false
   }
@@ -1072,7 +740,19 @@ onUnmounted(resetModeline)
 // ---- lifecycle ------------------------------------------------------------
 
 onMounted(async () => {
-  await loadStatus()
+  const cached = peekChangesSnapshot(props.repositoryPath ?? '')
+  if (cached) {
+    showingCached.value = true
+    entries.value = cached.snapshot.Summary?.Entries ?? []
+    counts.value = summaryDeltas(cached.snapshot.Summary?.Working ?? [], cached.snapshot.Summary?.Staged ?? [])
+    repo.value = cached.snapshot.Info
+    const index = rows.value.findIndex(row => row.key === (props.focusKey ?? cached.selection))
+    if (index >= 0) { vim.moveTo(index); treeCursorKey.value = rows.value[index]!.key }
+    fileDiff.value = currentRow.value?.key === cached.selection ? cached.diff : null
+    loading.value = false
+  }
+  await refresh(props.focusKey ?? cached?.selection)
+  if (disposed) return
   if (props.focusKey) {
     const index = rows.value.findIndex((row) => row.key === props.focusKey)
     if (index >= 0) vim.moveTo(index)
@@ -1196,7 +876,8 @@ const summaryLimit = 50
       @action="refresh()"
     />
 
-    <div v-else class="changes-grid" :style="changesGridStyle">
+    <div v-else class="changes-grid" :style="changesGridStyle" :inert="showingCached || undefined" :aria-busy="statusRefreshing">
+      <span v-if="showingCached" role="status" style="position: absolute; z-index: 5; background: var(--surface-panel); padding: 4px 8px">Checking latest changes…</span>
       <div class="changes-left">
         <header class="changes-tree-heading">
           <span>Changes</span>
@@ -1229,10 +910,9 @@ const summaryLimit = 50
               </button>
             </div>
 
-            <div v-if="!conflictSection.collapsed" class="changes-section-files">
+            <WindowedList v-if="!conflictSection.collapsed" :ref="instance => setSectionWindow('conflicts', instance)" class="changes-section-files" :items="conflictSection.flat ?? []" :row-height="40" :key-of="changeItemKey">
+              <template #default="{ item }">
               <button
-                v-for="item in conflictSection.flat"
-                :key="item.row.key"
                         :data-file-index="item.index"
                         :data-tree-key="item.row.key"
                 class="change-row"
@@ -1242,13 +922,14 @@ const summaryLimit = 50
                 :title="item.row.oldPath ? `${item.row.oldPath} → ${item.row.path}` : item.row.path"
                 @click="emit('navigate', 'conflicts', item.row.path)"
               >
-                <span class="file-status" role="img" :aria-label="statusIcon(item.row.label).label" :title="statusIcon(item.row.label).label"><component :is="statusIcon(item.row.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
+                <FileStatusIcon class="file-status" :status="item.row.label" />
                 <span class="change-file-label"
                   ><span class="change-name">{{ item.row.name }}</span
                   ><span v-if="item.row.dir" class="change-dir">{{ item.row.dir }}</span></span
                 >
               </button>
-            </div>
+              </template>
+            </WindowedList>
           </div>
 
           <div ref="sectionStack" class="changes-stack">
@@ -1277,11 +958,10 @@ const summaryLimit = 50
                   </button>
                 </div>
 
-                <div v-if="!section.collapsed" class="changes-section-files" :aria-label="`${section.label} files`">
-                <p v-if="!section.count" class="changes-section-empty">{{ section.id === 'staged' ? 'No staged files' : 'No unstaged files' }}</p>
-                <template v-if="!section.collapsed">
-                  <template v-if="section.groups">
-                    <template v-for="item in section.groups" :key="item.key">
+                <WindowedList v-if="!section.collapsed && section.groups" :ref="instance => setSectionWindow(section.id, instance)" class="changes-section-files" :aria-label="`${section.label} files`"
+                  :items="section.groups" :row-height="28" :key-of="changeItemKey">
+                  <template #empty><p class="changes-section-empty">{{ section.id === 'staged' ? 'No staged files' : 'No unstaged files' }}</p></template>
+                  <template #default="{ item }">
                       <button v-if="item.kind === 'dir'" class="change-dir-row" :data-tree-key="`dir:${item.key}`" :data-tree-parent="item.parentKey" :style="{ '--tree-depth': item.depth }" :title="item.dir" :class="{ selected: treeCursorKey === `dir:${item.key}` }" :aria-expanded="!item.collapsed" type="button" @click="toggleDir(item.key)">
                         <PhCaretRight class="section-chevron disclosure-icon" :class="{ expanded: !item.collapsed }" :size="12" weight="bold" aria-hidden="true" />
                         <span class="change-tree-guides" aria-hidden="true"><i v-for="level in item.depth" :key="level" :style="{ left: `${(level - 1) * 12 + 12}px` }" /></span>
@@ -1308,7 +988,7 @@ const summaryLimit = 50
                         @click="selectRow(item.index)"
                       >
                         <span class="change-tree-guides" aria-hidden="true"><i v-for="level in item.depth" :key="level" :style="{ left: `${(level - 1) * 12 + 12}px` }" /></span>
-                        <span class="file-status" role="img" :aria-label="statusIcon(item.row.label).label" :title="statusIcon(item.row.label).label"><component :is="statusIcon(item.row.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
+                        <FileStatusIcon class="file-status" :status="item.row.label" />
                         <span class="change-name">{{ item.row.name }}</span>
                         <span v-if="deltaFor(item.row)" class="change-delta">
                           <em class="d-add">+{{ deltaFor(item.row)!.ins }}</em>
@@ -1328,13 +1008,13 @@ const summaryLimit = 50
                           <PhPlus v-else :size="16" weight="bold" />
                         </span>
                       </button>
-                    </template>
-                  </template>
 
-                  <template v-else-if="section.flat">
-                    <button
-                      v-for="item in section.flat"
-                      :key="item.row.key"
+                  </template>
+                </WindowedList>
+                <WindowedList v-else-if="!section.collapsed" :ref="instance => setSectionWindow(section.id, instance)" class="changes-section-files" :aria-label="`${section.label} files`"
+                  :items="section.flat ?? []" :row-height="40" :key-of="changeItemKey">
+                  <template #empty><p class="changes-section-empty">{{ section.id === 'staged' ? 'No staged files' : 'No unstaged files' }}</p></template>
+                  <template #default="{ item }">                    <button
                         :data-file-index="item.index"
                         :data-tree-key="item.row.key"
                       class="change-row"
@@ -1346,7 +1026,7 @@ const summaryLimit = 50
                       "
                       @click="selectRow(item.index)"
                     >
-                      <span class="file-status" role="img" :aria-label="statusIcon(item.row.label).label" :title="statusIcon(item.row.label).label"><component :is="statusIcon(item.row.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
+                      <FileStatusIcon class="file-status" :status="item.row.label" />
                       <span class="change-file-label"
                         ><span class="change-name">{{ item.row.name }}</span
                         ><span v-if="item.row.dir" class="change-dir">{{
@@ -1372,8 +1052,7 @@ const summaryLimit = 50
                       </span>
                     </button>
                   </template>
-                </template>
-                </div>
+                </WindowedList>
               </div>
             </template>
           </div>
@@ -1402,12 +1081,14 @@ const summaryLimit = 50
         ref="diffView"
         class="changes-diff"
         cursor-review
+        :read-only="showingCached"
         :diff="displayDiff"
         :staged="currentRow?.staged ?? false"
         :file-level-only="isUntrackedPreview"
         :load-file-content="loadCurrentFileContent"
         :load-editor-file="loadEditorFile"
         :save-editor-file="saveEditorFile"
+        @file-editor-closed="onFileEditorClosed"
         @stage-hunk="onStageHunk"
         @stage-lines="onStageLines"
         @edit-hunk="onEditHunk"
@@ -1422,7 +1103,7 @@ const summaryLimit = 50
             class="diff-file-head"
             :style="{ '--status-color': statusColor(currentRow.label) }"
           >
-            <span class="file-status" role="img" :aria-label="statusIcon(currentRow.label).label" :title="statusIcon(currentRow.label).label"><component :is="statusIcon(currentRow.label).icon" :size="14" weight="bold" aria-hidden="true" /></span>
+            <FileStatusIcon class="file-status" :status="currentRow.label" />
             <span class="diff-file-path">{{ currentRow.path }}</span>
             <span v-if="currentRow.staged" class="diff-side">staged</span>
             <span v-else-if="isUntrackedPreview" class="diff-side">untracked</span>
@@ -1434,7 +1115,7 @@ const summaryLimit = 50
         </template>
         <template #empty>
           <template v-if="diffLoading">Loading diff...</template>
-          <template v-else-if="diffError">{{ diffError }}</template>
+          <template v-else-if="diffError">{{ diffError }} <UiButton size="sm" @click="retryPatch">Retry</UiButton></template>
           <template v-else>{{
             currentRow ? 'No diff to show.' : 'Select a file to preview its diff.'
           }}</template>

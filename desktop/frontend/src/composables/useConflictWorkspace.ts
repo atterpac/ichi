@@ -21,6 +21,7 @@ let timer: ReturnType<typeof setInterval> | undefined
 let pending: Promise<void> | null = null
 let queued = false
 let epoch = 0
+let lifetime = 0
 async function readWorkspace() {
   const repo = useRepoStatus()
   const path = repo.info?.Path
@@ -46,16 +47,22 @@ async function readWorkspace() {
 }
 // Coalesce subscribers and wait for any refresh queued by a mutation's event.
 function refresh(): Promise<void> {
+  if (!consumers) return Promise.resolve()
   queued = true
-  if (!pending)
-    pending = (async () => {
-      while (queued) {
-        queued = false
-        await readWorkspace()
-      }
-    })().finally(() => {
-      pending = null
-    })
+  if (!pending) {
+    const generation = epoch
+    const request = Promise.resolve()
+      .then(async () => {
+        while (queued && generation === epoch && consumers > 0) {
+          queued = false
+          await readWorkspace()
+        }
+      })
+      .finally(() => {
+        if (pending === request) pending = null
+      })
+    pending = request
+  }
   return pending
 }
 function focused() {
@@ -63,14 +70,22 @@ function focused() {
 }
 export function useConflictWorkspace() {
   const repo = useRepoStatus()
+  let mountedLifetime: number | undefined
   onMounted(() => {
+    mountedLifetime = lifetime
     if (consumers++ > 0) return
     scope = effectScope(true)
     scope.run(() =>
       watch(
         () => [repo.info?.Path, repo.switching],
         () => {
-          void refresh()
+          epoch++
+          queued = false
+          pending = null
+          state.data = null
+          state.error = ''
+          state.loading = false
+          if (!repo.switching) void refresh()
         },
         { immediate: true },
       ),
@@ -83,17 +98,30 @@ export function useConflictWorkspace() {
     }, 5000)
   })
   onBeforeUnmount(() => {
+    if (mountedLifetime !== lifetime) return
     if (--consumers > 0) return
-    epoch++
-    scope?.stop()
-    stopEvents?.()
-    clearInterval(timer)
-    window.removeEventListener('focus', focused)
-    state.loading = false
+    disposeConflictWorkspace()
   })
   return {
     state,
     refresh,
     active: computed(() => !!state.data?.Kind || !!state.data?.Files.length),
   }
+}
+
+/** App disposal also releases lazy consumers and their transient view data. */
+export function disposeConflictWorkspace() {
+  consumers = 0
+  lifetime++
+  epoch++
+  queued = false
+  pending = null
+  scope?.stop()
+  scope = undefined
+  stopEvents?.()
+  stopEvents = undefined
+  clearInterval(timer)
+  timer = undefined
+  window.removeEventListener('focus', focused)
+  Object.assign(state, { data: null, error: '', loading: false })
 }

@@ -1,14 +1,14 @@
+import { fileStatusPresentation } from '../common/fileStatusPresentation'
 import {
   FileStatus,
-  LineType,
-  type FileDiff,
+  type FileDelta,
   type StatusEntry,
 } from '../../bindings/github.com/atterpac/ichi/internal/git'
 export type WorktreeDelta = { added: number; removed: number; binary: boolean }
 export type WorktreeDeltas = Record<string, WorktreeDelta>
-export function tallyWorktreeDiffs(
-  working: (FileDiff | null)[],
-  staged: (FileDiff | null)[],
+export function summaryDeltas(
+  working: FileDelta[],
+  staged: FileDelta[],
 ): WorktreeDeltas {
   const out: WorktreeDeltas = {}
   for (const [prefix, files] of [
@@ -17,12 +17,7 @@ export function tallyWorktreeDiffs(
   ] as const) {
     for (const file of files) {
       if (!file) continue
-      const count = { added: 0, removed: 0, binary: file.Binary }
-      for (const hunk of file.Hunks)
-        for (const line of hunk?.Lines ?? []) {
-          if (line?.Type === LineType.LineAdded) count.added++
-          if (line?.Type === LineType.LineRemoved) count.removed++
-        }
+      const count = { added: file.Added, removed: file.Deleted, binary: file.Binary }
       out[`${prefix}:${file.Path}`] = count
     }
   }
@@ -54,15 +49,6 @@ export function worktreeFiles(entries: StatusEntry[], deltas: WorktreeDeltas) {
           : pending
             ? entry.WorkStatus
             : entry.IndexStatus
-      const letters: Record<number, string> = {
-        [FileStatus.FileAdded]: 'A',
-        [FileStatus.FileModified]: 'M',
-        [FileStatus.FileDeleted]: 'D',
-        [FileStatus.FileRenamed]: 'R',
-        [FileStatus.FileCopied]: 'C',
-        [FileStatus.FileConflict]: '!',
-        [FileStatus.FileUntracked]: '?',
-      }
       return {
         path: entry.Path,
         oldPath: entry.OldPath,
@@ -73,7 +59,7 @@ export function worktreeFiles(entries: StatusEntry[], deltas: WorktreeDeltas) {
         conflict: entry.IsConflict,
         binary,
         known,
-        label: letters[status] ?? 'M',
+        label: fileStatusPresentation(status).code,
         state: entry.IsConflict
           ? 'Conflict'
           : entry.IsUntracked

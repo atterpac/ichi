@@ -21,6 +21,13 @@ const toasts = reactive<Toast[]>([])
 let nextToastId = 1
 const timers = new Map<number, number>()
 
+/** The app owns these timers and callbacks, even after a toast view unmounts. */
+export function disposeToasts() {
+  for (const timer of timers.values()) window.clearTimeout(timer)
+  timers.clear()
+  toasts.splice(0)
+}
+
 export function dismissToast(id: number) {
   const index = toasts.findIndex((toast) => toast.id === id)
   if (index >= 0) {
@@ -52,7 +59,10 @@ export function notify(input: ToastInput) {
 
   const duration = input.duration ?? 5200
   if (duration > 0) {
-    timers.set(toast.id, window.setTimeout(() => dismissToast(toast.id), duration))
+    timers.set(
+      toast.id,
+      window.setTimeout(() => dismissToast(toast.id), duration),
+    )
   }
 
   return toast.id

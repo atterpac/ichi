@@ -9,18 +9,44 @@ export interface HeatFile {
 const props = defineProps<{ files: HeatFile[]; selectedPath?: string }>()
 const emit = defineEmits<{ select: [path: string] }>()
 const id = useId()
+const MAX_SEGMENTS = 160
+const groupSize = computed(() => Math.max(1, Math.ceil(props.files.length / MAX_SEGMENTS)))
+const indices = computed(() => new Map(props.files.map((file, index) => [file.path, index])))
+const selectedIndex = computed(() => indices.value.get(props.selectedPath ?? '') ?? 0)
 const selected = computed(
-  () => props.files.find((f) => f.path === props.selectedPath) ?? props.files[0],
+  () => props.files[selectedIndex.value],
 )
+const segments = computed(() => {
+  const result: { start: number; end: number; added: number; removed: number; unknown: number }[] = []
+  for (let start = 0; start < props.files.length; start += groupSize.value) {
+    const end = Math.min(props.files.length, start + groupSize.value)
+    let added = 0, removed = 0, unknown = 0
+    for (let index = start; index < end; index++) {
+      const file = props.files[index]!
+      if (file.known) { added += file.added; removed += file.removed }
+      else unknown++
+    }
+    result.push({ start, end, added, removed, unknown })
+  }
+  return result
+})
+type Segment = (typeof segments.value)[number]
+const activeSegment = (segment: Segment) => selectedIndex.value >= segment.start && selectedIndex.value < segment.end
 const total = computed(() =>
   props.files.reduce((sum, f) => sum + (f.known ? f.added + f.removed : 0), 0),
 )
 const description = (f: HeatFile) =>
   `${f.path}: ${f.known ? `${f.added} additions, ${f.removed} deletions` : 'no line counts'}`
-function key(event: KeyboardEvent, index: number) {
+function segmentDescription(segment: Segment) {
+  if (segment.end - segment.start === 1) return description(props.files[segment.start]!)
+  return `Files ${segment.start + 1}–${segment.end}: ${segment.added} additions, ${segment.removed} deletions${segment.unknown ? `; ${segment.unknown} without line counts` : ''}`
+}
+function key(event: KeyboardEvent, segment: Segment) {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
   event.stopPropagation()
+  const index = activeSegment(segment) ? selectedIndex.value : segment.start
   const next =
     event.key === 'Home'
       ? 0
@@ -33,7 +59,7 @@ function key(event: KeyboardEvent, index: number) {
   const file = props.files[next]
   if (file) {
     emit('select', file.path)
-    document.getElementById(`${id}-${next}`)?.focus()
+    document.getElementById(`${id}-${Math.floor(next / groupSize.value)}`)?.focus()
   }
 }
 </script>
@@ -47,21 +73,21 @@ function key(event: KeyboardEvent, index: number) {
     </div>
     <div class="change-map" role="group" aria-label="Select a changed file">
       <button
-        v-for="(file, index) in files"
+        v-for="(segment, index) in segments"
         :id="`${id}-${index}`"
-        :key="file.path"
+        :key="segment.start"
         type="button"
         class="map-segment"
         :class="{
-          selected: selected.path === file.path,
-          empty: !file.known || file.added + file.removed === 0,
+          selected: activeSegment(segment),
+          empty: segment.added + segment.removed === 0,
         }"
-        :style="{ flexGrow: file.known ? file.added + file.removed : 0 }"
-        :aria-label="description(file)"
-        :aria-pressed="selected.path === file.path" :tabindex="selected.path === file.path ? 0 : -1"
-        :title="description(file)"
-        @click="emit('select', file.path)"
-        @keydown="key($event, index)"
+        :style="{ flexGrow: segment.added + segment.removed }"
+        :aria-label="segmentDescription(segment)"
+        :aria-pressed="activeSegment(segment)" :tabindex="activeSegment(segment) ? 0 : -1"
+        :title="segmentDescription(segment)"
+        @click="emit('select', files[segment.start]!.path)"
+        @keydown="key($event, segment)"
       >
         <span />
       </button>
@@ -72,6 +98,7 @@ function key(event: KeyboardEvent, index: number) {
     <p v-if="files.some((f) => !f.known)" class="map-note">
       Files without line counts use minimum width.
     </p>
+    <p v-if="groupSize > 1" class="map-note">{{ files.length }} files grouped into {{ segments.length }} segments. Arrow keys select individual files.</p>
   </section>
 </template>
 <style scoped>

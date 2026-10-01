@@ -1,4 +1,4 @@
-import { reactive, watch } from 'vue'
+import { effectScope, reactive, watch, type EffectScope } from 'vue'
 
 export type Workspace = { id: string; name: string; color: string; profileId?: string }
 export type WorkspaceRepo = {
@@ -54,20 +54,36 @@ function load(): WorkspaceData {
     return defaults()
   }
 }
-const state = reactive(load())
+// Window-wide saved data. Loading and persistence begin with the app scope,
+// never during module evaluation or within a component's effect lifetime.
+const state = reactive(defaults())
 const persistence = reactive({ error: '' })
-watch(
-  state,
-  () => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state))
-      persistence.error = ''
-    } catch {
-      persistence.error = 'Workspace changes could not be saved on this device.'
-    }
-  },
-  { deep: true, flush: 'sync' },
-)
+let scope: EffectScope | undefined
+export function startWorkspaces() {
+  if (scope) return
+  Object.assign(state, load())
+  scope = effectScope(true)
+  scope.run(() =>
+    watch(
+      state,
+      () => {
+        try {
+          localStorage.setItem(KEY, JSON.stringify(state))
+          persistence.error = ''
+        } catch {
+          persistence.error = 'Workspace changes could not be saved on this device.'
+        }
+      },
+      { deep: true, flush: 'sync' },
+    ),
+  )
+}
+export function disposeWorkspaces() {
+  scope?.stop()
+  scope = undefined
+  Object.assign(state, defaults())
+  persistence.error = ''
+}
 function addWorkspace(name: string, color: string) {
   name = name.trim()
   if (!name) throw new Error('Enter a workspace name.')
@@ -121,6 +137,7 @@ function openedRepo(oldPath: string, path: string, name: string) {
   repo.lastOpened = Date.now()
 }
 export function useWorkspaces() {
+  startWorkspaces()
   return {
     state,
     persistence,

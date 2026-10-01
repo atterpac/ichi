@@ -2,26 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import DiffView from '../components/diff/DiffView.vue'
 import FileInspectView from '../components/inspect/FileInspectView.vue'
-import { useShellSettings } from '../composables/useShellSettings'
+import { usePreferenceBindings } from '../customization/usePreferences'
 import { useFileInspect } from '../composables/useFileInspect'
 
-const fileLog = vi.fn((file: string, limit: number) =>
+const logFixture = () =>
   Promise.resolve([
     { Hash: 'a'.repeat(40), ShortHash: 'aaaaaaa', Subject: 'fix: rail alignment', Author: 'atterpac', Date: '3 days ago', Insertions: 9, Deletions: 2 },
     { Hash: 'b'.repeat(40), ShortHash: 'bbbbbbb', Subject: 'feat: commit limit', Author: 'mika', Date: '3 weeks ago', Insertions: 4, Deletions: 1 },
     { Hash: 'c'.repeat(40), ShortHash: 'ccccccc', Subject: 'first iteration', Author: 'atterpac', Date: '4 months ago', Insertions: 120, Deletions: 0 },
-  ]),
-)
-const blame = vi.fn(() =>
+  ])
+const fileLog = vi.fn<(file: string, limit: number) => ReturnType<typeof logFixture>>(logFixture)
+const blameFixture = () =>
   Promise.resolve([
     { Hash: 'a'.repeat(40), ShortHash: 'aaaaaaa', Author: 'atterpac', AuthorMail: '', Date: '1700000000', LineNumber: 1, OrigLine: 1, Content: 'package git' },
     { Hash: 'a'.repeat(40), ShortHash: 'aaaaaaa', Author: 'atterpac', AuthorMail: '', Date: '1700000000', LineNumber: 2, OrigLine: 2, Content: '' },
     { Hash: 'b'.repeat(40), ShortHash: 'bbbbbbb', Author: 'mika', AuthorMail: '', Date: '1690000000', LineNumber: 3, OrigLine: 3, Content: 'import "fmt"' },
-  ]),
-)
-const blameAtCommit = vi.fn((file: string, hash: string) => blame())
-const fileDiff = vi.fn(() => Promise.resolve('raw-diff'))
-const parseDiff = vi.fn(() => Promise.resolve([{ Path: 'internal/git/commits.go', Hunks: [] }]))
+  ])
+const blame = vi.fn<typeof blameFixture>(blameFixture)
+const blameAtCommit = vi.fn<(file: string, hash: string) => ReturnType<typeof blameFixture>>(() => blame())
+const fileDiff = vi.fn<() => Promise<{ Path: string; Hunks: never[] }[]>>(() => Promise.resolve([{ Path: 'internal/git/commits.go', Hunks: [] }]))
 
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   InspectService: {
@@ -33,7 +32,6 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   },
   DiffService: {
     FileDiff: () => fileDiff(),
-    ParseDiff: () => parseDiff(),
   },
 }))
 
@@ -47,14 +45,27 @@ async function mountView(props: Record<string, unknown> = {}) {
 }
 
 describe('FileInspectView', () => {
+  it('renders a bounded window of a large blame and scrolls to keyboard selections', async () => {
+    const fixture = (await blameFixture())[0]!
+    blame.mockResolvedValueOnce(Array.from({ length: 10000 }, (_, index) => ({ ...fixture, LineNumber: index + 1, Content: `line ${index + 1}` })))
+    usePreferenceBindings()['inspect.mode'] = 'blame'
+    const wrapper = await mountView()
+    try {
+      expect(wrapper.findAll('.fi-bl').length).toBeLessThan(100)
+      await wrapper.get('.fi-blame').trigger('keydown', { key: 'G' })
+      await flushPromises()
+      expect(wrapper.get('.fi-bl.cur').text()).toContain('line 10000')
+      expect(wrapper.findAll('.fi-bl').length).toBeLessThan(100)
+    } finally { wrapper.unmount() }
+  })
   beforeEach(() => {
     fileLog.mockClear()
     blame.mockClear()
     blameAtCommit.mockClear()
     fileDiff.mockClear()
     useFileInspect().file = ''
-    useShellSettings().inspectMode = 'log'
-    useShellSettings().inspectScrubber = false
+    usePreferenceBindings()['inspect.mode'] = 'log'
+    usePreferenceBindings()['inspect.scrubber'] = false
   })
 
   it('returns focus to history when the diff emits exit', async () => {
@@ -85,7 +96,7 @@ describe('FileInspectView', () => {
   })
 
   it('renders grouped blame runs in blame mode', async () => {
-    useShellSettings().inspectMode = 'blame'
+    usePreferenceBindings()['inspect.mode'] = 'blame'
     const wrapper = await mountView({ modeHint: 'blame' })
     expect(blame).toHaveBeenCalled()
     const lines = wrapper.findAll('.fi-bl')
@@ -99,7 +110,7 @@ describe('FileInspectView', () => {
   })
 
   it('re-blames at the selected commit from the blame footer', async () => {
-    useShellSettings().inspectMode = 'blame'
+    usePreferenceBindings()['inspect.mode'] = 'blame'
     const wrapper = await mountView({ modeHint: 'blame' })
     const footButtons = wrapper.findAll('.fi-blame-foot button')
     await footButtons[0]!.trigger('click')
@@ -110,7 +121,7 @@ describe('FileInspectView', () => {
   })
 
   it('shows history, blame, and commit detail together in inspector mode', async () => {
-    useShellSettings().inspectMode = 'inspector'
+    usePreferenceBindings()['inspect.mode'] = 'inspector'
     const wrapper = await mountView()
     expect(wrapper.find('.fi-rail').exists()).toBe(true)
     expect(wrapper.findAll('.fi-bl').length).toBeGreaterThan(0)
@@ -122,7 +133,7 @@ describe('FileInspectView', () => {
   })
 
   it('renders scrubber dots when enabled and steps selection with arrows', async () => {
-    useShellSettings().inspectScrubber = true
+    usePreferenceBindings()['inspect.scrubber'] = true
     const wrapper = await mountView()
     const dots = wrapper.findAll('.fi-scrub-dot')
     expect(dots).toHaveLength(3)
@@ -152,13 +163,13 @@ describe('FileInspectView', () => {
     await rail.trigger('keydown', { key: 'j' })
     await rail.trigger('keydown', { key: 'b' })
     await flushPromises()
-    expect(useShellSettings().inspectMode).toBe('blame')
+    expect(usePreferenceBindings()['inspect.mode']).toBe('blame')
     expect(blameAtCommit).toHaveBeenCalledWith('internal/git/commits.go', 'b'.repeat(40))
     wrapper.unmount()
   })
 
   it('selects a blame line commit with vim enter in the ledger', async () => {
-    useShellSettings().inspectMode = 'blame'
+    usePreferenceBindings()['inspect.mode'] = 'blame'
     const wrapper = await mountView({ modeHint: 'blame' })
     const ledger = wrapper.find('.fi-blame')
     await ledger.trigger('keydown', { key: 'j' })
@@ -170,7 +181,7 @@ describe('FileInspectView', () => {
   })
 
   it('emits navigate to graph for the selected commit from inspector detail', async () => {
-    useShellSettings().inspectMode = 'inspector'
+    usePreferenceBindings()['inspect.mode'] = 'inspector'
     const wrapper = await mountView()
     const buttons = wrapper.findAll('.fi-actions button')
     await buttons[0]!.trigger('click')

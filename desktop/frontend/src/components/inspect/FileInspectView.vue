@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import AuthorAvatar from '../common/AuthorAvatar.vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, markRaw, watch } from 'vue'
 import { DiffService, InspectService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import type { BlameLine, FileDiff, FileLogEntry } from '../../bindings/github.com/atterpac/ichi/internal/git'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings } from '../../customization/usePreferences'
 import { useFileInspect } from '../../composables/useFileInspect'
 import { useVimList } from '../../composables/useVimList'
 import { laneColorVar } from '../graph/laneColors'
 import { setModeline } from '../../composables/useModeline'
 import { isModified } from '../../composables/keyboard'
+import { createBoundedLru } from '../../composables/boundedLru'
+import { useVirtualWindow } from '../../composables/useVirtualWindow'
+import { estimateDiffBytes } from '../status/fileDiffCache'
 import DiffView from '../diff/DiffView.vue'
 import UiButton from '../common/UiButton.vue'
 import { PhArrowCounterClockwise, PhClockCounterClockwise, PhCopy, PhGitFork } from '@phosphor-icons/vue'
@@ -24,7 +27,7 @@ const emit = defineEmits<{
   navigate: [view: string, focus?: string]
 }>()
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 const inspect = useFileInspect()
 
 const entries = ref<FileLogEntry[]>([])
@@ -32,19 +35,21 @@ const logLoading = ref(false)
 const logError = ref('')
 const selectedHash = ref('')
 
-const diffCache = new Map<string, FileDiff | null>()
-const diff = ref<FileDiff | null>(null)
+const diffCache = createBoundedLru<string, FileDiff | null>({ maxEntries: 24, maxBytes: 8 * 1024 * 1024, sizeOf: estimateDiffBytes })
+const diff = shallowRef<FileDiff | null>(null)
 const diffLoading = ref(false)
 const diffError = ref('')
 
 /** '' = blame the working tree, otherwise a commit hash */
 const blameRef = ref('')
-const blameCache = new Map<string, BlameLine[]>()
-const blameLines = ref<BlameLine[]>([])
+const blameCache = createBoundedLru<string, BlameLine[]>({ maxEntries: 8, maxBytes: 8 * 1024 * 1024,
+  sizeOf: lines => lines.reduce((bytes, line) => bytes + 192 + 2 * (line.Content.length + line.Author.length + line.AuthorMail.length + line.Hash.length), 0),
+})
+const blameLines = shallowRef<BlameLine[]>([])
 const blameLoading = ref(false)
 const blameError = ref('')
 
-const mode = computed(() => settings.inspectMode)
+const mode = computed(() => settings['inspect.mode'])
 const file = computed(() => inspect.file)
 const fileName = computed(() => file.value.split('/').pop() ?? file.value)
 const fileDir = computed(() => file.value.slice(0, file.value.length - fileName.value.length))
@@ -72,15 +77,19 @@ watch(
 watch(
   () => props.modeHint,
   (hint) => {
-    if (hint === 'blame') settings.inspectMode = 'blame'
-    else if (hint === 'file-log' && settings.inspectMode === 'blame') settings.inspectMode = 'log'
+    if (hint === 'blame') settings['inspect.mode'] = 'blame'
+    else if (hint === 'file-log' && settings['inspect.mode'] === 'blame') settings['inspect.mode'] = 'log'
   },
   { immediate: true },
 )
 
 watch(
   file,
-  async (path) => {
+  async (path, _, onCleanup) => {
+    let cancelled = false
+    let request: { cancel?: () => void } | undefined
+    onCleanup(() => { cancelled = true; request?.cancel?.() })
+    logLoading.value = false
     entries.value = []
     selectedHash.value = ''
     logError.value = ''
@@ -92,115 +101,74 @@ watch(
     if (!path) return
     logLoading.value = true
     try {
-      const log = ((await InspectService.FileLog(path, 300)) ?? []).filter(Boolean)
-      if (inspect.file !== path) return
+      const pending = InspectService.FileLog(path, 300)
+      request = pending
+      const log = ((await pending) ?? []).filter(Boolean)
+      if (cancelled || inspect.file !== path) return
       entries.value = log
       selectedHash.value = log[0]?.Hash ?? ''
     } catch (error) {
-      logError.value = error instanceof Error ? error.message : String(error)
+      if (!cancelled) logError.value = error instanceof Error ? error.message : String(error)
     } finally {
-      logLoading.value = false
+      if (!cancelled) logLoading.value = false
     }
   },
   { immediate: true },
 )
 
-watch(
-  [selectedHash, mode, file],
-  async ([hash, activeMode, path]) => {
-    if (!hash || !path || activeMode === 'blame') return
-    if (activeMode !== 'log') return
-    await loadDiff(hash, path)
-  },
-  { immediate: true },
-)
-
-watch(
-  [mode, blameRef, file],
-  async ([activeMode, at, path]) => {
-    if (!path || activeMode === 'log') return
-    await loadBlame(path, at)
-  },
-  { immediate: true },
-)
-
-async function loadDiff(hash: string, path: string) {
-  if (diffCache.has(hash)) {
-    diff.value = diffCache.get(hash) ?? null
-    diffError.value = diff.value ? '' : 'File not present in this commit under its current path.'
+watch([selectedHash, mode, file], async ([hash, activeMode, path], _, onCleanup) => {
+  let cancelled = false
+  let request: { cancel?: () => void } | undefined
+  onCleanup(() => { cancelled = true; request?.cancel?.() })
+  diffLoading.value = false
+  diff.value = null
+  diffError.value = ''
+  if (!hash || !path || activeMode !== 'log') return
+  const key = JSON.stringify([path, hash])
+  const cached = diffCache.get(key)
+  if (cached !== undefined) {
+    diff.value = cached
+    if (!cached) diffError.value = 'File not present in this commit under its current path.'
     return
   }
   diffLoading.value = true
-  diffError.value = ''
   try {
-    const raw = await DiffService.FileDiff(hash, path)
-    const parsed = ((await DiffService.ParseDiff(raw)) ?? []).filter(Boolean)
-    const first = parsed[0] ?? null
-    diffCache.set(hash, first)
-    if (selectedHash.value !== hash) return
+    const pending = DiffService.FileDiff(hash, path)
+    request = pending
+    const parsed = (await pending).filter(Boolean)
+    if (cancelled) return
+    const first = parsed[0] ? markRaw(parsed[0]) : null
+    diffCache.set(key, first)
     diff.value = first
     if (!first) diffError.value = 'File not present in this commit under its current path.'
   } catch (error) {
-    if (selectedHash.value !== hash) return
-    diff.value = null
-    diffError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    diffLoading.value = false
-  }
-}
+    if (!cancelled) diffError.value = error instanceof Error ? error.message : String(error)
+  } finally { if (!cancelled) diffLoading.value = false }
+}, { immediate: true })
 
-async function loadBlame(path: string, at: string) {
-  const key = `${at}:${path}`
-  const cached = blameCache.get(key)
-  if (cached) {
-    blameLines.value = cached
-    blameError.value = ''
-    return
-  }
-  blameLoading.value = true
+watch([mode, blameRef, file], async ([activeMode, at, path], _, onCleanup) => {
+  let cancelled = false
+  let request: { cancel?: () => void } | undefined
+  onCleanup(() => { cancelled = true; request?.cancel?.() })
+  blameLoading.value = false
   blameError.value = ''
+  blameLines.value = []
+  if (!path || activeMode === 'log') return
+  const key = JSON.stringify([at, path])
+  const cached = blameCache.get(key)
+  if (cached) { blameLines.value = cached; return }
+  blameLoading.value = true
   try {
-    const lines = ((at ? await InspectService.BlameAtCommit(path, at) : await InspectService.Blame(path)) ?? []).filter(Boolean)
+    const pending = at ? InspectService.BlameAtCommit(path, at) : InspectService.Blame(path)
+    request = pending
+    const lines = ((await pending) ?? []).filter(Boolean)
+    if (cancelled) return
     blameCache.set(key, lines)
-    if (inspect.file !== path || blameRef.value !== at) return
     blameLines.value = lines
   } catch (error) {
-    if (inspect.file !== path || blameRef.value !== at) return
-    blameLines.value = []
-    blameError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    blameLoading.value = false
-  }
-}
-
-type BlameRun = {
-  hash: string
-  shortHash: string
-  author: string
-  ago: string
-  color: string
-  lines: BlameLine[]
-}
-
-const blameRuns = computed<BlameRun[]>(() => {
-  const runs: BlameRun[] = []
-  for (const line of blameLines.value) {
-    const last = runs[runs.length - 1]
-    if (last && last.hash === line.Hash) {
-      last.lines.push(line)
-      continue
-    }
-    runs.push({
-      hash: line.Hash,
-      shortHash: line.ShortHash,
-      author: line.Author,
-      ago: formatAgo(line.Date),
-      color: colorFor(line.Hash),
-      lines: [line],
-    })
-  }
-  return runs
-})
+    if (!cancelled) blameError.value = error instanceof Error ? error.message : String(error)
+  } finally { if (!cancelled) blameLoading.value = false }
+}, { immediate: true })
 
 function formatAgo(unixSeconds: string): string {
   const ts = Number(unixSeconds)
@@ -224,8 +192,8 @@ function selectCommit(hash: string) {
   selectedHash.value = hash
 }
 
-function selectRun(run: BlameRun) {
-  if (hashColor.value.has(run.hash)) selectedHash.value = run.hash
+function selectRun(hash: string) {
+  if (hashColor.value.has(hash)) selectedHash.value = hash
 }
 
 function reBlameAtSelected() {
@@ -257,7 +225,7 @@ function stepSelection(offset: number) {
 
 function blameAt(hash: string) {
   blameRef.value = hash
-  if (settings.inspectMode === 'log') settings.inspectMode = 'blame'
+  if (settings['inspect.mode'] === 'log') settings['inspect.mode'] = 'blame'
 }
 
 // vim navigation over the history rail — cursor is the selection, like the
@@ -309,6 +277,13 @@ function onRailKey(event: KeyboardEvent) {
 // vim over blame lines — Enter selects the line's commit, b re-blames at it,
 // o jumps to it in the graph.
 const blameEl = ref<HTMLElement | null>(null)
+const { window: blameWindow, scrollToRow: scrollToBlame } = useVirtualWindow({
+  count: () => blameLines.value.length, rowHeight: 19, container: blameEl,
+})
+const visibleBlame = computed(() => blameLines.value.slice(blameWindow.value.start, blameWindow.value.end).map((line, index) => ({
+  line, color: colorFor(line.Hash), ago: formatAgo(line.Date),
+  first: index === 0 || blameLines.value[blameWindow.value.start + index - 1]?.Hash !== line.Hash,
+})))
 const blameVim = useVimList(blameLines, {
   autoListen: false,
   text: (line) => `${line.Content} ${line.Author} ${line.ShortHash}`,
@@ -331,9 +306,7 @@ const blameVim = useVimList(blameLines, {
 watch(
   () => blameVim.cursor.value,
   (cursor) => {
-    void nextTick(() => {
-      blameEl.value?.querySelectorAll<HTMLElement>('.fi-bl')[cursor]?.scrollIntoView?.({ block: 'nearest' })
-    })
+    scrollToBlame(cursor)
   },
 )
 
@@ -405,10 +378,10 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
         <UiButton
           size="sm"
           icon-only
-          :active="settings.inspectScrubber"
+          :active="settings['inspect.scrubber']"
           title="Timeline scrubber"
-          :aria-pressed="settings.inspectScrubber"
-          @click="settings.inspectScrubber = !settings.inspectScrubber"
+          :aria-pressed="settings['inspect.scrubber']"
+          @click="settings['inspect.scrubber'] = !settings['inspect.scrubber']"
         >
           <PhClockCounterClockwise :size="16" weight="bold" />
         </UiButton>
@@ -420,7 +393,7 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
             role="radio"
             :aria-checked="mode === option.id"
             :class="{ on: mode === option.id }"
-            @click="settings.inspectMode = option.id"
+            @click="settings['inspect.mode'] = option.id"
           >
             {{ option.label }}
           </button>
@@ -428,7 +401,7 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
       </div>
 
       <div
-        v-if="settings.inspectScrubber && entries.length"
+        v-if="settings['inspect.scrubber'] && entries.length"
         class="fi-scrubber"
         tabindex="0"
         role="group"
@@ -508,31 +481,31 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
         >
           <div v-if="blameLoading" class="fi-state">Loading blame…</div>
           <div v-else-if="blameError" class="fi-state error">{{ blameError }}</div>
-          <div v-else class="fi-ledger">
-            <template v-for="run in blameRuns" :key="`${run.hash}:${run.lines[0]?.LineNumber}`">
+          <div v-else class="fi-ledger" :style="{ height: `${blameWindow.totalHeight}px`, padding: '0', position: 'relative' }">
+            <div :style="{ transform: `translateY(${blameWindow.offsetY}px)` }">
+            <template v-for="({ line, color, ago, first }, index) in visibleBlame" :key="line.LineNumber">
               <div
-                v-for="(line, lineIndex) in run.lines"
-                :key="line.LineNumber"
                 class="fi-bl"
-                :class="{ hot: run.hash === selectedHash, cur: blameVim.isSelected((line.LineNumber ?? 1) - 1) }"
+                :class="{ hot: line.Hash === selectedHash, cur: blameVim.isSelected(blameWindow.start + index) }"
               >
                 <button
                   type="button"
                   class="fi-bl-gutter"
-                  :style="{ borderLeftColor: `var(${run.color})` }"
-                  :title="`${run.shortHash} · ${run.author}`"
-                  @click="selectRun(run)"
+                  :style="{ borderLeftColor: `var(${color})` }"
+                  :title="`${line.ShortHash} · ${line.Author}`"
+                  @click="selectRun(line.Hash)"
                 >
-                  <template v-if="lineIndex === 0">
-                    <span class="fi-bl-hash">{{ run.shortHash }}</span>
-                    <span class="fi-bl-author author-identity"><AuthorAvatar :name="run.author" :commit="run.hash" :size="16" /><span class="author-name">{{ run.author }}</span></span>
-                    <span class="fi-bl-ago">{{ run.ago }}</span>
+                  <template v-if="first">
+                    <span class="fi-bl-hash">{{ line.ShortHash }}</span>
+                    <span class="fi-bl-author author-identity"><AuthorAvatar :name="line.Author" :commit="line.Hash" :size="16" /><span class="author-name">{{ line.Author }}</span></span>
+                    <span class="fi-bl-ago">{{ ago }}</span>
                   </template>
                 </button>
                 <span class="fi-bl-no">{{ line.LineNumber }}</span>
                 <span class="fi-bl-tx">{{ line.Content }}</span>
               </div>
             </template>
+            </div>
           </div>
         </div>
 

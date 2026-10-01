@@ -8,7 +8,7 @@ import UiButton from '../common/UiButton.vue'
 import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 
 const props = defineProps<{ content: string; line: number; lineOffset?: number; save: (original: string, content: string) => Promise<void> }>()
-const emit = defineEmits<{ close: []; saved: [] }>()
+const emit = defineEmits<{ close: []; saved: [intent: { close: boolean }] }>()
 const host = ref<HTMLElement | null>(null)
 const mode = ref('NORMAL')
 const visual = computed(() => mode.value.startsWith('VISUAL'))
@@ -19,13 +19,15 @@ let view: EditorView | undefined
 let alive = true
 const newline = props.content.includes('\r\n') ? '\r\n' : '\n'
 const normalized = props.content.replace(/\r\n/g, '\n')
-useRepoSwitchGuard(() => saving.value ? 'Wait for the file to finish saving.' : view && view.state.doc.toString() !== normalized ? 'Save or close your edited file before switching repositories.' : '')
+let original = props.content
+let cleanBuffer = normalized
+useRepoSwitchGuard(() => saving.value ? 'Wait for the file to finish saving.' : view && view.state.doc.toString() !== cleanBuffer ? 'Save or close your edited file before switching repositories.' : '')
 function close(force = false) {
   if (saving.value) return
-  if (!force && view?.state.doc.toString() !== normalized) { discardPrompt.value = true; return }
+  if (!force && view?.state.doc.toString() !== cleanBuffer) { discardPrompt.value = true; return }
   emit('close')
 }
-async function saveBuffer() {
+async function saveBuffer(closeAfter = false) {
   if (!view || saving.value) return
   const text = view.state.doc.toString().replace(/\n/g, newline)
   if (new TextEncoder().encode(text).length > 1024 * 1024 || view.state.doc.lines > 20000) {
@@ -35,20 +37,25 @@ async function saveBuffer() {
   error.value = ''
   view.contentDOM.setAttribute('aria-busy', 'true')
   try {
-    await props.save(props.content, text)
-    if (alive) emit('saved')
+    await props.save(original, text)
+    if (alive) {
+      original = text
+      cleanBuffer = view.state.doc.toString()
+      discardPrompt.value = false
+      emit('saved', { close: closeAfter })
+    }
   } catch (err) { if (alive) error.value = String(err) }
   finally { saving.value = false; view?.contentDOM.removeAttribute('aria-busy') }
 }
 // Ex commands dispatch through the owning editor, so multiple panes stay independent.
-Vim.defineEx('write', 'w', cm => cm.signal('ichi-save', null))
+Vim.defineEx('write', 'w', cm => cm.signal('ichi-save', false))
 Vim.defineEx('quit', 'q', (cm, params) => cm.signal('ichi-close', params.argString?.trim() === '!'))
-Vim.defineEx('wq', 'wq', cm => cm.signal('ichi-save', null))
+Vim.defineEx('wq', 'wq', cm => cm.signal('ichi-save', true))
 onMounted(() => {
   const state = EditorState.create({
     doc: normalized,
     extensions: [
-      Prec.highest(keymap.of([{ key: 'Mod-s', run: () => { void saveBuffer(); return true } }, { key: 'Mod-Enter', run: () => { void saveBuffer(); return true } }])),
+      Prec.highest(keymap.of([{ key: 'Mod-s', run: () => { void saveBuffer(); return true } }, { key: 'Mod-Enter', run: () => { void saveBuffer(true); return true } }])),
       vim(), lineNumbers(), history(), drawSelection(), highlightActiveLine(), highlightActiveLineGutter(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorState.transactionFilter.of(tr => saving.value && tr.docChanged ? [] : tr),
@@ -79,7 +86,7 @@ onMounted(() => {
   })
   view = new EditorView({ state, parent: host.value! })
   const cm = getCM(view)!
-  cm.on('ichi-save', () => { void saveBuffer() })
+  cm.on('ichi-save', (closeAfter: boolean) => { void saveBuffer(closeAfter) })
   cm.on('ichi-close', (force: boolean) => close(force))
   cm.on('vim-mode-change', (event: { mode: string; subMode?: string }) => {
     mode.value = event.mode === 'visual'
@@ -100,7 +107,7 @@ defineExpose({ focus: () => view?.focus() })
       <span class="file-editor-mode" role="status" aria-live="polite" aria-atomic="true">{{ mode }}</span>
       <small class="file-editor-hint">{{ visual ? 'Selection active · d delete · y yank · Esc normal' : ':w save · :q close' }}</small>
       <UiButton size="sm" variant="ghost" :disabled="saving" @click="close()">Close</UiButton>
-      <UiButton size="sm" variant="primary" :disabled="saving" @click="saveBuffer">{{ saving ? 'Saving…' : 'Save' }}</UiButton>
+      <UiButton size="sm" variant="primary" :disabled="saving" @click="saveBuffer()">{{ saving ? 'Saving…' : 'Save' }}</UiButton>
     </div>
     <div v-if="error" role="alert" class="file-editor-message">{{ error }}</div>
     <div v-if="discardPrompt" class="file-editor-message">

@@ -3,21 +3,46 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { EditorView } from '@codemirror/view'
 import { Vim, getCM } from '@replit/codemirror-vim'
 import OperationConfirmModal from '../components/overlays/OperationConfirmModal.vue'
+import { invalidateChangesSnapshots } from '../components/status/changesSnapshotCache'
 import ChangesView from '../components/status/ChangesView.vue'
-import { useShellSettings } from '../composables/useShellSettings'
+import DiffView from '../components/diff/DiffView.vue'
+import { useToasts } from '../composables/useToasts'
+import { usePreferenceBindings } from '../customization/usePreferences'
 import { FileStatus, LineType } from '../bindings/github.com/atterpac/ichi/internal/git'
 
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList
 Range.prototype.getBoundingClientRect = () => new DOMRect()
-const saveEditorFile = vi.fn().mockResolvedValue(undefined)
+const workingFileContent = vi.fn<(path: string) => Promise<string>>(() => Promise.resolve('working content'))
+const indexFileContent = vi.fn<(path: string) => Promise<string>>(() => Promise.resolve('index content'))
+const workingFilePreview = vi.fn<(path: string) => Promise<{ Content: string; Truncated: boolean; Binary: boolean }>>(() => Promise.resolve({ Content: 'line one\nline two', Truncated: false, Binary: false }))
+const saveEditorFile = vi.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined)
 
-const workingDiff = vi.fn<() => Promise<string>>(() => Promise.resolve('raw-diff'))
+const parsedDiff = [
+  {
+    Path: 'src/app.ts',
+    OldPath: '',
+    Hunks: [
+      {
+        Header: '@@ -1,2 +1,2 @@',
+        Lines: [
+          { Type: LineType.LineContext, Content: 'unchanged', OldLineNo: 1, NewLineNo: 1 },
+          { Type: LineType.LineRemoved, Content: 'old line', OldLineNo: 2, NewLineNo: 0 },
+          { Type: LineType.LineAdded, Content: 'new line', OldLineNo: 0, NewLineNo: 2 },
+        ],
+      },
+    ],
+  },
+]
+const worktreeFile = vi.fn<(path: string, oldPath: string, staged: boolean) => Promise<(typeof parsedDiff)[number]>>((path: string, _oldPath: string, _staged: boolean) => Promise.resolve({ ...parsedDiff[0]!, Path: path }))
+const summarySnapshot = () => Promise.resolve({ Entries: statusEntries, Working: [{ Path: 'src/app.ts', Added: 1, Deleted: 1, Binary: false }], Staged: [{ Path: 'src/new.ts', Added: 1, Deleted: 1, Binary: false }] })
+const readSummary = vi.fn<typeof summarySnapshot>(summarySnapshot)
 const applyHunkEdit = vi.fn<(...args: unknown[]) => Promise<void>>(() => Promise.resolve())
-const stageFile = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve())
-const unstageFile = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve())
-const discardFile = vi.fn<(path: string) => Promise<void>>(() => Promise.resolve())
+const stageFiles = vi.fn<(paths: string[]) => Promise<void>>(() => Promise.resolve())
+const unstageFiles = vi.fn<(paths: string[]) => Promise<void>>(() => Promise.resolve())
+const discardSnapshot = async (paths: string[]) => ({ Completed: paths, FailedPath: '', Error: '', Remaining: [] as string[] })
+const discardFiles = vi.fn<typeof discardSnapshot>(discardSnapshot)
 const commit = vi.fn<(message: string) => Promise<void>>(() => Promise.resolve())
-const getCommitMessage = vi.fn(() => Promise.resolve('prev subject\n\nprev body'))
+const getCommitMessage = vi.fn<() => Promise<string>>(() => Promise.resolve('prev subject\n\nprev body'))
 
 const entry = (over: Record<string, unknown>) => ({
   Path: '',
@@ -38,39 +63,21 @@ let statusEntries = [
 
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   WorktreeService: {
-    Status: () => Promise.resolve(statusEntries),
-    StageFile: (path: string) => stageFile(path),
-    UnstageFile: (path: string) => unstageFile(path),
+    Summary: async () => ({ Summary: await readSummary(), Info: { Path: '/repo', Branch: 'main', Ahead: 0, Behind: 0, HasUncommitted: true } }),
+    StageFiles: (paths: string[]) => stageFiles(paths),
+    UnstageFiles: (paths: string[]) => unstageFiles(paths),
     StageAll: () => Promise.resolve(),
     Commit: (message: string) => commit(message),
     CommitAmend: () => Promise.resolve(),
-    DiscardFileChanges: (path: string) => discardFile(path),
+    DiscardFiles: (paths: string[]) => discardFiles(paths),
   },
   RepoService: {
-    Info: () => Promise.resolve({ Branch: 'main', Ahead: 0, Behind: 0, HasUncommitted: true }),
+    Info: () => { throw new Error('Changes must reuse info from Summary') },
   },
   DiffService: {
     LoadEditorFile: () => Promise.resolve('unchanged\nnew line\noutside hunk\n'),
     SaveEditorFile: (...args: unknown[]) => saveEditorFile(...args),
-    WorkingDiff: () => workingDiff(),
-    StagedDiff: () => Promise.resolve('raw-diff'),
-    ParseDiff: () =>
-      Promise.resolve([
-        {
-          Path: 'src/app.ts',
-          OldPath: '',
-          Hunks: [
-            {
-              Header: '@@ -1,2 +1,2 @@',
-              Lines: [
-                { Type: LineType.LineContext, Content: 'unchanged', OldLineNo: 1, NewLineNo: 1 },
-                { Type: LineType.LineRemoved, Content: 'old line', OldLineNo: 2, NewLineNo: 0 },
-                { Type: LineType.LineAdded, Content: 'new line', OldLineNo: 0, NewLineNo: 2 },
-              ],
-            },
-          ],
-        },
-      ]),
+    WorktreeFile: (path: string, oldPath: string, staged: boolean) => worktreeFile(path, oldPath, staged),
     ApplyHunkEdit: (...args: unknown[]) => applyHunkEdit(...args),
     StageHunk: () => Promise.resolve(),
     UnstageHunk: () => Promise.resolve(),
@@ -78,7 +85,9 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     UnstageLines: () => Promise.resolve(),
   },
   InspectService: {
-    WorkingFileContent: () => Promise.resolve('line one\nline two'),
+    WorkingFileContent: (path: string) => workingFileContent(path),
+    IndexFileContent: (path: string) => indexFileContent(path),
+    WorkingFilePreview: (path: string) => workingFilePreview(path),
   },
   GraphService: {
     GetCommitMessage: () => getCommitMessage(),
@@ -95,6 +104,118 @@ async function mountView() {
 }
 
 describe('ChangesView', () => {
+  it('windows a large changes list and reaches offscreen files by keyboard', async () => {
+    const saved = statusEntries
+    statusEntries = Array.from({ length: 10000 }, (_, index) => entry({ Path: `file-${String(index).padStart(5, '0')}.txt`, WorkStatus: FileStatus.FileModified }))
+    usePreferenceBindings()['changes.groupByDir'] = 'never'
+    const wrapper = await mountView()
+    try {
+      expect(wrapper.findAll('.change-row').length).toBeLessThan(100)
+      await wrapper.get('.changes-files').trigger('keydown', { key: 'G' })
+      await flushPromises()
+      expect(wrapper.get('.change-row.selected').text()).toContain('file-09999.txt')
+      expect(wrapper.findAll('.change-row').length).toBeLessThan(100)
+    } finally { wrapper.unmount(); statusEntries = saved }
+  })
+  it('reads context gaps from the worktree or index to match the selected patch', async () => {
+    workingFileContent.mockClear()
+    indexFileContent.mockClear()
+    const wrapper = await mountView()
+    try {
+      const loadWorking = wrapper.getComponent(DiffView).props('loadFileContent')!
+      expect(await loadWorking()).toBe('working content')
+      expect(workingFileContent).toHaveBeenCalledExactlyOnceWith('src/app.ts')
+      expect(indexFileContent).not.toHaveBeenCalled()
+      await wrapper.findAll('.change-row').find(row => row.text().includes('new.ts'))!.trigger('click')
+      await flushPromises()
+      const loadIndex = wrapper.getComponent(DiffView).props('loadFileContent')!
+      expect(await loadIndex()).toBe('index content')
+      expect(indexFileContent).toHaveBeenCalledExactlyOnceWith('src/new.ts')
+    } finally { wrapper.unmount() }
+  })
+
+  it('uses bounded preview metadata for an untracked binary instead of a full text read', async () => {
+    workingFileContent.mockClear()
+    workingFilePreview.mockClear().mockResolvedValueOnce({ Content: '', Truncated: false, Binary: true })
+    const wrapper = await mountView()
+    try {
+      await wrapper.findAll('.change-row').find(row => row.text().includes('notes.md'))!.trigger('click')
+      await flushPromises()
+      expect(workingFilePreview).toHaveBeenCalledExactlyOnceWith('notes.md')
+      expect(workingFileContent).not.toHaveBeenCalled()
+      expect(wrapper.getComponent(DiffView).props('diff')).toMatchObject({ Path: 'notes.md', Binary: true, Hunks: [] })
+    } finally { wrapper.unmount() }
+  })
+
+  it('reports a failed patch read instead of treating it as an empty diff', async () => {
+    worktreeFile.mockRejectedValueOnce(new Error('patch read failed'))
+    const wrapper = await mountView()
+    try {
+      expect(wrapper.find('.changes-files').exists()).toBe(true)
+      expect(wrapper.text()).toContain('patch read failed')
+      await wrapper.findAll('button').find(button => button.text() === 'Retry')!.trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.diff-hunk').exists()).toBe(true)
+    } finally { wrapper.unmount() }
+  })
+  it('shows a large file list and summary counts while only its selected patch is pending', async () => {
+    const saved = statusEntries
+    statusEntries = Array.from({ length: 200 }, (_, i) => entry({ Path: `file-${i}.txt`, WorkStatus: FileStatus.FileModified }))
+    usePreferenceBindings()['changes.groupByDir'] = 'never'
+    let finish!: (value: typeof parsedDiff[0]) => void
+    worktreeFile.mockClear().mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const wrapper = await mountView()
+    try {
+      expect(wrapper.find('.changes-files').exists()).toBe(true)
+      expect(wrapper.text()).toContain('file-199.txt')
+      expect(wrapper.text()).toContain('Loading diff...')
+      expect(worktreeFile).toHaveBeenCalledTimes(1)
+      expect(worktreeFile).toHaveBeenCalledWith('file-0.txt', '', false)
+      finish({ ...parsedDiff[0]!, Path: 'file-0.txt' })
+      await flushPromises()
+    } finally { wrapper.unmount(); statusEntries = saved }
+  })
+  it('skips intermediate selections while a patch is in flight and ignores its stale result', async () => {
+    const saved = statusEntries
+    statusEntries = ['a', 'b', 'c'].map(Path => entry({ Path, WorkStatus: FileStatus.FileModified }))
+    let finish!: (value: typeof parsedDiff[0]) => void
+    worktreeFile.mockClear().mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const wrapper = await mountView()
+    try {
+      const files = wrapper.get('.changes-files')
+      await files.trigger('keydown', { key: 'j' })
+      await files.trigger('keydown', { key: 'j' })
+      expect(worktreeFile).toHaveBeenCalledTimes(1)
+      finish({ ...parsedDiff[0]!, Path: 'a' })
+      await flushPromises()
+      expect(worktreeFile.mock.calls.map(call => call[0])).toEqual(['a', 'c'])
+      expect(wrapper.get('.diff-file-path').text()).toBe('c')
+    } finally { wrapper.unmount(); statusEntries = saved }
+  })
+  it('discards a pending patch on refresh even when the file counts are unchanged', async () => {
+    let finish!: (value: typeof parsedDiff[0]) => void
+    worktreeFile.mockClear().mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const wrapper = await mountView()
+    try {
+      await wrapper.get('.changes-files').trigger('keydown', { key: 'r' })
+      await flushPromises()
+      finish({ ...parsedDiff[0]!, Path: 'stale-file' })
+      await flushPromises()
+      expect(worktreeFile).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('.diff-file-path').text()).toBe('src/app.ts')
+      expect(wrapper.text()).not.toContain('stale-file')
+    } finally { wrapper.unmount() }
+  })
+  it('reports summary failures without starting a patch read', async () => {
+    readSummary.mockRejectedValueOnce(new Error('status failed'))
+    worktreeFile.mockClear()
+    const wrapper = await mountView()
+    try {
+      expect(wrapper.text()).toContain('Unable to load worktree')
+      expect(wrapper.text()).toContain('status failed')
+      expect(worktreeFile).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
   it('clears the summary and description when amend is unchecked', async () => {
     const wrapper = await mountView()
     try {
@@ -129,7 +250,7 @@ describe('ChangesView', () => {
     } finally { wrapper.unmount() }
   })
 
-  it('opens the full file and returns to the diff after saving', async () => {
+  it('keeps the full file open after write and refreshes the diff after write-quit', async () => {
     saveEditorFile.mockClear()
     const wrapper = await mountView()
     const pane = wrapper.get('.changes-diff')
@@ -143,6 +264,11 @@ describe('ChangesView', () => {
     Vim.handleEx(getCM(view)! as Parameters<typeof Vim.handleEx>[0], 'w')
     await flushPromises()
     expect(saveEditorFile).toHaveBeenCalledWith('src/app.ts', 'unchanged\nnew line\noutside hunk\n', 'edited context\nnew line\noutside hunk\n')
+    expect(wrapper.find('.cm-editor').exists()).toBe(true)
+    view.dispatch({ changes: { from: 0, to: 14, insert: 'second edit' } })
+    Vim.handleEx(getCM(view)! as Parameters<typeof Vim.handleEx>[0], 'wq')
+    await flushPromises()
+    expect(saveEditorFile).toHaveBeenLastCalledWith('src/app.ts', 'edited context\nnew line\noutside hunk\n', 'second edit\nnew line\noutside hunk\n')
     expect(wrapper.find('.cm-editor').exists()).toBe(false)
     expect(wrapper.find('.diff-spacer').exists()).toBe(true)
     wrapper.unmount()
@@ -162,19 +288,19 @@ describe('ChangesView', () => {
     await wrapper.find('.diff-view').trigger('keydown', { key: 'Escape' })
     expect(document.activeElement).toBe(pane.element)
     await pane.trigger('keydown', { key: 's', ctrlKey: true })
-    expect(stageFile).not.toHaveBeenCalled()
+    expect(stageFiles).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
   beforeEach(() => {
-    stageFile.mockClear()
-    unstageFile.mockClear()
+    stageFiles.mockClear()
+    unstageFiles.mockClear()
     commit.mockClear()
-    discardFile.mockClear()
+    discardFiles.mockClear()
   })
 
   afterEach(() => {
-    useShellSettings().changesGroupByDir = 'auto'
+    usePreferenceBindings()['changes.groupByDir'] = 'auto'
   })
 
   it('sets a status color per row', async () => {
@@ -223,7 +349,7 @@ describe('ChangesView', () => {
   })
 
   it('groups rows by directory when grouping is always on', async () => {
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     const wrapper = await mountView()
     const dirs = wrapper.findAll('.change-dir-row .change-dir-path').map((d) => d.text())
     expect(dirs).toEqual(['src', '.', 'src'])
@@ -234,7 +360,7 @@ describe('ChangesView', () => {
   })
 
   it('uses h/l for tree containers and Enter to open the diff', async () => {
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     const wrapper = await mountView()
     const files = wrapper.get('.changes-files')
     ;(files.element as HTMLElement).focus()
@@ -259,7 +385,7 @@ describe('ChangesView', () => {
   })
 
   it('navigates tree headers and reopens fully collapsed sections', async () => {
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     const wrapper = await mountView()
     const sections = wrapper.findAll('.section-toggle')
     for (const section of sections) await section.trigger('click')
@@ -282,7 +408,7 @@ describe('ChangesView', () => {
 
   it('skips every hidden child after collapsing a group from a deep file cursor', async () => {
     const originalEntries = statusEntries
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     statusEntries = [
       ...Array.from({ length: 12 }, (_, i) => entry({ Path: `many/file${i}.ts`, WorkStatus: FileStatus.FileModified })),
       entry({ Path: 'next/file.ts', WorkStatus: FileStatus.FileModified }),
@@ -311,7 +437,7 @@ describe('ChangesView', () => {
 
   it('stages collapsed folder descendants without touching siblings or staged files', async () => {
     const original = statusEntries
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     statusEntries = [
       entry({ Path: 'src/main.ts', WorkStatus: FileStatus.FileModified }),
       entry({ Path: 'src/lib/deep.ts', WorkStatus: FileStatus.FileModified }),
@@ -324,15 +450,15 @@ describe('ChangesView', () => {
       await folder.trigger('click')
       await folder.trigger('keydown', { key: 's' })
       await flushPromises()
-      expect(stageFile.mock.calls.map(([path]) => path)).toEqual(['src/main.ts', 'src/lib/deep.ts'])
-      expect(unstageFile).not.toHaveBeenCalled()
+      expect(stageFiles).toHaveBeenCalledExactlyOnceWith(['src/main.ts', 'src/lib/deep.ts'])
+      expect(unstageFiles).not.toHaveBeenCalled()
       expect(document.activeElement).toBe(folder.element)
     } finally { wrapper.unmount(); statusEntries = original }
   })
 
   it('unstages an entire collapsed staged section', async () => {
     const original = statusEntries
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     statusEntries = [
       entry({ Path: 'src/a.ts', IndexStatus: FileStatus.FileModified, IsStaged: true }),
       entry({ Path: 'other/b.ts', IndexStatus: FileStatus.FileModified, IsStaged: true }),
@@ -344,20 +470,20 @@ describe('ChangesView', () => {
       await section.trigger('click')
       await section.trigger('keydown', { key: 'u' })
       await flushPromises()
-      expect(unstageFile.mock.calls.map(([path]) => path)).toEqual(['src/a.ts', 'other/b.ts'])
-      unstageFile.mockClear()
+      expect(unstageFiles).toHaveBeenCalledExactlyOnceWith(['src/a.ts', 'other/b.ts'])
+      unstageFiles.mockClear()
       await section.trigger('keydown', { key: 's' })
       await flushPromises()
-      expect(unstageFile).toHaveBeenCalledTimes(2)
-      expect(stageFile).not.toHaveBeenCalled()
+      expect(unstageFiles).toHaveBeenCalledTimes(1)
+      expect(stageFiles).not.toHaveBeenCalled()
     } finally { wrapper.unmount(); statusEntries = original }
   })
 
   it('confirms all folder discards once and includes untracked descendants', async () => {
     const original = statusEntries
-    const confirm = useShellSettings().confirmDestructiveActions
-    useShellSettings().changesGroupByDir = 'always'
-    useShellSettings().confirmDestructiveActions = true
+    const confirm = usePreferenceBindings()['operations.confirmDestructive']
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
+    usePreferenceBindings()['operations.confirmDestructive'] = true
     statusEntries = [
       entry({ Path: 'src/a.ts', WorkStatus: FileStatus.FileModified }),
       entry({ Path: 'src/deep/new.ts', IsUntracked: true, WorkStatus: FileStatus.FileUntracked }),
@@ -368,32 +494,35 @@ describe('ChangesView', () => {
       const folder = wrapper.get('[data-tree-key="dir:unstaged:src"]')
       await folder.trigger('click')
       await folder.trigger('keydown', { key: 'x' })
-      expect(discardFile).not.toHaveBeenCalled()
+      expect(discardFiles).not.toHaveBeenCalled()
       const dialog = wrapper.getComponent(OperationConfirmModal)
       const request = dialog.props('request')
       expect(request.details?.map(item => item.value)).toEqual(['src/a.ts', 'src/deep/new.ts'])
       expect(request.message).toContain('1 untracked files will be deleted')
       await request.onConfirm({})
       await flushPromises()
-      expect(discardFile.mock.calls.map(([path]) => path)).toEqual(['src/a.ts', 'src/deep/new.ts'])
-    } finally { wrapper.unmount(); statusEntries = original; useShellSettings().confirmDestructiveActions = confirm }
+      expect(discardFiles).toHaveBeenCalledExactlyOnceWith(['src/a.ts', 'src/deep/new.ts'])
+    } finally { wrapper.unmount(); statusEntries = original; usePreferenceBindings()['operations.confirmDestructive'] = confirm }
   })
 
   it('refreshes the folded group after a partially failed discard', async () => {
     const original = statusEntries
-    const settings = useShellSettings()
-    const grouping = settings.changesGroupByDir
-    const confirm = settings.confirmDestructiveActions
-    settings.changesGroupByDir = 'always'
-    settings.confirmDestructiveActions = true
+    const settings = usePreferenceBindings()
+    const grouping = settings['changes.groupByDir']
+    const confirm = settings['operations.confirmDestructive']
+    settings['changes.groupByDir'] = 'always'
+    settings['operations.confirmDestructive'] = true
     statusEntries = [
       entry({ Path: 'src/a.ts', WorkStatus: FileStatus.FileModified }),
       entry({ Path: 'src/b.ts', IsUntracked: true, WorkStatus: FileStatus.FileUntracked }),
     ]
-    discardFile.mockImplementationOnce(async () => { statusEntries = statusEntries.slice(1) })
-    discardFile.mockRejectedValueOnce(new Error('file locked'))
+    discardFiles.mockImplementationOnce(async paths => {
+      statusEntries = statusEntries.slice(1)
+      return { Completed: [paths[0]!], FailedPath: paths[1]!, Error: 'file locked', Remaining: paths.slice(2) }
+    })
     const wrapper = await mountView()
     try {
+      readSummary.mockClear()
       const folder = wrapper.get('[data-tree-key="dir:unstaged:src"]')
       await folder.trigger('click')
       await folder.trigger('keydown', { key: 'x' })
@@ -402,17 +531,22 @@ describe('ChangesView', () => {
       await wrapper.get('[data-tree-key="dir:unstaged:src"]').trigger('click')
       expect(wrapper.find('[data-tree-key="u:src/a.ts"]').exists()).toBe(false)
       expect(wrapper.find('[data-tree-key="u:src/b.ts"]').exists()).toBe(true)
+      expect(readSummary).toHaveBeenCalledTimes(1)
+      const toasts = useToasts().toasts
+      const message = toasts[toasts.length - 1]?.message
+      expect(message).toContain('1 files discarded (src/a.ts)')
+      expect(message).toContain('Failed on src/b.ts: file locked')
     } finally {
       wrapper.unmount()
       statusEntries = original
-      settings.changesGroupByDir = grouping
-      settings.confirmDestructiveActions = confirm
+      settings['changes.groupByDir'] = grouping
+      settings['operations.confirmDestructive'] = confirm
     }
   })
 
   it('nests directories before direct files and keeps the correct parent for navigation', async () => {
     const original = statusEntries
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     statusEntries = [
       entry({ Path: 'some/path/frontend/root.ts', WorkStatus: FileStatus.FileModified }),
       entry({ Path: 'some/path/frontend/nested/child.ts', WorkStatus: FileStatus.FileModified }),
@@ -467,7 +601,7 @@ describe('ChangesView', () => {
 
   it('shows the entire collapsed folder scope in the footer and stages it from there', async () => {
     const original = statusEntries
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     statusEntries = [
       entry({ Path: 'src/a.ts', WorkStatus: FileStatus.FileModified }),
       entry({ Path: 'src/nested/b.ts', WorkStatus: FileStatus.FileModified }),
@@ -481,19 +615,19 @@ describe('ChangesView', () => {
       expect(wrapper.findAll('.change-row')).toHaveLength(0)
       await footer.findAll('button')[0]!.trigger('click')
       await flushPromises()
-      expect(stageFile.mock.calls.map(([path]) => path)).toEqual(['src/a.ts', 'src/nested/b.ts'])
+      expect(stageFiles.mock.calls.flatMap(([paths]) => paths)).toEqual(['src/a.ts', 'src/nested/b.ts'])
     } finally { wrapper.unmount(); statusEntries = original }
   })
 
   it('keeps selection on the next working file as staging moves files between sections', async () => {
     const original = statusEntries
-    useShellSettings().changesGroupByDir = 'always'
+    usePreferenceBindings()['changes.groupByDir'] = 'always'
     statusEntries = [
       entry({ Path: 'src/a.ts', WorkStatus: FileStatus.FileModified }),
       entry({ Path: 'src/b.ts', WorkStatus: FileStatus.FileModified }),
     ]
-    stageFile.mockImplementation(async path => {
-      statusEntries = statusEntries.map(item => item.Path === path ? entry({ Path: path, IndexStatus: FileStatus.FileModified, IsStaged: true }) : item)
+    stageFiles.mockImplementation(async paths => {
+      statusEntries = statusEntries.map(item => paths.includes(item.Path) ? entry({ Path: item.Path, IndexStatus: FileStatus.FileModified, IsStaged: true }) : item)
     })
     const wrapper = await mountView()
     try {
@@ -514,7 +648,7 @@ describe('ChangesView', () => {
       expect(wrapper.text()).toContain('No unstaged files')
       expect(wrapper.get('.pane-unstaged').classes()).toContain('is-empty')
       expect(wrapper.get('.changes-section-resizer').attributes('disabled')).toBeDefined()
-    } finally { wrapper.unmount(); statusEntries = original; stageFile.mockImplementation(async () => {}) }
+    } finally { wrapper.unmount(); statusEntries = original; stageFiles.mockImplementation(async () => {}) }
   })
 
   it('T toggles between tree and flat file list', async () => {
@@ -522,10 +656,10 @@ describe('ChangesView', () => {
     const files = wrapper.find('.changes-files')
     expect(wrapper.findAll('.change-dir-row')).toHaveLength(0)
     await files.trigger('keydown', { key: 'T' })
-    expect(useShellSettings().changesGroupByDir).toBe('always')
+    expect(usePreferenceBindings()['changes.groupByDir']).toBe('always')
     expect(wrapper.findAll('.change-dir-row').length).toBeGreaterThan(0)
     await files.trigger('keydown', { key: 'T' })
-    expect(useShellSettings().changesGroupByDir).toBe('never')
+    expect(usePreferenceBindings()['changes.groupByDir']).toBe('never')
     expect(wrapper.findAll('.change-dir-row')).toHaveLength(0)
     wrapper.unmount()
   })
@@ -539,7 +673,7 @@ describe('ChangesView', () => {
     const wrapper = await mountView()
     expect(wrapper.find('.section-conflicts .section-label').text()).toBe('Conflicts')
     await wrapper.find('.changes-files').trigger('keydown', { key: 's' })
-    expect(stageFile).not.toHaveBeenCalled()
+    expect(stageFiles).not.toHaveBeenCalled()
     await wrapper.find('.changes-files').trigger('keydown', { key: 'Enter' })
     expect(wrapper.emitted('navigate')).toEqual([['conflicts', 'src/clash.ts']])
     statusEntries = saved
@@ -549,7 +683,7 @@ describe('ChangesView', () => {
   it('stages the file under the cursor on s', async () => {
     const wrapper = await mountView()
     await wrapper.find('.changes-files').trigger('keydown', { key: 's' })
-    expect(stageFile).toHaveBeenCalledWith('src/app.ts')
+    expect(stageFiles).toHaveBeenCalledWith(['src/app.ts'])
     wrapper.unmount()
   })
 
@@ -559,20 +693,22 @@ describe('ChangesView', () => {
     await files.trigger('keydown', { key: 'j' })
     await files.trigger('keydown', { key: 'j' })
     await files.trigger('keydown', { key: 's' })
-    expect(unstageFile).toHaveBeenCalledWith('src/new.ts')
+    expect(unstageFiles).toHaveBeenCalledWith(['src/new.ts'])
     wrapper.unmount()
   })
 
-  it('serves diffs from the batch cache — no fetch per cursor move', async () => {
-    workingDiff.mockClear()
+  it('reuses a selected-file patch when returning to the same row', async () => {
+    worktreeFile.mockClear()
     const wrapper = await mountView()
-    expect(workingDiff).toHaveBeenCalledTimes(1)
+    expect(worktreeFile).toHaveBeenCalledTimes(1)
     const files = wrapper.find('.changes-files')
     await files.trigger('keydown', { key: 'j' })
     await files.trigger('keydown', { key: 'j' })
+    await flushPromises()
     await files.trigger('keydown', { key: 'k' })
     await files.trigger('keydown', { key: 'k' })
-    expect(workingDiff).toHaveBeenCalledTimes(1)
+    await flushPromises()
+    expect(worktreeFile).toHaveBeenCalledTimes(2)
     wrapper.unmount()
   })
 
@@ -614,4 +750,127 @@ describe('ChangesView', () => {
     expect(btn.attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
+})
+
+it('batches a hundred selected files and refreshes once even when staging fails', async () => {
+  const original = statusEntries
+  const settings = usePreferenceBindings()
+  const grouping = settings['changes.groupByDir']
+  settings['changes.groupByDir'] = 'always'
+  statusEntries = Array.from({ length: 100 }, (_, i) => entry({ Path: `batch/file-${i}.txt`, WorkStatus: FileStatus.FileModified }))
+  const wrapper = await mountView()
+  try {
+    stageFiles.mockClear().mockRejectedValueOnce(new Error('index locked'))
+    readSummary.mockClear()
+    const folder = wrapper.get('[data-tree-key="dir:unstaged:batch"]')
+    await folder.trigger('keydown', { key: 's' })
+    await flushPromises()
+    expect(stageFiles).toHaveBeenCalledExactlyOnceWith(statusEntries.map(item => item.Path))
+    expect(readSummary).toHaveBeenCalledTimes(1)
+    // Failure clears the busy state and permits a second batch attempt.
+    await wrapper.get('[data-tree-key="dir:unstaged:batch"]').trigger('keydown', { key: 's' })
+    await flushPromises()
+    expect(stageFiles).toHaveBeenCalledTimes(2)
+    expect(readSummary).toHaveBeenCalledTimes(2)
+  } finally { wrapper.unmount(); statusEntries = original; settings['changes.groupByDir'] = grouping }
+})
+
+it('unstages both sides of a rename in one request', async () => {
+  const original = statusEntries
+  statusEntries = [entry({ Path: 'new name', OldPath: 'old name', IndexStatus: FileStatus.FileRenamed, IsStaged: true })]
+  const wrapper = await mountView()
+  try {
+    unstageFiles.mockClear()
+    readSummary.mockClear()
+    await wrapper.get('[data-tree-key="section:staged"]').trigger('keydown', { key: 'u' })
+    await flushPromises()
+    expect(unstageFiles).toHaveBeenCalledExactlyOnceWith(['old name', 'new name'])
+    expect(readSummary).toHaveBeenCalledTimes(1)
+  } finally { wrapper.unmount(); statusEntries = original }
+})
+
+it('shows a cached preview on return, blocks actions, and rereads equal-count patches', async () => {
+  invalidateChangesSnapshots()
+  const options = { props: { repositoryPath: '/repo' }, attachTo: document.body, global: { stubs: { Teleport: true } } }
+  const first = mount(ChangesView, options)
+  await flushPromises()
+  expect(first.text()).toContain('new line')
+  first.unmount()
+  let complete!: (value: Awaited<ReturnType<typeof readSummary>>) => void
+  const freshSummary = await readSummary()
+  readSummary.mockReturnValueOnce(new Promise(resolve => { complete = resolve }))
+  const second = mount(ChangesView, options)
+  try {
+    await flushPromises()
+    expect(second.text()).toContain('new line')
+    expect(second.text()).toContain('Checking latest changes')
+    expect(second.get('.changes-grid').attributes('inert')).toBeDefined()
+    stageFiles.mockClear()
+    await second.get('.changes-files').trigger('keydown', { key: 's' })
+    await flushPromises()
+    expect(stageFiles).not.toHaveBeenCalled()
+    worktreeFile.mockClear().mockResolvedValueOnce({ ...parsedDiff[0]!, Hunks: [{ ...parsedDiff[0]!.Hunks[0]!, Lines: [{ Type: LineType.LineAdded, Content: 'externally changed', OldLineNo: 0, NewLineNo: 1 }] }] } as typeof parsedDiff[0])
+    complete(freshSummary)
+    await flushPromises()
+    expect(second.get('.changes-grid').attributes('inert')).toBeUndefined()
+    expect(worktreeFile).toHaveBeenCalledTimes(1)
+    expect(second.text()).toContain('externally changed')
+  } finally { second.unmount(); invalidateChangesSnapshots() }
+})
+
+it('never restores another repository preview', async () => {
+  invalidateChangesSnapshots()
+  const first = mount(ChangesView, { props: { repositoryPath: '/repo' }, global: { stubs: { Teleport: true } } })
+  await flushPromises()
+  first.unmount()
+  const fresh = await readSummary()
+  let complete!: (value: typeof fresh) => void
+  readSummary.mockReturnValueOnce(new Promise(resolve => { complete = resolve }))
+  const second = mount(ChangesView, { props: { repositoryPath: '/different' }, global: { stubs: { Teleport: true } } })
+  try {
+    await flushPromises()
+    expect(second.text()).toContain('Loading worktree')
+    expect(second.find('.changes-grid').exists()).toBe(false)
+    complete(fresh)
+    await flushPromises()
+  } finally { second.unmount(); invalidateChangesSnapshots() }
+})
+
+it('retries a snapshot invalidated by a mutation while its read was pending', async () => {
+  invalidateChangesSnapshots()
+  const fresh = await readSummary()
+  let complete!: (value: typeof fresh) => void
+  readSummary.mockClear().mockReturnValueOnce(new Promise(resolve => { complete = resolve }))
+  const wrapper = mount(ChangesView, { global: { stubs: { Teleport: true } } })
+  try {
+    await flushPromises()
+    invalidateChangesSnapshots()
+    complete({ ...fresh, Entries: [entry({ Path: 'stale-only.txt', WorkStatus: FileStatus.FileModified })] })
+    await flushPromises()
+    expect(readSummary).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).not.toContain('stale-only.txt')
+    expect(wrapper.text()).toContain('app.ts')
+  } finally { wrapper.unmount(); invalidateChangesSnapshots() }
+})
+
+it('discards a hundred explicit folder descendants with one request and one refresh', async () => {
+  const original = statusEntries
+  const settings = usePreferenceBindings()
+  const grouping = settings['changes.groupByDir']
+  const confirm = settings['operations.confirmDestructive']
+  settings['changes.groupByDir'] = 'always'
+  settings['operations.confirmDestructive'] = false
+  statusEntries = Array.from({ length: 100 }, (_, i) => entry({ Path: `batch/file-${i}.txt`, WorkStatus: FileStatus.FileModified }))
+  const wrapper = await mountView()
+  try {
+    discardFiles.mockClear()
+    readSummary.mockClear()
+    await wrapper.get('[data-tree-key="dir:unstaged:batch"]').trigger('keydown', { key: 'x' })
+    await flushPromises()
+    expect(discardFiles).toHaveBeenCalledExactlyOnceWith(statusEntries.map(item => item.Path))
+    expect(readSummary).toHaveBeenCalledTimes(1)
+  } finally {
+    wrapper.unmount(); statusEntries = original
+    settings['changes.groupByDir'] = grouping; settings['operations.confirmDestructive'] = confirm
+  }
 })

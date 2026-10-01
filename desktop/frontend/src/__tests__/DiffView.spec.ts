@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import DiffView from '../components/diff/DiffView.vue'
-import { useShellSettings } from '../composables/useShellSettings'
+import { usePreferenceBindings } from '../customization/usePreferences'
 import { LineType, type FileDiff } from '../bindings/github.com/atterpac/ichi/internal/git'
 
 const line = (type: LineType, content: string, oldNo: number, newNo: number) => ({
@@ -52,6 +52,17 @@ const diff = {
 const content = Array.from({ length: 14 }, (_, i) => `file line ${i + 1}`).join('\n')
 
 describe('DiffView', () => {
+  it('reveals a referenced hunk without enabling mutations in a review', async () => {
+    const wrapper = mount(DiffView, { props: { diff, readOnly: true } })
+    await wrapper.vm.revealHunk(1, false)
+    expect(wrapper.get('.diff-hunk.active').text()).toContain('@@ -10,2 +10,2 @@')
+    await wrapper.vm.revealHunk(99, false)
+    expect(wrapper.get('.diff-hunk.active').text()).toContain('@@ -10,2 +10,2 @@')
+    await wrapper.trigger('keydown', { key: 's' })
+    expect(wrapper.emitted('stageHunk')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('leaves line mode before leaving the pane and ignores control/input staging keys', async () => {
     const wrapper = mount(DiffView, { props: { diff }, slots: { head: '<select><option>Split</option></select>' } })
     await wrapper.trigger('keydown', { key: 'v' })
@@ -78,7 +89,7 @@ describe('DiffView', () => {
   })
 
   afterEach(() => {
-    useShellSettings().diffLayout = 'unified'
+    usePreferenceBindings()['diff.layout'] = 'unified'
   })
 
   it('shows a collapsed gap between hunks and expands it from file content', async () => {
@@ -104,8 +115,46 @@ describe('DiffView', () => {
     wrapper.unmount()
   })
 
+  it.each(['path', 'staged', 'loader', 'snapshot'] as const)('ignores an old context read when %s changes and starts the current read immediately', async change => {
+    let finish!: (value: string) => void
+    const old = new Promise<string>(resolve => { finish = resolve })
+    const load = vi.fn<() => Promise<string>>().mockReturnValueOnce(old).mockResolvedValue(content)
+    const current = vi.fn<() => Promise<string>>().mockResolvedValue(content)
+    const wrapper = mount(DiffView, { props: { diff, loadFileContent: load } })
+    await wrapper.find('.diff-gap').trigger('click')
+    const replacements = {
+      path: { diff: { ...diff, Path: 'current.ts' } as FileDiff },
+      staged: { staged: true },
+      loader: { loadFileContent: current },
+      snapshot: { diff: { ...diff } as FileDiff },
+    }[change]
+    await wrapper.setProps(replacements)
+    await wrapper.find('.diff-gap').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('file line 4')
+    finish(Array.from({ length: 14 }, () => 'obsolete context').join('\n'))
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('obsolete context')
+    expect(wrapper.text()).toContain('file line 4')
+    wrapper.unmount()
+  })
+
+  it('reports context read errors and retries without discarding the diff', async () => {
+    const load = vi.fn<() => Promise<string>>().mockRejectedValueOnce(new Error('index read failed')).mockResolvedValue(content)
+    const wrapper = mount(DiffView, { props: { diff, loadFileContent: load } })
+    await wrapper.find('.diff-gap').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('index read failed')
+    expect(wrapper.find('.diff-hunk').exists()).toBe(true)
+    await wrapper.findAll('button').find(button => button.text() === 'Retry')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('file line 4')
+    wrapper.unmount()
+  })
+
   it('changes-only layout hides context lines and gaps', async () => {
-    useShellSettings().diffLayout = 'changes'
+    usePreferenceBindings()['diff.layout'] = 'changes'
     const wrapper = mount(DiffView, { props: { diff, loadFileContent: () => Promise.resolve(content) } })
     await flushPromises()
     const contents = wrapper.findAll('.diff-line .line-content').map((el) => el.text())
@@ -115,7 +164,7 @@ describe('DiffView', () => {
   })
 
   it('inline layout merges modified pairs into one row with del/ins spans', async () => {
-    useShellSettings().diffLayout = 'inline'
+    usePreferenceBindings()['diff.layout'] = 'inline'
     const wrapper = mount(DiffView, { props: { diff } })
     await flushPromises()
     const merged = wrapper.find('.diff-merged')
@@ -132,14 +181,14 @@ describe('DiffView', () => {
     const order: string[] = []
     for (let i = 0; i < 5; i++) {
       await wrapper.find('.diff-view').trigger('keydown', { key: 't' })
-      order.push(useShellSettings().diffLayout)
+      order.push(usePreferenceBindings()['diff.layout'])
     }
     expect(order).toEqual(['split', 'inline', 'changes', 'result', 'unified'])
     wrapper.unmount()
   })
 
   it('result layout renders the new side with deletion markers', async () => {
-    useShellSettings().diffLayout = 'result'
+    usePreferenceBindings()['diff.layout'] = 'result'
     const wrapper = mount(DiffView, { props: { diff } })
     await flushPromises()
     const contents = wrapper.findAll('.diff-line .line-content').map((el) => el.text())
@@ -190,7 +239,7 @@ describe('Changes cursor review', () => {
   })
 
   it('uses unified line navigation independently of settings, with hunk jumps and search', async () => {
-    useShellSettings().diffLayout = 'split'
+    usePreferenceBindings()['diff.layout'] = 'split'
     const wrapper = mount(DiffView, { props: { diff, cursorReview: true } })
     await flushPromises()
     const current = () => wrapper.find('.line-cursor').text()
@@ -210,7 +259,7 @@ describe('Changes cursor review', () => {
     expect(current()).toContain('old two')
     expect(wrapper.find('.hunk-stage-hint').exists()).toBe(false)
     wrapper.unmount()
-    useShellSettings().diffLayout = 'unified'
+    usePreferenceBindings()['diff.layout'] = 'unified'
   })
 
   it('edits a line in place and sends the complete result hunk, including an empty line', async () => {
@@ -256,9 +305,9 @@ describe('Changes cursor review', () => {
 
 describe('full-file editing', () => {
   it('opens the full-file editor at the double-clicked diff line', async () => {
-    const loadEditorFile = vi.fn(async () => content)
+    const loadEditorFile = vi.fn<() => Promise<string>>(async () => content)
     const wrapper = mount(DiffView, {
-      props: { diff, cursorReview: true, loadEditorFile, saveEditorFile: vi.fn() },
+      props: { diff, cursorReview: true, loadEditorFile, saveEditorFile: vi.fn<(original: string, content: string) => Promise<void>>() },
       global: { stubs: { FileEditor: { props: ['line'], template: '<div class="editor-stub" :data-line="line" />' } } },
     })
     const target = wrapper.findAll('.diff-line').find(row => row.text().includes('eleven'))!
@@ -272,8 +321,8 @@ describe('full-file editing', () => {
   })
 
   it.each([{ staged: true }, { readOnly: true }])('does not double-click edit a protected diff %j', async protection => {
-    const loadEditorFile = vi.fn(async () => content)
-    const wrapper = mount(DiffView, { props: { diff, cursorReview: true, loadEditorFile, saveEditorFile: vi.fn(), ...protection } })
+    const loadEditorFile = vi.fn<() => Promise<string>>(async () => content)
+    const wrapper = mount(DiffView, { props: { diff, cursorReview: true, loadEditorFile, saveEditorFile: vi.fn<(original: string, content: string) => Promise<void>>(), ...protection } })
     await wrapper.get('.diff-line .line-content').trigger('dblclick')
     await flushPromises()
     expect(loadEditorFile).not.toHaveBeenCalled()
@@ -281,7 +330,7 @@ describe('full-file editing', () => {
   })
 
   it('rejects oversized buffers without leaving the diff', async () => {
-    const wrapper = mount(DiffView, { props: { diff, loadEditorFile: async () => 'x'.repeat(1024 * 1024 + 1), saveEditorFile: vi.fn() } })
+    const wrapper = mount(DiffView, { props: { diff, loadEditorFile: async () => 'x'.repeat(1024 * 1024 + 1), saveEditorFile: vi.fn<(original: string, content: string) => Promise<void>>() } })
     await wrapper.trigger('keydown', { key: 'e' })
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('1 MiB')
@@ -292,7 +341,7 @@ describe('full-file editing', () => {
   it('ignores a pending file load after switching files', async () => {
     let resolve!: (value: string) => void
     const load = new Promise<string>(r => { resolve = r })
-    const wrapper = mount(DiffView, { props: { diff, loadEditorFile: () => load, saveEditorFile: vi.fn() } })
+    const wrapper = mount(DiffView, { props: { diff, loadEditorFile: () => load, saveEditorFile: vi.fn<(original: string, content: string) => Promise<void>>() } })
     await wrapper.trigger('keydown', { key: 'e' })
     await wrapper.setProps({ diff: { ...diff, Path: 'another.ts' } as FileDiff })
     resolve('old file')

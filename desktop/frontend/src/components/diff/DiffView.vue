@@ -3,7 +3,7 @@ import { isEditable, isModified } from '../../composables/keyboard'
 import FileEditor from './FileEditor.vue'
 import UiButton from '../common/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings } from '../../customization/usePreferences'
 import { useVirtualWindow } from '../../composables/useVirtualWindow'
 import { LineType, type DiffHunk, type DiffLine, type FileDiff } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
@@ -29,11 +29,12 @@ const emit = defineEmits<{
   stageLines: [hunk: DiffHunk, lines: DiffLine[]]
   stageFile: []
   editHunk: [hunk: DiffHunk, replacement: string[]]
+  fileEditorClosed: [saved: boolean]
   exit: []
   modechange: [mode: 'hunk' | 'visual' | 'edit']
 }>()
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 
 const MAX_LINE_CHARS = 1000
 const MAX_EDIT_LINES = 300
@@ -42,14 +43,14 @@ const LARGE_DIFF_LINES = 5000
 const DENSITY_HEIGHTS = { compact: 17, comfortable: 20, relaxed: 24 } as const
 
 const CURSOR_DENSITY_HEIGHTS = { compact: 22, comfortable: 26, relaxed: 30 } as const
-const rowHeight = computed(() => props.cursorReview ? CURSOR_DENSITY_HEIGHTS[settings.diffDensity] : DENSITY_HEIGHTS[settings.diffDensity])
-const layout = computed(() => props.cursorReview ? 'unified' : settings.diffLayout)
+const rowHeight = computed(() => props.cursorReview ? CURSOR_DENSITY_HEIGHTS[settings['diff.density']] : DENSITY_HEIGHTS[settings['diff.density']])
+const layout = computed(() => props.cursorReview ? 'unified' : settings['diff.layout'])
 
 const LAYOUT_CYCLE = ['unified', 'split', 'inline', 'changes', 'result'] as const
 
 function cycleLayout() {
   const index = LAYOUT_CYCLE.indexOf(layout.value)
-  settings.diffLayout = LAYOUT_CYCLE[(index + 1) % LAYOUT_CYCLE.length]!
+  settings['diff.layout'] = LAYOUT_CYCLE[(index + 1) % LAYOUT_CYCLE.length]!
 }
 
 const container = ref<HTMLElement | null>(null)
@@ -64,12 +65,13 @@ let pendingG = 0
 const forceLarge = ref(false)
 const fileEditor = ref<InstanceType<typeof FileEditor> | null>(null)
 const fileBuffer = ref<string | null>(null)
+let fileWasSaved = false
 const fileEditorLine = ref(1)
 const fileEditorLineOffset = ref(0)
 const editorLoading = ref(false)
 const editorError = ref('')
 let editorRequest = 0
-onBeforeUnmount(() => { editorRequest++ })
+onBeforeUnmount(() => { editorRequest++; contentGeneration++ })
 const editMode = ref(false)
 const editValue = ref('')
 const editTextArea = ref<HTMLTextAreaElement | null>(null)
@@ -110,23 +112,47 @@ const lineStagingEnabled = computed(() => layout.value === 'unified' && !props.r
 const expandedGaps = ref<Set<string>>(new Set())
 const fileLines = ref<string[] | null>(null)
 let contentLoading = false
+let contentGeneration = 0
+const contextError = ref('')
+let failedGap: string | null = null
 
 const gapsEnabled = computed(() => layout.value !== 'changes' && !props.fileLevelOnly && !!props.loadFileContent)
 
 async function expandGap(id: string) {
   if (!props.loadFileContent) return
+  const request = contentGeneration
   if (!fileLines.value && !contentLoading) {
     contentLoading = true
+    contextError.value = ''
+    failedGap = null
     try {
-      fileLines.value = (await props.loadFileContent()).split('\n')
-    } catch {
-      /* context expansion is best-effort; the diff itself is unaffected */
+      const content = await props.loadFileContent()
+      if (request !== contentGeneration) return
+      fileLines.value = content.split('\n')
+    } catch (error) {
+      if (request === contentGeneration) {
+        contextError.value = error instanceof Error ? error.message : String(error)
+        failedGap = id
+      }
     } finally {
-      contentLoading = false
+      if (request === contentGeneration) contentLoading = false
     }
   }
-  if (fileLines.value) expandedGaps.value = new Set([...expandedGaps.value, id])
+  if (request === contentGeneration && fileLines.value) expandedGaps.value = new Set([...expandedGaps.value, id])
 }
+
+function retryContext() {
+  if (failedGap) void expandGap(failedGap)
+}
+
+watch([() => props.diff, () => props.staged, () => props.loadFileContent], () => {
+  contentGeneration++
+  contentLoading = false
+  contextError.value = ''
+  failedGap = null
+  fileLines.value = null
+  expandedGaps.value = new Set()
+})
 
 /** synthesize a context DiffLine for an expanded gap row */
 function contextCell(newLineNo: number, oldLineNo: number): LineCell | null {
@@ -220,7 +246,7 @@ function pairRuns(lines: DiffLine[]): Map<DiffLine, DiffLine> {
 }
 
 function highlightFor(line: DiffLine, pairs: Map<DiffLine, DiffLine>): [number, number] | null {
-  if (!settings.diffWordHighlights) return null
+  if (!settings['diff.wordHighlights']) return null
   const other = pairs.get(line)
   if (!other) return null
   if (line.Content.length > MAX_LINE_CHARS || other.Content.length > MAX_LINE_CHARS) return null
@@ -537,6 +563,7 @@ async function enterEditMode() {
       const content = await props.loadEditorFile()
       if (request !== editorRequest) return
       if (new TextEncoder().encode(content).length > 1024 * 1024 || content.split('\n').length > 20000) throw new Error('Editing is limited to 1 MiB and 20,000 lines.')
+      fileWasSaved = false
       fileBuffer.value = content
       fileEditorLine.value = line
       fileEditorLineOffset.value = lineOffset
@@ -564,7 +591,13 @@ function leaveEditMode() {
   fileBuffer.value = null
   editMode.value = false
   emit('modechange', 'hunk')
+  if (wasFile) { emit('fileEditorClosed', fileWasSaved); fileWasSaved = false }
   void nextTick(() => { container.value?.focus(); if (wasFile) scrollToLine() })
+}
+
+function onFileSaved(intent: { close: boolean }) {
+  fileWasSaved = true
+  if (intent.close) leaveEditMode()
 }
 
 function saveEditMode() {
@@ -715,8 +748,6 @@ watch([() => props.diff?.Path, () => props.staged], () => {
   lineMode.value = false
   editMode.value = false
   forceLarge.value = false
-  expandedGaps.value = new Set()
-  fileLines.value = null
   if (container.value) container.value.scrollTop = 0
 })
 
@@ -738,7 +769,16 @@ function focus() {
   focusEditor()
 }
 
-defineExpose({ focus, hasContent, getMode: () => editMode.value ? 'edit' as const : lineMode.value ? 'visual' as const : 'hunk' as const })
+async function revealHunk(index: number, takeFocus = true) {
+  if (!Number.isInteger(index) || index < 0 || index >= hunks.value.length || editMode.value) return
+  forceLarge.value = true
+  hunkIndex.value = index
+  await nextTick()
+  scrollToHunk()
+  if (takeFocus) focus()
+}
+
+defineExpose({ focus, revealHunk, hasContent, getMode: () => editMode.value ? 'edit' as const : lineMode.value ? 'visual' as const : 'hunk' as const })
 
 const stageVerb = computed(() => (props.staged ? 'unstage' : 'stage'))
 const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
@@ -757,8 +797,9 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
   >
     <slot name="head" />
 
-    <FileEditor v-if="fileBuffer !== null && saveEditorFile" ref="fileEditor" :content="fileBuffer" :line="fileEditorLine" :line-offset="fileEditorLineOffset" :save="saveEditorFile" @close="leaveEditMode" @saved="leaveEditMode" />
+    <FileEditor v-if="fileBuffer !== null && saveEditorFile" ref="fileEditor" :content="fileBuffer" :line="fileEditorLine" :line-offset="fileEditorLineOffset" :save="saveEditorFile" @close="leaveEditMode" @saved="onFileSaved" />
     <div v-if="editorError" role="alert" class="diff-state">{{ editorError }}</div>
+    <div v-if="contextError" role="alert" class="diff-state">Unable to load unchanged lines: {{ contextError }} <UiButton size="sm" @click="retryContext">Retry</UiButton></div>
     <div v-if="editorLoading" role="status">Opening file…</div>
     <div v-if="fileBuffer === null && cursorReview && hasContent && !gateVisible" class="cursor-review-actions">
       <span>{{ editMode ? 'EDIT' : lineMode ? 'VISUAL' : 'NORMAL' }}</span>

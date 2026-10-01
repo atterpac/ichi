@@ -1,47 +1,84 @@
+import { markRaw } from 'vue'
 import type { CommitDetail } from '../../bindings/github.com/atterpac/ichi/internal/git'
+import { createBoundedLru } from '../../composables/boundedLru'
 
-// View-local LRU: refs/signature trust can change even though commit contents cannot.
+type Cancellable<T> = Promise<T> & { cancel?: () => void }
+const detailBytes = (detail: CommitDetail) =>
+  JSON.stringify(detail).length * 2 + (detail.Files?.length ?? 0) * 128
+const detailStore = () =>
+  createBoundedLru<string, CommitDetail>({
+    maxEntries: 80,
+    maxBytes: 8 * 1024 * 1024,
+    sizeOf: detailBytes,
+  })
+// One bounded store across repositories and view instances. Only immutable core
+// details belong here; mutable refs and signature trust are fetched on demand.
+const sharedEntries = detailStore()
+let sharedGeneration = 0
+export function clearSharedCommitDetails() {
+  sharedGeneration++
+  sharedEntries.clear()
+}
+
 export function createCommitDetailCache(
-  fetch: (hash: string) => Promise<CommitDetail | null>,
+  fetch: (hash: string) => Cancellable<CommitDetail | null>,
   limit = 80,
-  ttl = 60_000,
+  ttl = Infinity,
+  scope?: () => string,
+  maxBytes = 8 * 1024 * 1024,
 ) {
-  const entries = new Map<string, { detail: CommitDetail; expires: number }>()
-  const pending = new Map<string, Promise<CommitDetail | null>>()
+  const entries = scope ? sharedEntries : detailStore()
+  const pending = new Map<string, { promise: Promise<CommitDetail | null>; cancel: () => void }>()
   let generation = 0
+  const keyFor = (hash: string) => (scope ? JSON.stringify([scope(), hash]) : hash)
   function peek(hash: string) {
-    const entry = entries.get(hash)
-    if (!entry) return null
-    entries.delete(hash)
-    if (entry.expires <= Date.now()) return null
-    entries.set(hash, entry)
-    return entry.detail
+    const key = keyFor(hash)
+    return entries.get(key) ?? null
   }
   function get(hash: string): Promise<CommitDetail | null> {
+    const key = keyFor(hash)
     const cached = peek(hash)
     if (cached) return Promise.resolve(cached)
-    const existing = pending.get(hash)
-    if (existing) return existing
+    const existing = pending.get(key)
+    if (existing) return existing.promise
     const version = generation
-    const request = Promise.resolve()
-      .then(() => fetch(hash))
+    const sharedVersion = sharedGeneration
+    let active: Cancellable<CommitDetail | null> | undefined
+    const promise = Promise.resolve()
+      .then(() => {
+        if (version !== generation) return null
+        active = fetch(hash)
+        return active
+      })
       .then((detail) => {
-        if (detail && version === generation) {
-          entries.set(hash, { detail, expires: Date.now() + ttl })
-          while (entries.size > limit) entries.delete(entries.keys().next().value!)
-        }
+        if (detail && version === generation && (!scope || sharedVersion === sharedGeneration))
+          entries.set(key, markRaw(detail), { maxEntries: limit, maxBytes, ttl })
         return detail
       })
       .finally(() => {
-        if (pending.get(hash) === request) pending.delete(hash)
+        if (pending.get(key)?.promise === promise) pending.delete(key)
       })
-    pending.set(hash, request)
-    return request
+    pending.set(key, { promise, cancel: () => active?.cancel?.() })
+    return promise
   }
-  function clear() {
+  function cancelPending() {
     generation++
-    entries.clear()
+    for (const request of pending.values()) request.cancel()
     pending.clear()
   }
-  return { peek, get, clear }
+  function clearScope() {
+    cancelPending()
+    if (!scope) {
+      entries.clear()
+      return
+    }
+    const current = scope()
+    entries.deleteWhere((key) => JSON.parse(key)[0] === current)
+  }
+  function clear() {
+    cancelPending()
+    if (scope) clearSharedCommitDetails()
+    else entries.clear()
+  }
+  return { peek, get, clear, clearScope, cancelPending }
 }

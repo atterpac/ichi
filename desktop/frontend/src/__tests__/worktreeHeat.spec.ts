@@ -1,26 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { worktreeFiles, tallyWorktreeDiffs } from '../components/graph/worktreeHeat'
+import { worktreeFiles, summaryDeltas } from '../components/graph/worktreeHeat'
 import {
-  FileDiff,
-  DiffHunk,
-  DiffLine,
+  FileDelta,
   StatusEntry,
-  LineType,
 } from '../bindings/github.com/atterpac/ichi/internal/git'
 describe('working tree heatmap counts', () => {
   it('combines staged and unstaged counts for a partially staged file without duplicating it', () => {
-    const diff = new FileDiff({
-      Path: 'src/app.ts',
-      Hunks: [
-        new DiffHunk({
-          Lines: [
-            new DiffLine({ Type: LineType.LineAdded }),
-            new DiffLine({ Type: LineType.LineRemoved }),
-          ],
-        }),
-      ],
-    })
-    const counts = tallyWorktreeDiffs([diff], [diff])
+    const diff = new FileDelta({ Path: 'src/app.ts', Added: 1, Deleted: 1 })
+    const counts = summaryDeltas([diff], [diff])
     const files = worktreeFiles(
       [new StatusEntry({ Path: 'src/app.ts', IndexStatus: 1, WorkStatus: 1 })],
       counts,
@@ -35,7 +22,7 @@ describe('working tree heatmap counts', () => {
     })
   })
   it('does not invent zero-line totals for binary, untracked, or missing diffs', () => {
-    const counts = tallyWorktreeDiffs([new FileDiff({ Path: 'image.png', Binary: true })], [])
+    const counts = summaryDeltas([new FileDelta({ Path: 'image.png', Binary: true })], [])
     const files = worktreeFiles(
       [
         new StatusEntry({ Path: 'image.png', WorkStatus: 1 }),

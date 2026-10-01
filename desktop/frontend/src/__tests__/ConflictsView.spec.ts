@@ -8,10 +8,10 @@ import {
   ConflictEntry,
 } from '../bindings/github.com/atterpac/ichi/desktop/services/models'
 const mocks = vi.hoisted(() => ({
-  load: vi.fn(),
-  resolve: vi.fn(),
-  control: vi.fn(),
-  refresh: vi.fn(),
+  load: vi.fn<(root: string, path: string) => Promise<ConflictDocument | null>>(),
+  resolve: vi.fn<(root: string, path: string, token: string, choice: string, content: string) => Promise<void>>(),
+  control: vi.fn<(root: string, token: string, action: string) => Promise<void>>(),
+  refresh: vi.fn<() => Promise<void>>(),
 }))
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   ConflictService: {
