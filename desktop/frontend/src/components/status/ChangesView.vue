@@ -33,7 +33,7 @@ import {
   type DiffLine,
   type StatusEntry,
 } from '../../bindings/github.com/atterpac/ichi/internal/git'
-import { PhCaretRight, PhGitCommit, PhMinus, PhPlus, PhTreeStructure } from '@phosphor-icons/vue'
+import { PhCaretRight, PhGitCommit, PhMinus, PhPlus } from '@phosphor-icons/vue'
 
 const props = defineProps<{
   repositoryPath?: string
@@ -53,7 +53,23 @@ const repo = ref<RepoInfo | null>(null)
 const settings = usePreferenceBindings()
 const pendingOperation = ref<OperationConfirmRequest | null>(null)
 
+const fileFilter = ref('')
 const rowGroups = computed(() => changeRows(entries.value))
+const filteredGroups = computed(() => {
+  const query = fileFilter.value.trim().toLowerCase()
+  const matches = (row: ChangeRow) => `${row.path} ${row.oldPath}`.toLowerCase().includes(query)
+  return { conflicts: rowGroups.value.conflicts.filter(matches), unstaged: rowGroups.value.unstaged.filter(matches), staged: rowGroups.value.staged.filter(matches) }
+})
+const commonDirectory = computed(() => {
+  const dirs = [...unstagedRows.value, ...stagedRows.value].map(row => row.dir.split('/'))
+  const shared = dirs[0]?.slice() ?? []
+  for (const dir of dirs) while (shared.length && !shared.every((part, index) => dir[index] === part)) shared.pop()
+  return shared.length ? shared.join('/') : ''
+})
+function displayDirectory(dir: string) {
+  const common = commonDirectory.value
+  return common && (dir === common || dir.startsWith(common + '/')) ? dir.slice(common.length + 1) || common : dir
+}
 const conflictRows = computed(() => rowGroups.value.conflicts)
 const unstagedRows = computed(() => rowGroups.value.unstaged)
 const stagedRows = computed(() => rowGroups.value.staged)
@@ -81,13 +97,25 @@ function toggleGrouping() {
   settings['changes.groupByDir'] = groupingActive.value ? 'never' : 'always'
 }
 
-const listModel = computed(() => buildChangeList(rowGroups.value, {
+const listModel = computed(() => buildChangeList(filteredGroups.value, {
   grouped: groupingActive.value,
   collapsedSections: collapsedSections.value,
   collapsedDirs: collapsedDirs.value,
 }))
 
 const rows = computed(() => listModel.value.visible)
+watch(fileFilter, () => { treeCursorKey.value = null; vim.mode.value = 'normal'; vim.moveTo(0) })
+const oppositeRow = computed(() => currentRow.value && [...unstagedRows.value, ...stagedRows.value].find(row => row.path === currentRow.value?.path && row.staged !== currentRow.value.staged))
+async function switchDiffSide() {
+  const target = oppositeRow.value
+  if (!target) return
+  collapsedSections.value = new Set([...collapsedSections.value].filter(section => section !== (target.staged ? 'staged' : 'unstaged')))
+  collapsedDirs.value = new Set()
+  await nextTick()
+  const index = rows.value.findIndex(row => row.key === target.key)
+  if (index >= 0) selectRow(index)
+}
+function nextFile(direction: number) { selectRow(Math.max(0, Math.min(rows.value.length - 1, vim.cursor.value + direction))) }
 const currentRow = computed<ChangeRow | undefined>(() => rows.value[vim.cursor.value])
 const conflictSection = computed(
   () => listModel.value.sections.find((section) => section.id === 'conflicts') ?? null,
@@ -282,7 +310,7 @@ const vim = useVimList(rows, {
 
 const treeActionBusy = ref(false)
 
-function treeScope(key: string | null) { return changeTreeScope(key, rowGroups.value) }
+function treeScope(key: string | null) { return changeTreeScope(key, filteredGroups.value) }
 
 const selectedScope = computed(() => groupingActive.value ? treeScope(treeCursorKey.value) : null)
 const selectionDetails = computed(() => {
@@ -473,9 +501,7 @@ function onListKey(event: KeyboardEvent) {
       event.preventDefault()
       return
     case 'a':
-      void run(async () => {
-        await WorktreeService.StageAll()
-      })
+      runBulk('stage')
       event.preventDefault()
       return
     case 'x':
@@ -606,7 +632,11 @@ function onStageFile() {
 
 function runBulk(bulk: 'stage' | 'unstage') {
   void run(async () => {
-    if (bulk === 'stage') await WorktreeService.StageAll()
+    if (fileFilter.value.trim()) {
+      const targets = bulk === 'stage' ? filteredGroups.value.unstaged : filteredGroups.value.staged
+      if (bulk === 'stage') await WorktreeService.StageFiles(indexPaths(targets))
+      else await WorktreeService.UnstageFiles(indexPaths(targets))
+    } else if (bulk === 'stage') await WorktreeService.StageAll()
     else await WorktreeService.UnstageAll()
   })
 }
@@ -645,6 +675,33 @@ const summary = ref('')
 const body = ref('')
 const amend = ref(false)
 const committing = ref(false)
+const composerHeight = ref<number | null>(null)
+const composer = ref<HTMLFormElement | null>(null)
+const composerSize = computed(() => composerHeight.value ?? 220 + (amend.value ? 36 : 0))
+let composerDrag: { y: number; height: number } | null = null
+function sizeComposer(height: number) {
+  const available = composer.value?.parentElement?.clientHeight ?? 680
+  composerHeight.value = Math.max(200, Math.min(Math.max(200, available - 160), height))
+}
+function startComposerResize(event: PointerEvent) {
+  if (event.button !== 0) return
+  composerDrag = { y: event.clientY, height: composer.value?.getBoundingClientRect().height ?? composerSize.value }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+function resizeComposer(event: PointerEvent) {
+  if (composerDrag) sizeComposer(composerDrag.height + composerDrag.y - event.clientY)
+}
+function endComposerResize(event: PointerEvent) {
+  const handle = event.currentTarget as HTMLElement
+  if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+  composerDrag = null
+}
+function composerResizeKey(event: KeyboardEvent) {
+  if (!['ArrowUp', 'ArrowDown', 'Home'].includes(event.key)) return
+  event.preventDefault()
+  if (event.key === 'Home') composerHeight.value = null
+  else sizeComposer(composerSize.value + (event.key === 'ArrowUp' ? 20 : -20))
+}
 useRepoSwitchGuard(() => committing.value || treeActionBusy.value || runningOperations.value ? 'Wait for the Git operation to finish.' : summary.value.trim() || body.value.trim() ? 'Finish or clear your commit message before switching repositories.' : '')
 
 const canCommit = computed(
@@ -652,7 +709,7 @@ const canCommit = computed(
 )
 
 function focusCommitBox() {
-  summaryEl.value?.focus()
+  void nextTick(() => summaryEl.value?.focus())
 }
 
 watch(amend, async (on, _previous, onCleanup) => {
@@ -772,7 +829,7 @@ const headerCounts = computed(() => {
 
 const CHANGE_LIST_MIN_WIDTH = 220
 const CHANGE_LIST_MAX_WIDTH = 520
-const changeListWidth = ref(270)
+const changeListWidth = ref(370)
 const changesGridStyle = computed(() => ({
   '--changes-left-w': `${changeListWidth.value}px`,
 }))
@@ -845,16 +902,6 @@ const summaryLimit = 50
   <div class="changes-view">
     <Teleport defer to="#view-header-context">
       <span v-for="part in headerCounts" :key="part" class="header-meta">{{ part }}</span>
-      <UiButton
-        size="sm"
-        icon-only
-        :active="groupingActive"
-        :title="groupingActive ? 'Flat file list (T)' : 'Group by directory (T)'"
-        :aria-pressed="groupingActive"
-        @click="toggleGrouping"
-      >
-        <PhTreeStructure :size="16" weight="bold" />
-      </UiButton>
       <UiButton size="sm" title="Focus commit message" @click="focusCommitBox">
         <PhGitCommit :size="16" weight="bold" />
         Commit
@@ -883,6 +930,13 @@ const summaryLimit = 50
           <span>Changes</span>
           <span class="change-delta"><em class="d-add">+{{ totalDelta.ins }}</em><em class="d-del">−{{ totalDelta.del }}</em></span>
         </header>
+        <div class="changes-list-tools">
+          <input v-model="fileFilter" type="search" class="ui-field" aria-label="Filter changed files" placeholder="Filter files…" @keydown.esc.stop="fileFilter = ''" />
+          <div class="changes-list-layout" role="group" aria-label="File list layout">
+            <button type="button" :aria-pressed="!groupingActive" @click="settings['changes.groupByDir'] = 'never'">List</button>
+            <button type="button" :aria-pressed="groupingActive" @click="settings['changes.groupByDir'] = 'always'">Tree</button>
+          </div>
+        </div>
         <section
           ref="listEl"
           class="changes-files"
@@ -892,6 +946,7 @@ const summaryLimit = 50
           data-keyboard-pane
           @focusin="onTreeFocus"
         >
+          <p v-if="fileFilter && !rows.length" class="changes-section-empty">No matching files.</p>
           <p v-if="!allRowCount" class="changes-section-empty">Working tree clean</p>
 
           <div v-if="conflictSection" class="changes-pane conflicts-pane">
@@ -925,7 +980,7 @@ const summaryLimit = 50
                 <FileStatusIcon class="file-status" :status="item.row.label" />
                 <span class="change-file-label"
                   ><span class="change-name">{{ item.row.name }}</span
-                  ><span v-if="item.row.dir" class="change-dir">{{ item.row.dir }}</span></span
+                  ><span v-if="item.row.dir" class="change-dir">{{ displayDirectory(item.row.dir) }}</span></span
                 >
               </button>
               </template>
@@ -954,7 +1009,7 @@ const summaryLimit = 50
                     type="button"
                     @click="runBulk(section.bulk)"
                   >
-                    {{ section.bulk === 'stage' ? 'Stage all' : 'Unstage all' }}
+                    {{ section.bulk === 'stage' ? 'Stage' : 'Unstage' }} {{ fileFilter.trim() ? 'matching' : 'all' }}
                   </button>
                 </div>
 
@@ -1030,7 +1085,7 @@ const summaryLimit = 50
                       <span class="change-file-label"
                         ><span class="change-name">{{ item.row.name }}</span
                         ><span v-if="item.row.dir" class="change-dir">{{
-                          item.row.dir
+                          displayDirectory(item.row.dir)
                         }}</span></span
                       >
                       <span v-if="deltaFor(item.row)" class="change-delta">
@@ -1057,7 +1112,7 @@ const summaryLimit = 50
             </template>
           </div>
         </section>
-        <footer class="changes-selection-footer" aria-label="Selected change actions">
+        <footer v-if="selectedScope" class="changes-selection-footer" aria-label="Selected change actions">
           <div class="changes-selection-path" :title="selectionDetails.path">{{ selectionDetails.path }}</div>
           <div class="changes-selection-summary">{{ selectionDetails.count }} {{ selectionDetails.count === 1 ? 'file' : 'files' }} · {{ selectionDetails.hint }}</div>
           <div class="changes-selection-actions">
@@ -1065,6 +1120,76 @@ const summaryLimit = 50
             <UiButton size="sm" variant="ghost" class="is-danger" :disabled="!selectionDetails.canDiscard" @click="selectionAction('x')"><kbd>x</kbd>Discard{{ selectedScope ? ' all' : '' }}</UiButton>
           </div>
         </footer>
+        <button class="commit-composer-resizer" type="button" role="separator" aria-label="Resize commit composer" aria-orientation="horizontal"
+          :aria-valuenow="composerSize" :aria-valuemin="200" :aria-valuemax="Math.max(200, (composer?.parentElement?.clientHeight ?? 680) - 160)"
+          @pointerdown.prevent="startComposerResize" @pointermove="resizeComposer" @pointerup="endComposerResize" @pointercancel="endComposerResize" @lostpointercapture="composerDrag = null"
+          @keydown="composerResizeKey" @dblclick="composerHeight = null" />
+      <form ref="composer" :style="{ height: `${composerSize}px` }"
+        class="commit-bar"
+        aria-label="Create commit"
+        tabindex="0" data-keyboard-pane @focus.self="focusCommitBox"
+        @keydown="onComposerKey"
+        @focusin="onFocusCommit"
+        @submit.prevent="commit"
+      >
+        <header class="commit-panel-head">
+          <span class="commit-destination" :title="repo?.Branch || 'Detached HEAD'">On <strong>{{ repo?.Branch || 'Detached HEAD' }}</strong></span>
+          <span class="commit-staged-count">{{ stagedRows.length }} staged</span>
+        </header>
+        <div class="commit-editor">
+          <label class="commit-field"
+            ><span class="sr-only">Summary</span>
+            <div class="commit-summary">
+              <UiInput
+                ref="summaryEl"
+                v-model="summary"
+                type="text"
+                placeholder="Commit summary"
+                aria-label="Commit summary"
+                :maxlength="200"
+                :disabled="committing"
+                @keydown="onCommitKey"
+              />
+              <span
+                v-if="summary.length"
+                class="commit-count"
+                :class="{ over: summary.length > summaryLimit }"
+                >{{ summary.length }}</span
+              >
+            </div></label
+          >
+          <label class="commit-field commit-description-field"
+            ><span class="sr-only">Description</span
+            ><textarea id="commit-description"
+              v-model="body"
+              class="commit-body ui-field"
+              aria-label="Commit description"
+              placeholder="Description (optional)"
+              rows="3"
+              :disabled="committing"
+              @keydown="onCommitKey"
+            />
+          </label>
+        </div>
+        <div class="commit-options">
+          <label class="commit-amend"><input v-model="amend" type="checkbox" :disabled="committing" />Amend last commit</label>
+        </div>
+        <p v-if="amend" class="commit-note">Update the previous commit with this message and any staged changes.</p>
+        <UiButton
+          type="submit"
+          class="commit-btn"
+          :disabled="!canCommit || committing"
+          variant="primary"
+          :loading="committing"
+          >{{
+            committing
+              ? 'Committing…'
+              : amend
+                ? 'Amend commit'
+                : !stagedRows.length ? 'Stage changes to commit' : `Commit ${stagedRows.length} ${stagedRows.length === 1 ? 'file' : 'files'}`
+          }}<kbd>⌃⏎</kbd></UiButton
+        >
+      </form>
       </div>
 
       <button
@@ -1081,7 +1206,7 @@ const summaryLimit = 50
         ref="diffView"
         class="changes-diff"
         cursor-review
-        :read-only="showingCached"
+        :read-only="showingCached || runningOperations || statusRefreshing"
         :diff="displayDiff"
         :staged="currentRow?.staged ?? false"
         :file-level-only="isUntrackedPreview"
@@ -1104,13 +1229,18 @@ const summaryLimit = 50
             :style="{ '--status-color': statusColor(currentRow.label) }"
           >
             <FileStatusIcon class="file-status" :status="currentRow.label" />
-            <span class="diff-file-path">{{ currentRow.path }}</span>
-            <span v-if="currentRow.staged" class="diff-side">staged</span>
-            <span v-else-if="isUntrackedPreview" class="diff-side">untracked</span>
-            <UiButton size="sm" class="diff-stage-file" @click="onStageFile">{{
+            <span class="diff-file-path" :title="currentRow.path"><span v-if="currentRow.dir" class="diff-file-directory">{{ currentRow.dir }}/</span><span class="diff-file-name">{{ currentRow.name }}</span></span>
+            <span class="diff-side">{{ currentRow.staged ? 'Staged' : isUntrackedPreview ? 'Untracked' : 'Unstaged' }}</span>
+            <button v-if="oppositeRow" type="button" class="diff-side-switch" @click="switchDiffSide">
+              {{ currentRow.staged ? 'Unstaged' : 'Staged' }}<template v-if="deltaFor(oppositeRow)"> +{{ deltaFor(oppositeRow)!.ins }} −{{ deltaFor(oppositeRow)!.del }}</template>
+            </button>
+            <span class="diff-file-progress">{{ vim.cursor.value + 1 }} / {{ rows.length }}</span>
+            <UiButton size="sm" variant="ghost" aria-label="Previous file" :disabled="vim.cursor.value === 0" @click="nextFile(-1)">↑</UiButton>
+            <UiButton size="sm" variant="ghost" aria-label="Next file" :disabled="vim.cursor.value >= rows.length - 1" @click="nextFile(1)">↓</UiButton>
+            <UiButton size="sm" class="diff-stage-file" :disabled="runningOperations || statusRefreshing" @click="onStageFile">{{
               currentRow.staged ? 'Unstage file' : 'Stage file'
             }}</UiButton>
-
+            <UiButton v-if="!currentRow.staged && !currentRow.conflict" size="sm" variant="ghost" class="is-danger" :disabled="runningOperations || statusRefreshing" @click="discardRow(currentRow)">Discard file</UiButton>
           </div>
         </template>
         <template #empty>
@@ -1122,80 +1252,7 @@ const summaryLimit = 50
         </template>
       </DiffView>
 
-      <form
-        class="commit-bar"
-        aria-label="Create commit"
-        tabindex="0" data-keyboard-pane @focus.self="focusCommitBox"
-        @keydown="onComposerKey"
-        @focusin="onFocusCommit"
-        @submit.prevent="commit"
-      >
-        <header class="commit-panel-head">
-          <h2>Next commit</h2>
-          <span
-            >{{ stagedRows.length }} staged {{ stagedRows.length === 1 ? 'file' : 'files' }}</span
-          >
-        </header>
-        <label class="commit-field"
-          ><span>Summary</span>
-          <div class="commit-summary">
-            <UiInput
-              size="lg"
-              ref="summaryEl"
-              v-model="summary"
-              type="text"
-              placeholder="Describe your changes"
-              aria-label="Commit summary"
-              :maxlength="200"
-              :disabled="committing"
-              @keydown="onCommitKey"
-            />
-            <span
-              v-if="summary.length"
-              class="commit-count"
-              :class="{ over: summary.length > summaryLimit }"
-              >{{ summary.length }}</span
-            >
-          </div></label
-        >
-        <label class="commit-field"
-          ><span>Description <small>optional</small></span
-          ><textarea
-            v-model="body"
-            class="commit-body ui-field"
-            aria-label="Commit description"
-            placeholder="Why was this change needed?"
-            rows="7"
-            :disabled="committing"
-            @keydown="onCommitKey"
-          />
-        </label>
-        <label class="commit-amend"
-          ><input v-model="amend" type="checkbox" :disabled="committing" />Amend last commit</label
-        >
-        <p class="commit-note">
-          {{
-            amend
-              ? 'Update the previous commit with this message and any staged changes.'
-              : 'Only staged changes go into this commit.'
-          }}
-        </p>
-        <UiButton
-          type="submit"
-          class="commit-btn"
-          :disabled="!canCommit || committing"
-          variant="primary"
-          size="lg"
-          :loading="committing"
-          >{{
-            committing
-              ? 'Committing…'
-              : amend
-                ? 'Amend commit'
-                : `Commit ${stagedRows.length} ${stagedRows.length === 1 ? 'file' : 'files'}`
-          }}<kbd>⌃⏎</kbd></UiButton
-        >
-      </form>
+
     </div>
 
     <OperationConfirmModal

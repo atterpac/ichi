@@ -351,3 +351,35 @@ describe('full-file editing', () => {
     wrapper.unmount()
   })
 })
+
+it('stages the hunk whose visible button was clicked, independently of the cursor', async () => {
+  const wrapper = mount(DiffView, { props: { diff, cursorReview: true } })
+  await wrapper.get('[aria-label="Stage change 2"]').trigger('click')
+  expect(wrapper.emitted('stageHunk')?.[0]?.[0]).toEqual(diff.Hunks[1])
+  expect(wrapper.get('.cursor-review-actions').text()).toContain('Change 2 of 2')
+  wrapper.unmount()
+})
+
+it('counts only changed lines in a visible line selection', async () => {
+  const wrapper = mount(DiffView, { props: { diff, cursorReview: true } })
+  await wrapper.findAll('.cursor-review-actions button').find(button => button.text() === 'Select lines')!.trigger('click')
+  await wrapper.trigger('keydown', { key: 'ArrowDown' })
+  await wrapper.trigger('keydown', { key: 'ArrowDown' })
+  expect(wrapper.get('.cursor-review-actions').text()).toContain('Stage 2 selected lines')
+  const button = wrapper.findAll('.cursor-review-actions button').find(button => button.text() === 'Stage 2 selected lines')!
+  await button.trigger('click')
+  expect((wrapper.emitted('stageLines')?.[0]?.[1] as unknown[])).toHaveLength(2)
+  wrapper.unmount()
+})
+
+it('wraps bounded reviews and retains the active change through a refresh gap', async () => {
+  const wrapper = mount(DiffView, { props: { diff, cursorReview: true } })
+  await wrapper.get('[aria-label="Next change"]').trigger('click')
+  await wrapper.findAll('.cursor-review-actions button').find(button => button.text() === 'Wrap')!.trigger('click')
+  expect(wrapper.classes()).toContain('wrap-lines')
+  expect(wrapper.get('.diff-spacer').attributes('style')).toBeUndefined()
+  await wrapper.setProps({ diff: null })
+  await wrapper.setProps({ diff: { ...diff } })
+  expect(wrapper.get('.cursor-review-actions').text()).toContain('Change 2 of 2')
+  wrapper.unmount()
+})

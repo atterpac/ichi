@@ -594,8 +594,8 @@ describe('ChangesView', () => {
       expect(wrapper.findAll('.section-label').map(item => item.text())).toEqual(['Unstaged', 'Staged'])
       expect(wrapper.findAll('.changes-section .section-count').map(item => item.text())).toEqual(['0', '0'])
       expect(wrapper.text()).toContain('Working tree clean')
-      expect(wrapper.get('.changes-selection-footer').text()).toContain('Select a file or folder')
-      expect(wrapper.findAll('.changes-selection-footer button').every(button => button.attributes('disabled') !== undefined)).toBe(true)
+      expect(wrapper.find('.changes-selection-footer').exists()).toBe(false)
+      expect(wrapper.get('.changes-left .commit-bar').text()).toContain('0 staged')
     } finally { wrapper.unmount(); statusEntries = original }
   })
 
@@ -638,7 +638,7 @@ describe('ChangesView', () => {
       await flushPromises()
       expect(wrapper.get('.pane-staged').classes()).not.toContain('is-empty')
       expect(wrapper.get('.changes-section-resizer').attributes('disabled')).toBeUndefined()
-      expect(wrapper.get('.changes-selection-path').text()).toBe('src/b.ts')
+      expect(wrapper.get('.diff-file-path').text()).toBe('src/b.ts')
       expect(wrapper.get('[data-tree-key="u:src/b.ts"]').classes()).toContain('selected')
       expect(document.activeElement).toBe(wrapper.get('[data-tree-key="u:src/b.ts"]').element)
       await wrapper.get('[data-tree-key="u:src/b.ts"]').trigger('keydown', { key: 's' })
@@ -730,7 +730,7 @@ describe('ChangesView', () => {
     wrapper.unmount()
   })
 
-  it('keeps the review-desk description visible and submits the full message', async () => {
+  it('submits the summary and optional description from the shared editor', async () => {
     const wrapper = await mountView()
     expect(wrapper.find('.commit-body').isVisible()).toBe(true)
     await wrapper.find('.commit-summary input').setValue('Refine review desk')
@@ -873,4 +873,57 @@ it('discards a hundred explicit folder descendants with one request and one refr
     wrapper.unmount(); statusEntries = original
     settings['changes.groupByDir'] = grouping; settings['operations.confirmDestructive'] = confirm
   }
+})
+
+it('filters files and scopes bulk staging to matching paths', async () => {
+  const wrapper = await mountView()
+  try {
+    await wrapper.get('[aria-label="Filter changed files"]').setValue('app.ts')
+    await flushPromises()
+    expect(wrapper.findAll('.change-row')).toHaveLength(1)
+    const action = wrapper.get('.pane-unstaged .section-action')
+    expect(action.text()).toBe('Stage matching')
+    await action.trigger('click')
+    await flushPromises()
+    expect(stageFiles).toHaveBeenCalledWith(['src/app.ts'])
+  } finally { wrapper.unmount() }
+})
+
+it('keeps summary and description together below the file list', async () => {
+  const wrapper = await mountView()
+  try {
+    expect(wrapper.get('.changes-left .commit-editor [aria-label="Commit summary"]').isVisible()).toBe(true)
+    expect(wrapper.get('.commit-editor [aria-label="Commit description"]').isVisible()).toBe(true)
+    await wrapper.get('[aria-label="Commit summary"]').setValue('Keep my draft')
+    await wrapper.get('[aria-label="Commit description"]').setValue('And the explanation')
+    await wrapper.get('[aria-label="Resize commit composer"]').trigger('keydown', { key: 'ArrowUp' })
+    expect((wrapper.get('[aria-label="Commit description"]').element as HTMLTextAreaElement).value).toBe('And the explanation')
+  } finally { wrapper.unmount() }
+})
+
+it('resizes the left composer from the keyboard and resets its default height', async () => {
+  const wrapper = await mountView()
+  try {
+    Object.defineProperty(wrapper.get('.changes-left').element, 'clientHeight', { value: 680 })
+    const handle = wrapper.get('[aria-label="Resize commit composer"]')
+    await handle.trigger('keydown', { key: 'ArrowUp' })
+    expect(wrapper.get('.commit-bar').attributes('style')).toContain('height: 240px')
+    await handle.trigger('keydown', { key: 'Home' })
+    expect(wrapper.get('.commit-bar').attributes('style')).toContain('height: 220px')
+    for (let i = 0; i < 30; i++) await handle.trigger('keydown', { key: 'ArrowDown' })
+    expect(wrapper.get('.commit-bar').attributes('style')).toContain('height: 200px')
+  } finally { wrapper.unmount() }
+})
+
+it('switches between both sides of a partially staged file', async () => {
+  const original = statusEntries
+  statusEntries = [entry({ Path: 'src/partial.ts', WorkStatus: FileStatus.FileModified, IndexStatus: FileStatus.FileModified, IsStaged: true })]
+  const wrapper = await mountView()
+  try {
+    expect(wrapper.get('.diff-side').text()).toBe('Unstaged')
+    await wrapper.get('.diff-side-switch').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.diff-side').text()).toBe('Staged')
+    expect(worktreeFile).toHaveBeenLastCalledWith('src/partial.ts', '', true)
+  } finally { wrapper.unmount(); statusEntries = original }
 })

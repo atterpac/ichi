@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { isEditable, isModified } from '../../composables/keyboard'
 import FileEditor from './FileEditor.vue'
+import DiffCode from './DiffCode.vue'
 import UiButton from '../common/UiButton.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { usePreferenceBindings } from '../../customization/usePreferences'
@@ -56,6 +57,11 @@ function cycleLayout() {
 const container = ref<HTMLElement | null>(null)
 const hunkIndex = ref(0)
 const lineMode = ref(false)
+const wrapLines = ref(false)
+// Wrapped rows use natural heights. Bound that mode so large reviews keep virtualization.
+const canWrap = computed(() => rowData.value.rows.length <= LARGE_DIFF_LINES)
+const wrapping = computed(() => wrapLines.value && canWrap.value)
+watch(wrapping, async () => { await nextTick(); scrollToLine() })
 const lineCursor = ref(0)
 const lineAnchor = ref(0)
 const cursorRow = ref(0)
@@ -420,6 +426,7 @@ const { window: vwindow, scrollToRow } = useVirtualWindow({
 })
 
 const slice = computed(() => {
+  if (wrapping.value) return rowData.value.rows.map((row, index) => ({ row, index, pinned: false }))
   const window = vwindow.value
   const rows = rowData.value.rows.slice(window.start, window.end).map((row, offset) => ({ row, index: window.start + offset, pinned: false }))
   // Keep an active input mounted if its row scrolls outside the virtual window.
@@ -469,6 +476,10 @@ function selectCursor(index: number) {
   lineCursor.value = row.cell.lineIndex
   if (!lineMode.value) lineAnchor.value = lineCursor.value
   container.value?.focus({ preventScroll: true })
+  if (wrapping.value) {
+    void nextTick(() => container.value?.querySelector<HTMLElement>(`[data-diff-row="${index}"]`)?.scrollIntoView?.({ block: 'nearest' }))
+    return
+  }
   // Account for the sticky file header when bringing a row into view.
   const el = container.value
   const head = (el?.querySelector('.diff-file-head')?.getBoundingClientRect().height ?? 0) + (el?.querySelector('.cursor-review-actions')?.getBoundingClientRect().height ?? 0)
@@ -487,6 +498,7 @@ function moveCursor(direction: number) {
 }
 function jumpHunk(index: number) {
   if (editMode.value) return
+  if (lineMode.value) leaveLineMode()
   if (!props.cursorReview) { hunkIndex.value = index; container.value?.focus({ preventScroll: true }); return }
   const target = Math.max(0, Math.min(hunks.value.length - 1, index))
   const row = rowData.value.rows.findIndex(item => item.kind === 'line' && item.cell.hunkIndex === target)
@@ -502,6 +514,16 @@ watch(rowData, (data) => {
 
 /* ---- selection / keyboard ------------------------------------------------ */
 
+const selectedLineCount = computed(() => {
+  const [lo, hi] = lineSelection.value
+  return hunkLines(activeHunk.value).slice(lo, hi + 1).filter(line => stageableTypes.has(line.Type)).length
+})
+function stageHunkAt(index: number) {
+  if (props.readOnly || props.fileLevelOnly || editMode.value) return
+  if (lineMode.value) leaveLineMode()
+  hunkIndex.value = index
+  stageActive()
+}
 const lineSelection = computed<[number, number]>(() => [
   Math.min(lineAnchor.value, lineCursor.value),
   Math.max(lineAnchor.value, lineCursor.value),
@@ -514,6 +536,10 @@ function isLineSelected(hunkIdx: number, lineIdx: number) {
 }
 
 function scrollToHunk() {
+  if (wrapping.value) {
+    void nextTick(() => container.value?.querySelector<HTMLElement>(`.diff-hunk[data-hunk="${hunkIndex.value}"]`)?.scrollIntoView?.({ block: 'nearest' }))
+    return
+  }
   scrollToRow(rowData.value.hunkRowStart[hunkIndex.value] ?? 0)
 }
 
@@ -735,7 +761,12 @@ function onKey(event: KeyboardEvent) {
 }
 
 // new file under the cursor → reset; same file refreshed → just clamp
-watch([() => props.diff?.Path, () => props.staged], () => {
+let lastPath: string | undefined = props.diff?.Path
+let lastStaged: boolean | undefined = props.staged
+watch([() => props.diff?.Path, () => props.staged], ([path, staged]) => {
+  if (!path || (path === lastPath && staged === lastStaged)) return
+  lastPath = path
+  lastStaged = staged
   editorRequest++
   editorLoading.value = false
   editorError.value = ''
@@ -752,6 +783,7 @@ watch([() => props.diff?.Path, () => props.staged], () => {
 })
 
 watch(hunks, (list) => {
+  if (!props.diff) return
   if (editMode.value && fileBuffer.value === null) leaveEditMode()
   if (lineMode.value) leaveLineMode()
   lineCursor.value = Math.min(lineCursor.value, Math.max(0, hunkLines(list[hunkIndex.value]).length - 1))
@@ -788,7 +820,7 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
   <section
     ref="container"
     class="diff-view"
-    :class="[`layout-${layout}`, { 'cursor-review': cursorReview, 'editing-file': fileBuffer !== null }]"
+    :class="[`layout-${layout}`, { 'cursor-review': cursorReview, 'editing-file': fileBuffer !== null, 'wrap-lines': wrapping }]"
     :style="{ '--diff-row-h': `${rowHeight}px` }"
     tabindex="0"
     aria-label="Diff"
@@ -802,16 +834,20 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
     <div v-if="contextError" role="alert" class="diff-state">Unable to load unchanged lines: {{ contextError }} <UiButton size="sm" @click="retryContext">Retry</UiButton></div>
     <div v-if="editorLoading" role="status">Opening file…</div>
     <div v-if="fileBuffer === null && cursorReview && hasContent && !gateVisible" class="cursor-review-actions">
-      <span>{{ editMode ? 'EDIT' : lineMode ? 'VISUAL' : 'NORMAL' }}</span>
+      <span>{{ editMode ? 'Editing' : lineMode ? `${selectedLineCount} selected` : `Change ${hunkIndex + 1} of ${hunks.length}` }}</span>
       <template v-if="editMode">
         <UiButton size="sm" variant="ghost" @click="leaveEditMode">Cancel</UiButton>
         <UiButton size="sm" variant="primary" @click="saveEditMode">Save</UiButton>
       </template>
       <template v-else>
+        <UiButton size="sm" variant="ghost" aria-label="Previous change" title="Previous change ([)" :disabled="hunkIndex === 0" @click="jumpHunk(hunkIndex - 1)">↑</UiButton>
+        <UiButton size="sm" variant="ghost" aria-label="Next change" title="Next change (])" :disabled="hunkIndex >= hunks.length - 1" @click="jumpHunk(hunkIndex + 1)">↓</UiButton>
+        <UiButton size="sm" variant="ghost" :aria-pressed="wrapping" :disabled="!canWrap" :title="canWrap ? 'Wrap long lines' : 'Wrapping is limited to 5,000 displayed rows'" @click="wrapLines = !wrapLines">Wrap</UiButton>
+        <UiButton v-if="lineStagingEnabled" size="sm" variant="ghost" :aria-pressed="lineMode" title="Select lines (v); extend with arrows or click within the hunk" @click="lineMode ? leaveLineMode() : enterLineMode()">{{ lineMode ? 'Cancel selection' : 'Select lines' }}</UiButton>
         <form v-if="searchOpen" @submit.prevent="findNext"><input v-model="searchQuery" class="cursor-search ui-field" aria-label="Search diff" @keydown.esc.stop.prevent="closeSearch" /></form>
         <UiButton size="sm" variant="ghost" title="Find in diff (/)" @click="openSearch">Find</UiButton>
         <UiButton size="sm" variant="ghost" :disabled="!canEditCursor" @click="enterEditMode">{{ loadEditorFile ? 'Edit file' : 'Edit line' }}</UiButton>
-        <UiButton v-if="!readOnly && !fileLevelOnly" size="sm" variant="ghost" :disabled="!activeHunk" @click="lineMode ? stageSelectedLines() : stageActive()">{{ staged ? 'Unstage' : 'Stage' }} {{ lineMode ? 'lines' : 'hunk' }}</UiButton>
+        <UiButton v-if="lineMode && !readOnly && !fileLevelOnly" size="sm" variant="primary" :disabled="!selectedLineCount" @click="stageSelectedLines">{{ staged ? 'Unstage' : 'Stage' }} {{ selectedLineCount }} selected {{ selectedLineCount === 1 ? 'line' : 'lines' }}</UiButton>
       </template>
     </div>
     <template v-if="fileBuffer === null">
@@ -843,8 +879,8 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
       /><pre ref="editLineNoEl" class="diff-edit-line-nos" aria-hidden="true">{{ editLineNumbers.join('\n') }}</pre>
     </div>
 
-    <div v-else class="diff-spacer" :style="{ height: `${vwindow.totalHeight}px` }">
-      <div class="diff-rows" :style="{ transform: `translateY(${vwindow.offsetY}px)` }">
+    <div v-else class="diff-spacer" :style="wrapping ? undefined : { height: `${vwindow.totalHeight}px` }">
+      <div class="diff-rows" :style="wrapping ? undefined : { transform: `translateY(${vwindow.offsetY}px)` }">
         <template v-for="{ row, index, pinned } in slice" :key="index">
           <button
             v-if="row.kind === 'gap'"
@@ -859,10 +895,14 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
           <div
             v-else-if="row.kind === 'hunk'"
             class="diff-hunk"
+            :data-hunk="row.hunkIndex"
             :class="{ active: row.hunkIndex === hunkIndex }"
             @click="jumpHunk(row.hunkIndex)"
           >
             <span class="hunk-header-text">{{ row.header }}</span>
+            <button v-if="cursorReview && !readOnly && !fileLevelOnly" type="button" class="hunk-stage-button"
+              :aria-label="`${staged ? 'Unstage' : 'Stage'} change ${row.hunkIndex + 1}`" :disabled="editMode || lineMode"
+              @click.stop="stageHunkAt(row.hunkIndex)">{{ staged ? 'Unstage' : 'Stage' }} hunk</button>
             <span v-if="!cursorReview && !props.readOnly && !props.fileLevelOnly" class="hunk-stage-hint"><kbd>s</kbd> {{ stageVerb }} hunk{{ row.hunkIndex === hunkIndex ? editHint : '' }}</span>
           </div>
 
@@ -880,6 +920,7 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
           <div
             v-else-if="row.kind === 'line'"
             class="diff-line"
+            :data-diff-row="index"
             :class="{
               add: row.cell.line.Type === LineType.LineAdded,
               del: row.cell.line.Type === LineType.LineRemoved,
@@ -901,8 +942,7 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
               :style="{ minWidth: `${Math.max(editValue.length, row.cell.content.length, 20) + 2}ch` }"
               :maxlength="MAX_LINE_CHARS" @click.stop @keydown.stop="onEditKey" />
             <span v-else class="line-content">
-              <template v-if="row.cell.hl">{{ row.cell.content.slice(0, row.cell.hl[0]) }}<mark>{{ row.cell.content.slice(row.cell.hl[0], row.cell.hl[1]) }}</mark>{{ row.cell.content.slice(row.cell.hl[1]) }}</template>
-              <template v-else>{{ row.cell.content }}</template>
+              <DiffCode :content="row.cell.content" :highlight="row.cell.hl" :path="diff?.Path || ''" />
               <i v-if="row.cell.truncatedChars" class="line-truncated">… +{{ row.cell.truncatedChars.toLocaleString() }} chars</i>
             </span>
           </div>
