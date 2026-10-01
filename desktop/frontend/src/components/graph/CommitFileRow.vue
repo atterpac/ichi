@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { ChangedFile } from '../../bindings/github.com/atterpac/ichi/internal/git'
 import FileStatusIcon from '../common/FileStatusIcon.vue'
-import DiffBar from '../common/DiffBar.vue'
 
 defineProps<{ file: ChangedFile; index: number; selected: boolean; showDirectory?: boolean }>()
 const emit = defineEmits<{ review: [path: string] }>()
@@ -32,7 +31,7 @@ const emit = defineEmits<{ review: [path: string] }>()
           ><span class="delta-del">−{{ file.Deletions }}</span>
         </template></span
       >
-      <DiffBar v-if="!file.Binary" :additions="file.Insertions" :deletions="file.Deletions" />
+
     </span>
   </button>
 </template>

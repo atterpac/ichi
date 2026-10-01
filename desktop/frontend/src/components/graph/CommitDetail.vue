@@ -18,7 +18,7 @@ import type { RepoInfo } from '../../bindings/github.com/atterpac/ichi/desktop/s
 import { usePreferenceBindings } from '../../customization/usePreferences'
 import SurfaceState from '../common/SurfaceState.vue'
 import UiButton from '../common/UiButton.vue'
-import DiffBar from '../common/DiffBar.vue'
+import CommitPreview from './CommitPreview.vue'
 import FileHeatmap from '../common/FileHeatmap.vue'
 import { showsHeatmap } from '../common/heatmapThreshold'
 import WorkingTreePane from './WorkingTreePane.vue'
@@ -110,10 +110,15 @@ const messageOpen = ref(false)
 const expanded = ref(false)
 const working = computed(() => props.commit.Hash === '__ichi_working_changes__')
 const author = computed(() => props.detail?.Author || props.commit.Author)
-const subject = computed(() => props.detail?.Subject || props.commit.Message)
+const rawSubject = computed(() => props.detail?.Subject || props.commit.Message)
+const subject = computed(() => props.commit.IsStash
+  ? rawSubject.value.replace(/^(?:WIP on|On) [^:]+:\s*/, '')
+  : rawSubject.value)
+const stashRef = computed(() => props.commit.Refs?.find(ref => /^stash@\{\d+\}$/.test(ref)))
+const selectionKind = computed(() => props.commit.IsStash ? 'Stash' : parents.value.length > 1 ? 'Merge commit' : 'Commit')
 const body = computed(() => {
   const text = props.detail?.Body.trim() || ''
-  return text.startsWith(subject.value) ? text.slice(subject.value.length).trim() : text
+  return text.startsWith(rawSubject.value) ? text.slice(rawSubject.value.length).trim() : text
 })
 const hash = computed(() =>
   settings['graph.detailHash'] === 'short'
@@ -300,6 +305,12 @@ function resizeKey(event: KeyboardEvent) {
       <template v-else>
         <div class="detail-overview">
           <header class="detail-head">
+            <div class="detail-identity">
+              <span class="detail-kind">{{ selectionKind }}</span>
+              <span v-if="stashRef" class="detail-stash-ref">{{ stashRef }}</span>
+              <button type="button" class="detail-sha" :title="`Copy full SHA: ${commit.Hash}`"
+                aria-label="Copy full SHA" @click="emit('copy', commit.Hash)">{{ hash }}</button>
+            </div>
             <h3>{{ subject }}</h3>
             <div v-if="refs.length" class="detail-refs" role="list" aria-label="Refs on this commit">
               <span v-for="decoration in refs" :key="`${decoration.Kind}:${decoration.Name}`" role="listitem">
@@ -312,28 +323,20 @@ function resizeKey(event: KeyboardEvent) {
                 <span class="detail-author">{{ author }}</span>
                 <time class="detail-date" :datetime="authorDate" :title="date(authorDate)">{{ relative(authorDate) }}</time>
               </span>
-              <span class="detail-ids">
-                <button
-                  type="button"
-                  class="detail-sha"
-                  :title="`Copy full SHA: ${commit.Hash}`"
-                  aria-label="Copy full SHA"
-                  @click="emit('copy', commit.Hash)"
-                >{{ hash }}</button>
-                <span v-if="parents.length" class="detail-parents" :title="parents.length > 1 ? 'Merge parents' : 'Parent'">
-                  <span class="detail-parent-arrow" aria-hidden="true">←</span>
-                  <button
-                    v-for="(parent, index) in parents"
-                    :key="parent"
-                    type="button"
-                    :title="detail?.ParentSubjects?.[index] || parent"
-                    :aria-label="`Open parent ${parent}`"
-                    @click="emit('parent', parent)"
-                  >{{ parent.slice(0, 7) }}</button>
-                </span>
-              </span>
+
             </div>
           </header>
+          <div v-if="parents.length" class="detail-ancestry">
+            <span class="detail-context-label">{{ commit.IsStash ? 'Based on' : parents.length > 1 ? 'Parents' : 'Parent' }}</span>
+            <div class="detail-parents">
+              <button v-for="(parent, index) in parents" :key="parent" type="button"
+                :title="detail?.ParentSubjects?.[index] || parent" :aria-label="`Open parent ${parent}`"
+                @click="emit('parent', parent)">
+                <code>{{ parent.slice(0, 7) }}</code>
+                <span v-if="detail?.ParentSubjects?.[index]">{{ detail.ParentSubjects[index] }}</span>
+              </button>
+            </div>
+          </div>
           <div v-if="body" class="detail-message" :class="{ clamped: longBody && !messageOpen }">
             <p>{{ body }}</p>
             <button v-if="longBody" type="button" class="detail-text-toggle" :aria-expanded="messageOpen" @click="messageOpen = !messageOpen">
@@ -347,9 +350,11 @@ function resizeKey(event: KeyboardEvent) {
               :aria-expanded="detailsOpen"
               aria-controls="commit-metadata-panel"
               @click="detailsOpen = !detailsOpen"
-            ><PhCaretRight weight="bold" :size="12" />Details</button>
+            ><PhCaretRight weight="bold" :size="12" />Metadata</button>
             <div v-if="detailsOpen" id="commit-metadata-panel">
               <dl>
+                <div><dt>SHA</dt><dd class="detail-full-sha">{{ commit.Hash }}</dd></div>
+                <div v-if="settings['graph.detailShowAuthorDate']"><dt>Authored</dt><dd>{{ date(authorDate) }}</dd></div>
                 <div v-if="settings['graph.detailShowAuthorDate'] && detail?.AuthorEmail">
                   <dt>Email</dt>
                   <dd>{{ detail.AuthorEmail }}</dd>
@@ -387,10 +392,10 @@ function resizeKey(event: KeyboardEvent) {
           <p v-if="loading" class="detail-loading" role="status">Loading files…</p>
           <div v-else id="commit-files-panel" class="detail-files" role="group" aria-label="Changed files" tabindex="0">
             <div v-if="detail?.Stats" class="detail-summary" aria-label="Commit change summary">
-              <span>{{ detail.Stats.FilesChanged }} {{ detail.Stats.FilesChanged === 1 ? 'file' : 'files' }}</span
+              <span>{{ detail.Stats.FilesChanged }} {{ detail.Stats.FilesChanged === 1 ? 'file changed' : 'files changed' }}</span
               ><span class="delta-add">+{{ detail.Stats.Insertions }}</span
               ><span class="delta-del">−{{ detail.Stats.Deletions }}</span>
-              <DiffBar :additions="detail.Stats.Insertions" :deletions="detail.Stats.Deletions" />
+
             </div>
             <FileHeatmap
               v-if="showHeatmap"
@@ -399,7 +404,7 @@ function resizeKey(event: KeyboardEvent) {
               @select="selectHeatFile"
             />
             <WindowedList v-if="largeFileList" ref="fileWindow" class="detail-file-window"
-              :items="sortedFiles" :row-height="30" :key-of="file => file.Path">
+              :items="sortedFiles" :row-height="38" :key-of="file => file.Path">
               <template #default="{ item: file, index }">
                 <CommitFileRow :file="file" :index="index" :selected="(selectedFile || sortedFiles[0]?.Path) === file.Path" show-directory
                   @review="reviewFile" @keydown="fileKey($event, file.Path)" />
@@ -430,16 +435,18 @@ function resizeKey(event: KeyboardEvent) {
               :aria-expanded="expanded"
               @click="expanded = !expanded"
             >{{ expanded ? 'Show fewer files' : `Show all ${files.length} files` }}</button>
+            <CommitPreview v-if="files.length === 1 && detail" :key="commit.Hash"
+              :hash="commit.Hash" :parent="parents[0]" :file="files[0]!" @review="reviewFile" />
             <p v-if="!files.length" class="detail-more">No changed files in this commit.</p>
           </div>
         </div>
       </template>
     </div>
     <footer v-if="!working && !loading && !error && commit.IsStash" class="detail-footer">
-      <UiButton @click="emit('action', 'stash-apply')"
+      <UiButton variant="primary" title="Apply changes and keep this stash" @click="emit('action', 'stash-apply')"
         ><PhDownloadSimple weight="bold" :size="16" />Apply</UiButton
       >
-      <UiButton @click="emit('action', 'stash-pop')"
+      <UiButton title="Apply changes and remove this stash" @click="emit('action', 'stash-pop')"
         ><PhArchive weight="bold" :size="16" />Pop</UiButton
       >
       <UiButton variant="ghost" @click="emit('action', 'stash-drop')"

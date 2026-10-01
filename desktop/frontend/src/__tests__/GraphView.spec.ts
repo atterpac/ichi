@@ -365,6 +365,11 @@ describe('Graph inspector refresh', () => {
     try {
       expect(wrapper.find('.commit-row.stash').exists()).toBe(true)
       expect(wrapper.findAll('.detail-parents button')).toHaveLength(1)
+      expect(wrapper.get('.detail-kind').text()).toBe('Stash')
+      expect(wrapper.get('.detail-stash-ref').text()).toBe('stash@{1}')
+      expect(wrapper.get('.detail-head h3').text()).toBe('shelved spike')
+      expect(wrapper.get('.detail-ancestry').text()).toContain('Based on')
+      expect(wrapper.get('.detail-footer button').classes()).toContain('variant-primary')
       const footer = () => wrapper.findAll('.detail-footer button')
       expect(footer().map(button => button.text())).toEqual(['Apply', 'Pop', 'Drop'])
       await footer()[0]!.trigger('click')

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import CommitDetailPanel from '../components/graph/CommitDetail.vue'
 import {
@@ -7,6 +7,7 @@ import {
   ChangedFile,
   StatusEntry,
 } from '../bindings/github.com/atterpac/ichi/internal/git'
+vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({ DiffService: { DiffBetweenFile: vi.fn().mockResolvedValue(null), FileDiff: vi.fn().mockResolvedValue([]) } }))
 function preview(entries: StatusEntry[]) {
   return mount(CommitDetailPanel, {
     props: {
