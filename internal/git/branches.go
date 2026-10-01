@@ -248,10 +248,10 @@ func parseTrackingInfo(info string, branch *Branch) {
 
 // Tag represents a git tag.
 type Tag struct {
-	Name    string
-	Hash    string
-	Message string
-	Tagger  string
+	Name        string
+	Hash        string
+	Message     string
+	Tagger      string
 	IsAnnotated bool
 }
 
@@ -383,6 +383,7 @@ func (r *Repository) LogRef(ref string, limit int) ([]RefCommit, error) {
 // FileChurn summarizes per-file additions and deletions.
 type FileChurn struct {
 	Path    string
+	OldPath string // Source path for a rename; empty for other changes.
 	Added   int
 	Deleted int
 }
@@ -391,25 +392,39 @@ type FileChurn struct {
 // refs (git diff a b): additions are lines b has that a lacks. Binary files
 // report zero counts.
 func (r *Repository) DiffFiles(a, b string) ([]FileChurn, error) {
-	out, err := r.run("diff", "--numstat", a, b)
+	a, b, err := r.comparisonRefs(a, b)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.run("diff", "--numstat", "-z", "-M", a, b, "--")
 	if err != nil {
 		return nil, err
 	}
 	return parseChurn(out), nil
 }
 
-// parseChurn turns `git diff --numstat` output into per-file FileChurn entries.
+// parseChurn turns NUL-delimited numstat into literal paths, including renames.
 // Binary files report "-" for both counts, which parse to 0.
 func parseChurn(out string) []FileChurn {
 	var churn []FileChurn
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+	records := strings.Split(out, "\x00")
+	for i := 0; i < len(records); i++ {
+		line := records[i]
 		parts := strings.SplitN(line, "\t", 3)
 		if len(parts) != 3 {
 			continue
 		}
 		added, _ := strconv.Atoi(parts[0])
 		deleted, _ := strconv.Atoi(parts[1])
-		churn = append(churn, FileChurn{Path: parts[2], Added: added, Deleted: deleted})
+		entry := FileChurn{Path: parts[2], Added: added, Deleted: deleted}
+		if entry.Path == "" {
+			if i+2 >= len(records) {
+				break
+			}
+			entry.OldPath, entry.Path = records[i+1], records[i+2]
+			i += 2
+		}
+		churn = append(churn, entry)
 	}
 	return churn
 }

@@ -14,15 +14,15 @@ func makeStatusV2(n int) string {
 		path := fmt.Sprintf("pkg/module%d/file%d.go", i%8, i)
 		switch i % 5 {
 		case 0:
-			sb.WriteString(fmt.Sprintf("1 M. N... 100644 100644 100644 1111111 2222222 %s\n", path))
+			sb.WriteString(fmt.Sprintf("1 M. N... 100644 100644 100644 1111111 2222222 %s\x00", path))
 		case 1:
-			sb.WriteString(fmt.Sprintf("1 .M N... 100644 100644 100644 1111111 2222222 %s\n", path))
+			sb.WriteString(fmt.Sprintf("1 .M N... 100644 100644 100644 1111111 2222222 %s\x00", path))
 		case 2:
-			sb.WriteString(fmt.Sprintf("2 R. N... 100644 100644 100644 1111111 2222222 R100 %s\told/%s\n", path, path))
+			sb.WriteString(fmt.Sprintf("2 R. N... 100644 100644 100644 1111111 2222222 R100 %s\x00old/%s\x00", path, path))
 		case 3:
-			sb.WriteString(fmt.Sprintf("? %s\n", path))
+			sb.WriteString(fmt.Sprintf("? %s\x00", path))
 		case 4:
-			sb.WriteString(fmt.Sprintf("u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 %s\n", path))
+			sb.WriteString(fmt.Sprintf("u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 %s\x00", path))
 		}
 	}
 	return sb.String()

@@ -1,7 +1,9 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -17,6 +19,9 @@ func init() {
 
 // GitHub implements the remote.Provider interface using the gh CLI
 type GitHub struct {
+	// cli is an optional execution seam for provider contract tests.
+	cli           func(...string) ([]byte, error)
+	ctx           context.Context
 	authenticated bool
 	user          *remote.User
 }
@@ -26,15 +31,29 @@ func New() remote.Provider {
 	return &GitHub{}
 }
 
+// WithContext preserves provider configuration without changing another caller's
+// lifetime. Interactive terminal authentication remains the caller's concern.
+func (g *GitHub) WithContext(ctx context.Context) remote.Provider {
+	clone := *g
+	clone.ctx = ctx
+	return &clone
+}
+
+func (g *GitHub) operationContext() context.Context {
+	if g.ctx != nil {
+		return g.ctx
+	}
+	return context.Background()
+}
+
 func (g *GitHub) Name() string {
 	return "github"
 }
 
 func (g *GitHub) Authenticate() error {
 	// Check if gh is authenticated
-	cmd := exec.Command("gh", "auth", "status")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("gh CLI not authenticated: run 'gh auth login'")
+	if _, err := g.gh("auth", "status"); err != nil {
+		return fmt.Errorf("gh CLI authentication check failed (run 'gh auth login' to authenticate): %w", err)
 	}
 	g.authenticated = true
 	return nil
@@ -225,18 +244,33 @@ func (g *GitHub) ListReviews(repo string, prID int) ([]remote.Review, error) {
 	return reviews, nil
 }
 
+var ErrInlineReviewCommentsUnsupported = errors.New("GitHub CLI review submission does not support pending inline comments")
+
 func (g *GitHub) SubmitReview(repo string, prID int, input *remote.SubmitReviewInput) error {
+	if len(input.Comments) != 0 {
+		return ErrInlineReviewCommentsUnsupported
+	}
+	event := ""
+	switch input.State {
+	case remote.ReviewApproved:
+		event = "APPROVE"
+	case remote.ReviewChangesRequested:
+		event = "REQUEST_CHANGES"
+	case remote.ReviewCommented:
+		event = "COMMENT"
+	default:
+		return fmt.Errorf("unsupported review state: %s", input.State)
+	}
 	args := []string{"api", "-X", "POST",
 		fmt.Sprintf("repos/%s/pulls/%d/reviews", repo, prID),
-		"-f", fmt.Sprintf("event=%s", input.State),
+		"-f", fmt.Sprintf("event=%s", event),
 	}
 
 	if input.Body != "" {
 		args = append(args, "-f", fmt.Sprintf("body=%s", input.Body))
 	}
 
-	// Note: inline comments require more complex handling via --input
-	// For now, just submit the review without inline comments
+	// Reject unsupported comments before posting to avoid partial success.
 
 	_, err := g.gh(args...)
 	return err
@@ -262,21 +296,16 @@ func (g *GitHub) ListComments(repo string, prID int) ([]remote.Comment, error) {
 }
 
 func (g *GitHub) AddComment(repo string, prID int, input *remote.CommentInput) (*remote.Comment, error) {
-	out, err := g.gh("pr", "comment", strconv.Itoa(prID), "-R", repo, "--body", input.Body)
+	out, err := g.gh("api", "-X", "POST", fmt.Sprintf("repos/%s/issues/%d/comments", repo, prID), "-f", "body="+input.Body)
 	if err != nil {
 		return nil, err
 	}
-
-	// gh pr comment doesn't return JSON, just fetch comments
-	_ = out
-	comments, err := g.ListComments(repo, prID)
-	if err != nil {
+	var response ghComment
+	if err := json.Unmarshal(out, &response); err != nil {
 		return nil, err
 	}
-	if len(comments) > 0 {
-		return &comments[len(comments)-1], nil
-	}
-	return nil, nil
+	comment := response.toRemote()
+	return &comment, nil
 }
 
 func (g *GitHub) AddInlineComment(repo string, prID int, input *remote.InlineCommentInput) (*remote.Comment, error) {
@@ -346,31 +375,44 @@ func (g *GitHub) GetPRFiles(repo string, prID int) ([]remote.ChangedFile, error)
 }
 
 func (g *GitHub) GetChecks(repo string, prID int) ([]remote.Check, error) {
-	out, err := g.gh("pr", "checks", strconv.Itoa(prID), "-R", repo, "--json", "name,state,conclusion,link,startedAt,completedAt")
+	// A PR rollup returns an empty collection successfully when checks are absent.
+	// Unlike `gh pr checks`, a failed or pending check does not change the CLI exit
+	// status; authentication/network failures remain errors rather than data.
+	out, err := g.gh("pr", "view", strconv.Itoa(prID), "-R", repo, "--json", "statusCheckRollup")
 	if err != nil {
-		// No checks might return error
-		return nil, nil
-	}
-
-	var resp []ghCheck
-	if err := json.Unmarshal(out, &resp); err != nil {
 		return nil, err
 	}
-
-	checks := make([]remote.Check, len(resp))
-	for i, c := range resp {
-		checks[i] = c.toRemote()
+	var response struct {
+		Checks []ghCheck `json:"statusCheckRollup"`
+	}
+	if err := json.Unmarshal(out, &response); err != nil {
+		return nil, err
+	}
+	checks := make([]remote.Check, len(response.Checks))
+	for i, check := range response.Checks {
+		checks[i] = check.toRemote()
 	}
 	return checks, nil
 }
 
 // gh executes a gh CLI command and returns stdout
 func (g *GitHub) gh(args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
+	ctx := g.operationContext()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if g.cli != nil {
+		return g.cli(args...)
+	}
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("gh %s: %s", strings.Join(args, " "), string(exitErr.Stderr))
+			return nil, fmt.Errorf("gh %s: %s: %w", strings.Join(args, " "), string(exitErr.Stderr), err)
 		}
 		return nil, err
 	}
@@ -380,24 +422,24 @@ func (g *GitHub) gh(args ...string) ([]byte, error) {
 // GitHub API response types
 
 type ghPullRequest struct {
-	Number         int           `json:"number"`
-	Title          string        `json:"title"`
-	Body           string        `json:"body"`
-	State          string        `json:"state"`
-	Author         ghUser        `json:"author"`
-	HeadRefName    string        `json:"headRefName"`
-	BaseRefName    string        `json:"baseRefName"`
-	HeadRefOid     string        `json:"headRefOid"`
-	CreatedAt      time.Time     `json:"createdAt"`
-	UpdatedAt      time.Time     `json:"updatedAt"`
-	Labels         []ghLabel     `json:"labels"`
-	IsDraft        bool          `json:"isDraft"`
-	URL            string        `json:"url"`
-	Additions      int           `json:"additions"`
-	Deletions      int           `json:"deletions"`
-	ChangedFiles   int           `json:"changedFiles"`
-	Mergeable      string        `json:"mergeable"`
-	ReviewRequests []ghUser      `json:"reviewRequests"`
+	Number         int       `json:"number"`
+	Title          string    `json:"title"`
+	Body           string    `json:"body"`
+	State          string    `json:"state"`
+	Author         ghUser    `json:"author"`
+	HeadRefName    string    `json:"headRefName"`
+	BaseRefName    string    `json:"baseRefName"`
+	HeadRefOid     string    `json:"headRefOid"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	Labels         []ghLabel `json:"labels"`
+	IsDraft        bool      `json:"isDraft"`
+	URL            string    `json:"url"`
+	Additions      int       `json:"additions"`
+	Deletions      int       `json:"deletions"`
+	ChangedFiles   int       `json:"changedFiles"`
+	Mergeable      string    `json:"mergeable"`
+	ReviewRequests []ghUser  `json:"reviewRequests"`
 }
 
 func (pr *ghPullRequest) toRemote() remote.PullRequest {
@@ -412,7 +454,7 @@ func (pr *ghPullRequest) toRemote() remote.PullRequest {
 	}
 
 	var mergeable *bool
-	if pr.Mergeable != "" {
+	if pr.Mergeable == "MERGEABLE" || pr.Mergeable == "CONFLICTING" {
 		m := pr.Mergeable == "MERGEABLE"
 		mergeable = &m
 	}
@@ -485,18 +527,18 @@ func (r *ghReview) toRemote() remote.Review {
 }
 
 type ghComment struct {
-	ID                  int64     `json:"id"`
-	User                ghUser    `json:"user"`
-	Body                string    `json:"body"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
-	Path                string    `json:"path"`
-	Line                int       `json:"line"`
-	OriginalLine        int       `json:"original_line"`
-	Side                string    `json:"side"`
-	InReplyToID         *int64    `json:"in_reply_to_id"`
-	DiffHunk            string    `json:"diff_hunk"`
-	CommitID            string    `json:"commit_id"`
+	ID           int64     `json:"id"`
+	User         ghUser    `json:"user"`
+	Body         string    `json:"body"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Path         string    `json:"path"`
+	Line         int       `json:"line"`
+	OriginalLine int       `json:"original_line"`
+	Side         string    `json:"side"`
+	InReplyToID  *int64    `json:"in_reply_to_id"`
+	DiffHunk     string    `json:"diff_hunk"`
+	CommitID     string    `json:"commit_id"`
 }
 
 func (c *ghComment) toRemote() remote.Comment {
@@ -522,11 +564,11 @@ func (c *ghComment) toRemote() remote.Comment {
 }
 
 type ghChangedFile struct {
-	Filename    string `json:"filename"`
-	Status      string `json:"status"`
-	Additions   int    `json:"additions"`
-	Deletions   int    `json:"deletions"`
-	Patch       string `json:"patch"`
+	Filename     string `json:"filename"`
+	Status       string `json:"status"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+	Patch        string `json:"patch"`
 	PrevFilename string `json:"previous_filename"`
 }
 
@@ -542,6 +584,12 @@ func (f *ghChangedFile) toRemote() remote.ChangedFile {
 }
 
 type ghCheck struct {
+	Type        string    `json:"__typename"`
+	Status      string    `json:"status"`
+	Context     string    `json:"context"`
+	TargetURL   string    `json:"targetUrl"`
+	DetailsURL  string    `json:"detailsUrl"`
+	CreatedAt   time.Time `json:"createdAt"`
 	Name        string    `json:"name"`
 	State       string    `json:"state"`
 	Conclusion  string    `json:"conclusion"`
@@ -552,19 +600,27 @@ type ghCheck struct {
 
 func (c *ghCheck) toRemote() remote.Check {
 	status := remote.CheckQueued
-	switch c.State {
+	name, url := c.Name, c.DetailsURL
+	state, conclusion := c.Status, strings.ToLower(c.Conclusion)
+	started := c.StartedAt
+	if c.Type == "StatusContext" {
+		name, url = c.Context, c.TargetURL
+		started = c.CreatedAt
+		if c.State == "PENDING" {
+			state = "IN_PROGRESS"
+		} else {
+			state = "COMPLETED"
+			conclusion = strings.ToLower(c.State)
+			if c.State == "ERROR" {
+				conclusion = "failure"
+			}
+		}
+	}
+	switch state {
 	case "IN_PROGRESS":
 		status = remote.CheckInProgress
 	case "COMPLETED":
 		status = remote.CheckCompleted
 	}
-
-	return remote.Check{
-		Name:        c.Name,
-		Status:      status,
-		Conclusion:  remote.CheckConclusion(c.Conclusion),
-		URL:         c.Link,
-		StartedAt:   c.StartedAt,
-		CompletedAt: c.CompletedAt,
-	}
+	return remote.Check{Name: name, Status: status, Conclusion: remote.CheckConclusion(conclusion), URL: url, StartedAt: started, CompletedAt: c.CompletedAt}
 }

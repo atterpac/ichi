@@ -3,12 +3,12 @@ package git
 import "testing"
 
 func TestParseStatusV2(t *testing.T) {
-	out := "1 M. N... 100644 100644 100644 1111111 2222222 cmd/main.go\n" +
-		"1 .M N... 100644 100644 100644 1111111 2222222 pkg/util.go\n" +
-		"2 R. N... 100644 100644 100644 1111111 2222222 R100 pkg/new.go\tpkg/old.go\n" +
-		"? untracked.txt\n" +
-		"! ignored.log\n" +
-		"u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 conflict.go\n"
+	out := "1 M. N... 100644 100644 100644 1111111 2222222 cmd/main.go\x00" +
+		"1 .M N... 100644 100644 100644 1111111 2222222 pkg/util.go\x00" +
+		"2 R. N... 100644 100644 100644 1111111 2222222 R100 pkg/new.go\x00pkg/old.go\x00" +
+		"? untracked.txt\x00" +
+		"! ignored.log\x00" +
+		"u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 conflict.go\x00"
 
 	got := parseStatusV2(out)
 	if len(got) != 6 {

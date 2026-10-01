@@ -145,7 +145,7 @@ func (r *Repository) StashShow(index int) (string, error) {
 // render file chips instead of a raw diff. Untracked files captured in the stash
 // are included.
 func (r *Repository) StashFiles(index int) ([]FileChurn, error) {
-	out, err := r.run("stash", "show", "--include-untracked", "--numstat", stashRef(index))
+	out, err := r.run("stash", "show", "--include-untracked", "--numstat", "-z", "-M", stashRef(index))
 	if err != nil {
 		return nil, err
 	}

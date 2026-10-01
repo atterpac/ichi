@@ -1,13 +1,18 @@
 package remote
 
 import (
+	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
 
 // Provider abstracts GitHub, GitLab, Bitbucket, etc.
 type Provider interface {
+	// WithContext returns an independent provider bound to this operation's lifetime.
+	WithContext(context.Context) Provider
+
 	// Identity
 	Name() string
 
@@ -111,25 +116,25 @@ type InlineCommentInput struct {
 
 // PullRequest represents a PR/MR
 type PullRequest struct {
-	ID          int64
-	Number      int
-	Title       string
-	Body        string
-	State       PRState
-	Author      User
-	BaseBranch  string
-	HeadBranch  string
-	HeadSHA     string
-	Draft       bool
-	Mergeable   *bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Labels      []string
-	Reviewers   []User
-	Checks      []Check
-	URL         string
-	Additions   int
-	Deletions   int
+	ID           int64
+	Number       int
+	Title        string
+	Body         string
+	State        PRState
+	Author       User
+	BaseBranch   string
+	HeadBranch   string
+	HeadSHA      string
+	Draft        bool
+	Mergeable    *bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Labels       []string
+	Reviewers    []User
+	Checks       []Check
+	URL          string
+	Additions    int
+	Deletions    int
 	ChangedFiles int
 }
 
@@ -172,13 +177,13 @@ type Comment struct {
 	UpdatedAt time.Time
 	Resolved  bool
 	// For inline comments
-	Path       string
-	Line       int
-	OrigLine   int
-	Side       DiffSide
-	InReplyTo  *int64
-	DiffHunk   string
-	CommitID   string
+	Path      string
+	Line      int
+	OrigLine  int
+	Side      DiffSide
+	InReplyTo *int64
+	DiffHunk  string
+	CommitID  string
 }
 
 // DiffSide indicates which side of the diff
@@ -191,11 +196,11 @@ const (
 
 // Check represents a CI check/status
 type Check struct {
-	Name       string
-	Status     CheckStatus
-	Conclusion CheckConclusion
-	URL        string
-	StartedAt  time.Time
+	Name        string
+	Status      CheckStatus
+	Conclusion  CheckConclusion
+	URL         string
+	StartedAt   time.Time
 	CompletedAt time.Time
 }
 
@@ -268,46 +273,69 @@ func Get(name string) (Provider, error) {
 	return factory(), nil
 }
 
-// DetectFromURL auto-detects provider from git remote URL
+// DetectFromURL routes supported public hosts after parsing the transport.
+// Enterprise/custom hosts need an explicit provider configuration and are not
+// inferred from paths, usernames or host substrings.
 func DetectFromURL(remoteURL string) (Provider, string, error) {
-	// Extract repo path from URL
-	repo := extractRepoPath(remoteURL)
-
-	switch {
-	case strings.Contains(remoteURL, "github.com"):
-		p, err := Get("github")
-		return p, repo, err
-	case strings.Contains(remoteURL, "gitlab.com"):
-		p, err := Get("gitlab")
-		return p, repo, err
-	case strings.Contains(remoteURL, "bitbucket.org"):
-		p, err := Get("bitbucket")
-		return p, repo, err
-	default:
-		return nil, "", fmt.Errorf("unable to detect provider from: %s", remoteURL)
+	host, repo, err := parseRemoteURL(remoteURL)
+	if err != nil {
+		return nil, "", err
 	}
+	name := ""
+	switch host {
+	case "github.com":
+		name = "github"
+	case "gitlab.com":
+		name = "gitlab"
+	case "bitbucket.org":
+		name = "bitbucket"
+	default:
+		return nil, "", fmt.Errorf("unsupported remote host: %q", host)
+	}
+	provider, err := Get(name)
+	return provider, repo, err
 }
 
-func extractRepoPath(url string) string {
-	// Handle SSH: git@github.com:owner/repo.git
-	if strings.HasPrefix(url, "git@") {
-		url = strings.TrimPrefix(url, "git@")
-		url = strings.Replace(url, ":", "/", 1)
+func parseRemoteURL(raw string) (string, string, error) {
+	var host, path string
+	if strings.Contains(raw, "://") {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid remote URL: %w", err)
+		}
+		switch parsed.Scheme {
+		case "http", "https", "ssh", "git":
+		default:
+			return "", "", fmt.Errorf("unsupported remote scheme: %q", parsed.Scheme)
+		}
+		if parsed.RawQuery != "" || parsed.Fragment != "" || strings.Contains(strings.ToLower(parsed.EscapedPath()), "%2f") {
+			return "", "", fmt.Errorf("remote URL requires a repository path without query, fragment or escaped separators")
+		}
+		host, path = parsed.Hostname(), strings.TrimPrefix(parsed.Path, "/")
+	} else {
+		// SCP-style syntax: [user@]host:owner/repository.git.
+		authority, repo, ok := strings.Cut(raw, ":")
+		if !ok || strings.ContainsAny(authority, "/\\") {
+			return "", "", fmt.Errorf("invalid SCP-style remote")
+		}
+		if at := strings.LastIndexByte(authority, '@'); at >= 0 {
+			authority = authority[at+1:]
+		}
+		host, path = authority, repo
 	}
-
-	// Handle HTTPS: https://github.com/owner/repo.git
-	url = strings.TrimPrefix(url, "https://")
-	url = strings.TrimPrefix(url, "http://")
-
-	// Remove host
-	parts := strings.SplitN(url, "/", 2)
-	if len(parts) < 2 {
-		return url
+	host = strings.ToLower(host)
+	path = strings.TrimSuffix(path, ".git")
+	if host == "" || strings.ContainsAny(host, " \t\r\n:") {
+		return "", "", fmt.Errorf("invalid remote host")
 	}
-	url = parts[1]
-
-	// Remove .git suffix
-	url = strings.TrimSuffix(url, ".git")
-
-	return url
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || (host != "gitlab.com" && len(parts) != 2) {
+		return "", "", fmt.Errorf("remote path requires owner/repository")
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, " \t\r\n\\:") {
+			return "", "", fmt.Errorf("invalid repository path segment")
+		}
+	}
+	return host, path, nil
 }

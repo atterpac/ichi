@@ -170,7 +170,7 @@ func ParseDiff(diffOutput string) ([]*FileDiff, error) {
 		line := lines[i]
 
 		// New file header
-		if strings.HasPrefix(line, "diff --git") {
+		if strings.HasPrefix(line, "diff --git ") {
 			if currentFile != nil {
 				files = append(files, currentFile)
 			}
@@ -179,12 +179,12 @@ func ParseDiff(diffOutput string) ([]*FileDiff, error) {
 			}
 			currentHunk = nil
 
-			// Parse file paths from "diff --git a/path b/path"
-			parts := strings.SplitN(line, " ", 4)
-			if len(parts) >= 4 {
-				currentFile.OldPath = strings.TrimPrefix(parts[2], "a/")
-				currentFile.Path = strings.TrimPrefix(parts[3], "b/")
+			oldPath, path, err := diffHeaderPaths(strings.TrimPrefix(line, "diff --git "))
+			if err != nil {
+				return nil, err
 			}
+			currentFile.OldPath = oldPath
+			currentFile.Path = path
 			continue
 		}
 
@@ -192,32 +192,65 @@ func ParseDiff(diffOutput string) ([]*FileDiff, error) {
 			continue
 		}
 
-		// File metadata
-		if strings.HasPrefix(line, "new file mode") {
-			currentFile.NewFile = true
-			currentFile.Status = FileAdded
-			continue
-		}
-		if strings.HasPrefix(line, "deleted file mode") {
-			currentFile.Deleted = true
-			currentFile.Status = FileDeleted
-			continue
-		}
-		if strings.HasPrefix(line, "rename from ") {
-			currentFile.OldPath = strings.TrimPrefix(line, "rename from ")
-			currentFile.Status = FileRenamed
-			continue
-		}
-		if strings.HasPrefix(line, "rename to ") {
-			currentFile.Path = strings.TrimPrefix(line, "rename to ")
-			continue
-		}
-		if strings.HasPrefix(line, "Binary files") {
-			currentFile.Binary = true
-			continue
-		}
-		if strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ ") {
-			continue
+		// Metadata only occurs before the first hunk. A removed/added content
+		// line may itself start with "--- " or "+++ ".
+		if currentHunk == nil {
+			if strings.HasPrefix(line, "new file mode") {
+				currentFile.NewFile = true
+				currentFile.Status = FileAdded
+				continue
+			}
+			if strings.HasPrefix(line, "deleted file mode") {
+				currentFile.Deleted = true
+				currentFile.Status = FileDeleted
+				continue
+			}
+			if strings.HasPrefix(line, "rename from ") || strings.HasPrefix(line, "copy from ") {
+				prefix := "rename from "
+				currentFile.Status = FileRenamed
+				if strings.HasPrefix(line, "copy from ") {
+					prefix = "copy from "
+					currentFile.Status = FileCopied
+				}
+				path, err := decodeDiffPath(strings.TrimPrefix(line, prefix))
+				if err != nil {
+					return nil, err
+				}
+				currentFile.OldPath = path
+				continue
+			}
+			if strings.HasPrefix(line, "rename to ") || strings.HasPrefix(line, "copy to ") {
+				prefix := "rename to "
+				if strings.HasPrefix(line, "copy to ") {
+					prefix = "copy to "
+				}
+				path, err := decodeDiffPath(strings.TrimPrefix(line, prefix))
+				if err != nil {
+					return nil, err
+				}
+				currentFile.Path = path
+				continue
+			}
+			if strings.HasPrefix(line, "Binary files") {
+				currentFile.Binary = true
+				continue
+			}
+			if strings.HasPrefix(line, "--- ") || strings.HasPrefix(line, "+++ ") {
+				// Git appends a tab after some unquoted paths containing spaces.
+				value, _, _ := strings.Cut(line[4:], "\t")
+				path, err := decodeDiffPath(value)
+				if err != nil {
+					return nil, err
+				}
+				if path != "/dev/null" {
+					if strings.HasPrefix(line, "--- ") {
+						currentFile.OldPath = strings.TrimPrefix(path, "a/")
+					} else {
+						currentFile.Path = strings.TrimPrefix(path, "b/")
+					}
+				}
+				continue
+			}
 		}
 
 		// Hunk header
@@ -229,7 +262,7 @@ func ParseDiff(diffOutput string) ([]*FileDiff, error) {
 				NewStart: newStart,
 				NewCount: newCount,
 				// Pre-size from header counts so the append loop never regrows.
-				Lines:    make([]*DiffLine, 0, oldCount+newCount),
+				Lines:    make([]*DiffLine, 0, min(oldCount, len(lines)-i)+min(newCount, len(lines)-i)),
 				Expanded: true,
 			}
 
@@ -278,6 +311,71 @@ func ParseDiff(diffOutput string) ([]*FileDiff, error) {
 	return files, nil
 }
 
+func decodeDiffPath(value string) (string, error) {
+	if !strings.HasPrefix(value, "\"") {
+		return value, nil
+	}
+	path, err := strconv.Unquote(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid quoted diff path: %w", err)
+	}
+	return path, nil
+}
+
+// Git leaves spaces unquoted, but C-quotes tabs, newlines, quotes, backslashes,
+// and (by default) non-ASCII bytes. Renames/copies have authoritative extended
+// headers; ordinary and binary edits have identical old/new header paths.
+func diffHeaderPaths(value string) (string, string, error) {
+	var old, next string
+	if strings.HasPrefix(value, "\"") {
+		end := 1
+		for end < len(value) {
+			if value[end] == '\\' {
+				end += 2
+				continue
+			}
+			if value[end] == '"' {
+				break
+			}
+			end++
+		}
+		if end+1 >= len(value) || value[end+1] != ' ' {
+			return "", "", fmt.Errorf("invalid quoted diff header")
+		}
+		old, next = value[:end+1], value[end+2:]
+	} else if at := strings.Index(value, " \"b/"); at >= 0 {
+		old, next = value[:at], value[at+1:]
+	} else {
+		first := strings.Index(value, " b/")
+		if first < 0 {
+			return "", "", fmt.Errorf("invalid diff header paths")
+		}
+		old, next = value[:first], value[first+1:]
+		// A filename can itself contain " b/". Find the split whose two paths
+		// match instead of treating that embedded substring as the separator.
+		for at := first; at >= 0; {
+			if strings.TrimPrefix(value[:at], "a/") == strings.TrimPrefix(value[at+1:], "b/") {
+				old, next = value[:at], value[at+1:]
+				break
+			}
+			offset := strings.Index(value[at+1:], " b/")
+			if offset < 0 {
+				break
+			}
+			at += offset + 1
+		}
+	}
+	old, err := decodeDiffPath(old)
+	if err != nil {
+		return "", "", err
+	}
+	next, err = decodeDiffPath(next)
+	if err != nil {
+		return "", "", err
+	}
+	return strings.TrimPrefix(old, "a/"), strings.TrimPrefix(next, "b/"), nil
+}
+
 // computeLineNumbers assigns line numbers to each line in a hunk.
 func computeLineNumbers(hunk *DiffHunk) {
 	oldLine := hunk.OldStart
@@ -304,15 +402,40 @@ func computeLineNumbers(hunk *DiffHunk) {
 
 // writeFileHeader writes the "diff --git / --- / +++" patch preamble.
 func writeFileHeader(sb *strings.Builder, file string) {
-	sb.WriteString("diff --git a/")
-	sb.WriteString(file)
-	sb.WriteString(" b/")
-	sb.WriteString(file)
-	sb.WriteString("\n--- a/")
-	sb.WriteString(file)
-	sb.WriteString("\n+++ b/")
-	sb.WriteString(file)
+	old, next := quoteDiffPath("a/"+file), quoteDiffPath("b/"+file)
+	sb.WriteString("diff --git ")
+	sb.WriteString(old)
+	sb.WriteByte(' ')
+	sb.WriteString(next)
+	sb.WriteString("\n--- ")
+	sb.WriteString(old)
+	sb.WriteString("\n+++ ")
+	sb.WriteString(next)
 	sb.WriteByte('\n')
+}
+
+// Git's C-style quoting accepts octal bytes, not Go's \x or \u escapes.
+func quoteDiffPath(path string) string {
+	var out strings.Builder
+	out.Grow(len(path) + 2)
+	out.WriteByte('"')
+	for i := 0; i < len(path); i++ {
+		b := path[i]
+		switch {
+		case b == '\\' || b == '"':
+			out.WriteByte('\\')
+			out.WriteByte(b)
+		case b < 32 || b >= 127:
+			out.WriteByte('\\')
+			out.WriteByte('0' + (b >> 6))
+			out.WriteByte('0' + ((b >> 3) & 7))
+			out.WriteByte('0' + (b & 7))
+		default:
+			out.WriteByte(b)
+		}
+	}
+	out.WriteByte('"')
+	return out.String()
 }
 
 // linePrefix returns the unified-diff prefix byte for a line type.
@@ -493,6 +616,9 @@ func (r *Repository) ApplyHunkEdit(file string, hunk *DiffHunk, replacement []st
 
 // StageHunk stages a single hunk using git apply.
 func (r *Repository) StageHunk(file string, hunk *DiffHunk) error {
+	if hunk == nil {
+		return fmt.Errorf("a diff hunk is required")
+	}
 	patch := GenerateHunkPatch(file, hunk)
 	return r.RunWithStdin(patch, "apply", "--cached", "-")
 }
@@ -508,6 +634,9 @@ func (r *Repository) StageLines(file string, hunk *DiffHunk, lines []*DiffLine) 
 
 // UnstageHunk unstages a single hunk.
 func (r *Repository) UnstageHunk(file string, hunk *DiffHunk) error {
+	if hunk == nil {
+		return fmt.Errorf("a diff hunk is required")
+	}
 	patch := GenerateHunkPatch(file, hunk)
 	return r.RunWithStdin(patch, "apply", "--cached", "--reverse", "-")
 }
@@ -523,6 +652,9 @@ func (r *Repository) UnstageLines(file string, hunk *DiffHunk, lines []*DiffLine
 
 // DiscardHunk discards changes in a single hunk.
 func (r *Repository) DiscardHunk(file string, hunk *DiffHunk) error {
+	if hunk == nil {
+		return fmt.Errorf("a diff hunk is required")
+	}
 	patch := GenerateHunkPatch(file, hunk)
 	return r.RunWithStdin(patch, "apply", "--reverse", "-")
 }

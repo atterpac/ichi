@@ -1,16 +1,22 @@
 package git
 
 import (
-	"os"
-	"path/filepath"
+	"fmt"
 	"strconv"
 	"strings"
 )
 
+// readPatch fixes the machine-readable patch format regardless of display
+// preferences. Literal paths select one file even when its name is a pathspec.
+func (r *Repository) readPatch(args ...string) (string, error) {
+	command := []string{"--literal-pathspecs", args[0], "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"}
+	return r.run(append(command, args[1:]...)...)
+}
+
 // GetCommitDiff returns the diff for a specific commit.
 func (r *Repository) GetCommitDiff(hash string) (string, error) {
 	// Use -m --first-parent for merge commits (like stashes)
-	out, err := r.run("show", "-m", "--first-parent", "--format=", "--patch", hash)
+	out, err := r.readPatch("show", "-m", "--first-parent", "--format=", "--patch", hash)
 	if err != nil {
 		return "", err
 	}
@@ -20,7 +26,7 @@ func (r *Repository) GetCommitDiff(hash string) (string, error) {
 // GetFileDiff returns the diff for a specific file in a commit.
 func (r *Repository) GetFileDiff(hash, file string) (string, error) {
 	// Use -m --first-parent for merge commits (like stashes)
-	out, err := r.run("show", "-m", "--first-parent", "--format=", "--patch", hash, "--", file)
+	out, err := r.readPatch("show", "-m", "--first-parent", "--format=", "--patch", hash, "--", file)
 	if err != nil {
 		return "", err
 	}
@@ -29,7 +35,7 @@ func (r *Repository) GetFileDiff(hash, file string) (string, error) {
 
 // GetWorkingDiff returns the diff of unstaged changes.
 func (r *Repository) GetWorkingDiff() (string, error) {
-	out, err := r.run("diff")
+	out, err := r.readPatch("diff")
 	if err != nil {
 		return "", err
 	}
@@ -38,16 +44,12 @@ func (r *Repository) GetWorkingDiff() (string, error) {
 
 // GetWorkingFileDiff returns the diff of unstaged changes for a specific file.
 func (r *Repository) GetWorkingFileDiff(file string) (string, error) {
-	out, err := r.run("diff", "--", file)
-	if err != nil {
-		return "", err
-	}
-	return out, nil
+	return r.GetWorktreeFileDiff(file, "", false)
 }
 
 // GetStagedDiff returns the diff of staged changes.
 func (r *Repository) GetStagedDiff() (string, error) {
-	out, err := r.run("diff", "--cached")
+	out, err := r.readPatch("diff", "--cached")
 	if err != nil {
 		return "", err
 	}
@@ -56,20 +58,91 @@ func (r *Repository) GetStagedDiff() (string, error) {
 
 // GetStagedFileDiff returns the diff of staged changes for a specific file.
 func (r *Repository) GetStagedFileDiff(file string) (string, error) {
-	out, err := r.run("diff", "--cached", "--", file)
+	return r.GetWorktreeFileDiff(file, "", true)
+}
+
+// GetWorktreeFileDiff includes a rename's old path so Git can preserve its
+// identity rather than treating the destination as an unrelated added file.
+func (r *Repository) GetWorktreeFileDiff(file, oldPath string, staged bool) (string, error) {
+	args := []string{"diff"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--", file)
+	if oldPath != "" && oldPath != file {
+		args = append(args, oldPath)
+	}
+	return r.readPatch(args...)
+}
+
+// GetDiffBetween returns the diff between two refs.
+func (r *Repository) GetDiffBetween(from, to string) (string, error) {
+	from, to, err := r.comparisonRefs(from, to)
+	if err != nil {
+		return "", err
+	}
+	out, err := r.readPatch("diff", from, to, "--")
 	if err != nil {
 		return "", err
 	}
 	return out, nil
 }
 
-// GetDiffBetween returns the diff between two refs.
-func (r *Repository) GetDiffBetween(from, to string) (string, error) {
-	out, err := r.run("diff", from+".."+to)
+// comparisonRefs resolves revisions before diff option parsing. Both APIs use
+// the same tree-to-tree comparison even when a caller supplies an option-like ref.
+func (r *Repository) comparisonRefs(from, to string) (string, string, error) {
+	resolve := func(ref string) (string, error) {
+		out, err := r.run("rev-parse", "--verify", "--end-of-options", ref+"^{commit}")
+		if err != nil {
+			return "", fmt.Errorf("resolve comparison revision: %w", err)
+		}
+		return strings.TrimSpace(out), nil
+	}
+	a, err := resolve(from)
+	if err != nil {
+		return "", "", err
+	}
+	b, err := resolve(to)
+	return a, b, err
+}
+
+// GetDiffBetweenFile reads only a selected literal path's patch. If oldPath is
+// absent, lightweight NUL-delimited status finds a rename's source first.
+func (r *Repository) GetDiffBetweenFile(from, to, file, oldPath string) (string, error) {
+	if file == "" || strings.ContainsRune(file, 0) || strings.ContainsRune(oldPath, 0) {
+		return "", fmt.Errorf("comparison requires a literal file path")
+	}
+	from, to, err := r.comparisonRefs(from, to)
 	if err != nil {
 		return "", err
 	}
-	return out, nil
+	if oldPath == "" {
+		out, err := r.run("diff", "--name-status", "-z", "-M", from, to, "--")
+		if err != nil {
+			return "", err
+		}
+		parts := strings.Split(out, "\x00")
+		for i := 0; i+1 < len(parts); {
+			status := parts[i]
+			if strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C") {
+				if i+2 >= len(parts) {
+					break
+				}
+				if parts[i+2] == file {
+					oldPath = parts[i+1]
+					break
+				}
+				i += 3
+			} else {
+				i += 2
+			}
+		}
+	}
+	args := []string{"diff", "-M", from, to, "--", file}
+	if oldPath != "" && oldPath != file {
+		args = append(args, oldPath)
+	}
+	return r.readPatch(args...)
 }
 
 // GetDiffStats returns diff statistics between two refs.
@@ -88,20 +161,6 @@ func (r *Repository) FileContent(ref, file string) (string, error) {
 		return "", err
 	}
 	return out, nil
-}
-
-// WorkingFileContent returns the content of a file in the working directory.
-func (r *Repository) WorkingFileContent(file string) (string, error) {
-	out, err := r.run("show", ":"+file)
-	if err == nil {
-		return out, nil
-	}
-	// Not in the index (untracked or newly added) — read from the worktree.
-	data, readErr := os.ReadFile(filepath.Join(r.path, file))
-	if readErr != nil {
-		return "", readErr
-	}
-	return string(data), nil
 }
 
 // Blame returns blame information for a file.

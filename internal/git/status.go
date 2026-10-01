@@ -18,10 +18,9 @@ type StatusEntry struct {
 // Status returns the working tree status.
 func (r *Repository) Status() ([]StatusEntry, error) {
 	// Use porcelain v2 for machine-readable output
-	out, err := r.run("status", "--porcelain=v2", "--untracked-files=all")
+	out, err := r.run("status", "--porcelain=v2", "-z", "--untracked-files=all")
 	if err != nil {
-		// Fallback to v1 format
-		return r.statusV1()
+		return nil, err
 	}
 
 	return parseStatusV2(out), nil
@@ -91,18 +90,20 @@ func (r *Repository) ConflictFiles() ([]StatusEntry, error) {
 	return conflicts, nil
 }
 
-// parseStatusV2 parses git status --porcelain=v2 output.
+// parseStatusV2 parses NUL-delimited git status --porcelain=v2 -z output.
 func parseStatusV2(output string) []StatusEntry {
-	// Pre-size to line count; SplitSeq avoids Split's intermediate slice alloc.
-	entries := make([]StatusEntry, 0, strings.Count(output, "\n")+1)
+	// Paths are literal and may contain tabs, newlines, or quotes.
+	entries := make([]StatusEntry, 0, strings.Count(output, "\x00")+1)
 
-	for line := range strings.SplitSeq(output, "\n") {
+	for output != "" {
+		line, rest, _ := strings.Cut(output, "\x00")
+		output = rest
 		if line == "" {
 			continue
 		}
 
 		// Ordinary changed entries: 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-		// Renamed/copied entries: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><tab><origPath>
+		// Renamed/copied entries: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><NUL><origPath>
 		// Unmerged entries: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
 		// Untracked: ? <path>
 		// Ignored: ! <path>
@@ -148,15 +149,8 @@ func parseStatusV2(output string) []StatusEntry {
 			}
 
 			if line[0] == '2' {
-				// Rename/copy - path is after the score field
-				// Format: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><tab><origPath>
-				tabIdx := strings.Index(line, "\t")
-				if tabIdx > 0 {
-					entry.Path = line[strings.LastIndex(line[:tabIdx], " ")+1 : tabIdx]
-					entry.OldPath = line[tabIdx+1:]
-				} else if p := fieldAfter(line, 9); p != "" {
-					entry.Path = p
-				}
+				entry.Path = fieldAfter(line, 9)
+				entry.OldPath, output, _ = strings.Cut(output, "\x00")
 			} else {
 				// Path is everything after the 8th space.
 				entry.Path = fieldAfter(line, 8)
@@ -187,48 +181,6 @@ func fieldAfter(line string, n int) string {
 		idx += sp + 1
 	}
 	return line[idx:]
-}
-
-// statusV1 is a fallback using the simpler porcelain v1 format.
-func (r *Repository) statusV1() ([]StatusEntry, error) {
-	out, err := r.run("status", "--porcelain")
-	if err != nil {
-		return nil, err
-	}
-
-	var entries []StatusEntry
-
-	for _, line := range strings.Split(out, "\n") {
-		if len(line) < 3 {
-			continue
-		}
-
-		xy := line[:2]
-		path := line[3:]
-
-		entry := StatusEntry{
-			Path:        path,
-			IndexStatus: parseStatusChar(xy[0]),
-			WorkStatus:  parseStatusChar(xy[1]),
-		}
-
-		// Handle renames (indicated by ->)
-		if idx := strings.Index(path, " -> "); idx > 0 {
-			entry.OldPath = path[:idx]
-			entry.Path = path[idx+4:]
-		}
-
-		// Determine special states
-		entry.IsStaged = xy[0] != ' ' && xy[0] != '?'
-		entry.IsUntracked = xy[0] == '?' && xy[1] == '?'
-		entry.IsConflict = xy[0] == 'U' || xy[1] == 'U' ||
-			(xy[0] == 'A' && xy[1] == 'A') ||
-			(xy[0] == 'D' && xy[1] == 'D')
-
-		entries = append(entries, entry)
-	}
-
-	return entries, nil
 }
 
 // parseStatusChar converts a status character to FileStatus.
