@@ -4,13 +4,13 @@ const sampleIds = new Set<number>()
 </script>
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings } from '../../customization/usePreferences'
 import { notify, dismissToast, type Toast, type ToastTone } from '../../composables/useToasts'
 import ToastCard from './ToastCard.vue'
 import { toastDesigns as styles } from './toastDesigns'
 import UiButton from '../common/UiButton.vue'
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 const tones: ToastTone[] = ['info', 'success', 'warning', 'danger']
 const tone = ref<ToastTone>('success')
 const length = ref<'short' | 'long' | 'title'>('short')
@@ -29,26 +29,26 @@ const sample = computed<Toast>(() => ({
   actionLabel: action.value ? 'Try action' : undefined,
 }))
 function send(testTone = tone.value) {
-  if (!settings.developerMode) return
+  if (!settings['developer.enabled']) return
   sampleIds.add(notify({ ...sample.value, tone: testTone, title: titles[testTone], duration: duration.value,
-    onAction: action.value ? () => { if (!settings.developerMode) return; sampleIds.add(notify({ tone: 'info', title: 'Sample action completed', message: 'The test button worked.', duration: duration.value })) } : undefined,
+    onAction: action.value ? () => { if (!settings['developer.enabled']) return; sampleIds.add(notify({ tone: 'info', title: 'Sample action completed', message: 'The test button worked.', duration: duration.value })) } : undefined,
   }))
 }
 function clearSamples() { for (const id of sampleIds) dismissToast(id); sampleIds.clear() }
-watch(() => settings.developerMode, enabled => { if (!enabled) clearSamples() })
+watch(() => settings['developer.enabled'], enabled => { if (!enabled) clearSamples() })
 </script>
 <template>
   <label class="set-row">
     <span><b>Developer mode</b><small>Preview interface styles and send sample notifications.</small></span>
-    <button class="toggle" :class="{ on: settings.developerMode }" type="button" role="switch" aria-label="Developer mode" :aria-checked="settings.developerMode" @click="settings.developerMode = !settings.developerMode"><i /></button>
+    <button class="toggle" :class="{ on: settings['developer.enabled'] }" type="button" role="switch" aria-label="Developer mode" :aria-checked="settings['developer.enabled']" @click="settings['developer.enabled'] = !settings['developer.enabled']"><i /></button>
   </label>
-  <p v-if="!settings.developerMode" class="set-note">Enable developer mode to open the toast design playground.</p>
+  <p v-if="!settings['developer.enabled']" class="set-note">Enable developer mode to open the toast design playground.</p>
   <template v-else>
     <p class="set-section">Toast designs</p>
     <p class="set-note">Choose a design to use across the app. Your choice is saved locally.</p>
     <div class="toast-designs" role="group" aria-label="Toast design">
-      <section v-for="style in styles" :key="style.id" class="toast-design" :class="{ selected: settings.toastStyle === style.id }">
-        <button class="toast-design-choice" :aria-pressed="settings.toastStyle === style.id" @click="settings.toastStyle = style.id"><b>{{ style.name }}</b><span>{{ settings.toastStyle === style.id ? 'Selected' : 'Use design' }}</span></button>
+      <section v-for="style in styles" :key="style.id" class="toast-design" :class="{ selected: settings['notifications.style'] === style.id }">
+        <button class="toast-design-choice" :aria-pressed="settings['notifications.style'] === style.id" @click="settings['notifications.style'] = style.id"><b>{{ style.name }}</b><span>{{ settings['notifications.style'] === style.id ? 'Selected' : 'Use design' }}</span></button>
         <p>{{ style.note }}</p><span class="toast-placement">{{ style.placement }}</span>
         <div class="toast-design-stage" :class="`stage-${style.id}`"><div class="toast-stage-lines" aria-hidden="true"><i /><i /><i /></div><div class="toast-design-preview"><ToastCard :toast="sample" :design="style.id" preview /></div></div>
       </section>

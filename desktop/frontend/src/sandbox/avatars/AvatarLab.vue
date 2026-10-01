@@ -2,20 +2,21 @@
 import { computed, ref, watch } from 'vue'
 import AvatarMark from './AvatarMark.vue'
 import { avatarStyles, avatarSvg, type AvatarStyle } from './generate'
+import { designStyles } from '../../components/common/avatarDesigns'
+
+const designIds: string[] = designStyles.map((style) => style.id)
 
 const seed = ref('atterpac')
-const selected = ref<AvatarStyle>('spore')
-const collection = ref<'pixels' | 'originals'>('pixels')
+const selected = ref<AvatarStyle>('face')
+const collection = ref<'designs' | 'originals'>('designs')
 const visibleStyles = computed(() =>
-  collection.value === 'pixels'
-    ? avatarStyles.filter(
-        (style) => ['relay', 'spore', 'lumen', 'alley'].includes(style.id),
-      )
-    : avatarStyles.filter((style) => !['relay', 'spore', 'lumen', 'alley'].includes(style.id)),
+  collection.value === 'designs'
+    ? avatarStyles.filter((style) => designIds.includes(style.id))
+    : avatarStyles.filter((style) => !designIds.includes(style.id)),
 )
-function setCollection(value: 'pixels' | 'originals') {
+function setCollection(value: 'designs' | 'originals') {
   collection.value = value
-  selected.value = value === 'pixels' ? 'spore' : 'glass'
+  selected.value = value === 'designs' ? 'face' : 'glass'
 }
 const light = ref(false)
 const monochrome = ref(false)
@@ -94,8 +95,8 @@ function download() {
     </section>
 
     <nav class="collection-tabs" aria-label="Avatar collections">
-      <button :aria-pressed="collection === 'pixels'" @click="setCollection('pixels')">
-        Pixel creatures · 4
+      <button :aria-pressed="collection === 'designs'" @click="setCollection('designs')">
+        App designs · 5
       </button>
       <button :aria-pressed="collection === 'originals'" @click="setCollection('originals')">
         Original collection · 6
@@ -103,15 +104,15 @@ function download() {
     </nav>
     <div class="collection-bar">
       <span>{{
-        collection === 'pixels'
-          ? 'FOUR SPECIES / ONE IDENTITY'
+        collection === 'designs'
+          ? 'FIVE DESIGNS / ONE IDENTITY'
           : 'SIX VISUAL LANGUAGES / ONE INPUT'
       }}</span
       ><span>Same input → same avatar, every time.</span>
     </div>
     <section
       class="avatar-grid"
-      :aria-label="collection === 'pixels' ? 'Pixel creature styles' : 'Original avatar styles'"
+      :aria-label="collection === 'designs' ? 'App avatar styles' : 'Original avatar styles'"
     >
       <article
         v-for="(style, index) in visibleStyles"

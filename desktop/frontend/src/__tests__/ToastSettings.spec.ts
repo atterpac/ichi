@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ToastSettings from '../components/overlays/ToastSettings.vue'
 import ToastViewport from '../components/overlays/ToastViewport.vue'
-import { useShellSettings } from '../composables/useShellSettings'
+import { usePreferences, usePreferenceBindings } from '../customization/usePreferences'
 import { useToasts, notify, dismissToast } from '../composables/useToasts'
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 const { toasts } = useToasts()
 const wrappers: ReturnType<typeof mount>[] = []
 const mountSettings = () => {
@@ -15,20 +15,16 @@ const mountSettings = () => {
 }
 beforeEach(() => {
   vi.useFakeTimers()
-  const stored = new Map<string, string>()
-  vi.stubGlobal('localStorage', {
-    getItem: (key: string) => stored.get(key) ?? null,
-    setItem: (key: string, value: string) => stored.set(key, value),
-  })
-  settings.developerMode = false
-  settings.toastStyle = 'dock'
+
+  settings['developer.enabled'] = false
+  settings['notifications.style'] = 'dock'
 })
 afterEach(() => {
   wrappers.forEach(wrapper => wrapper.unmount())
   wrappers.length = 0
-  for (const toast of [...toasts]) dismissToast(toast.id)
-  settings.developerMode = false
-  settings.toastStyle = 'dock'
+  while (toasts.length) dismissToast(toasts[0]!.id)
+  settings['developer.enabled'] = false
+  settings['notifications.style'] = 'dock'
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -41,12 +37,12 @@ describe('Toast developer playground', () => {
     expect(wrapper.findAll('.toast-design')).toHaveLength(4)
     await wrapper.findAll('.toast-design-choice')[3]!.trigger('click')
     await flushPromises()
-    expect(settings.toastStyle).toBe('bulletin')
-    expect(JSON.parse(localStorage.getItem('ichi.desktop.settings')!).toastStyle).toBe('bulletin')
+    expect(settings['notifications.style']).toBe('bulletin')
+    expect(usePreferences().snapshot().user['notifications.style']).toBe('bulletin')
   })
 
   it('tests tones, actions and persistent duration using the live viewport', async () => {
-    settings.developerMode = true
+    settings['developer.enabled'] = true
     const wrapper = mountSettings()
     const viewport = mount(ToastViewport, { global: { stubs: { Teleport: true } } })
     wrappers.push(viewport)
@@ -59,7 +55,7 @@ describe('Toast developer playground', () => {
     expect(toasts[0]?.message).toContain('longer sample')
     vi.advanceTimersByTime(20000)
     expect(toasts).toHaveLength(1)
-    settings.toastStyle = 'capsule'
+    settings['notifications.style'] = 'capsule'
     await flushPromises()
     expect(viewport.find('.toast-capsule').exists()).toBe(true)
     expect(viewport.find('.toast-placement-capsule').exists()).toBe(true)
@@ -71,7 +67,7 @@ describe('Toast developer playground', () => {
   })
 
   it('clears only samples after reopening settings and can test a full stack', async () => {
-    settings.developerMode = true
+    settings['developer.enabled'] = true
     const wrapper = mountSettings()
     await wrapper.findAll('.toast-test-buttons button')[1]!.trigger('click')
     expect(new Set(toasts.map(t => t.tone)).size).toBe(4)
@@ -87,7 +83,7 @@ describe('Toast developer playground', () => {
   })
 
   it('expires timed samples', async () => {
-    settings.developerMode = true
+    settings['developer.enabled'] = true
     const wrapper = mountSettings()
     await wrapper.findAll('select')[2]!.setValue('2000')
     await wrapper.findAll('.toast-test-buttons button')[0]!.trigger('click')

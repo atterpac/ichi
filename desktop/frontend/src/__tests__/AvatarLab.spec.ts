@@ -19,9 +19,9 @@ describe('deterministic avatars', () => {
   }
   it('updates the previews and the selected style in commit context', async () => {
     const wrapper = mount(AvatarLab)
-    expect(wrapper.findAll('.style-card')).toHaveLength(4)
+    expect(wrapper.findAll('.style-card')).toHaveLength(5)
     await wrapper.findAll('.collection-tabs button')[1]!.trigger('click')
-    expect(wrapper.findAll('.style-card')).toHaveLength(7)
+    expect(wrapper.findAll('.style-card')).toHaveLength(6)
     const before = wrapper.get('.hero-avatar svg').html()
     await wrapper.get('[aria-label="Avatar input"]').setValue('mira.chen')
     expect(wrapper.get('.hero-avatar svg').html()).not.toBe(before)

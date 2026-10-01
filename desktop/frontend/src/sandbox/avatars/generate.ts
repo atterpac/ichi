@@ -1,7 +1,6 @@
-import { auroraStyle, auroraSvg } from '../../components/common/avatarAurora'
 import { seedHash, random, palettes } from '../../components/common/avatarSeed'
 export { seedHash } from '../../components/common/avatarSeed'
-import { pixelCreature, pixelStyles, type PixelStyle } from '../../components/common/avatarPixels'
+import { designStyles, designSvg, type DesignStyle } from '../../components/common/avatarDesigns'
 
 export const avatarStyles = [
   {
@@ -46,8 +45,7 @@ export const avatarStyles = [
     description: 'A little pixel creature with a recognizable expression.',
     note: 'Playful, with a face you can remember.',
   },
-  auroraStyle,
-  ...pixelStyles,
+  ...designStyles,
 ] as const
 export type AvatarStyle = (typeof avatarStyles)[number]['id']
 
@@ -56,7 +54,7 @@ const point = (x: number, y: number) => `${n(x)},${n(y)}`
 
 /** Only generated numbers and fixed palette colors enter the SVG markup. */
 export function avatarSvg(input: string, style: AvatarStyle): string {
-  if (style === 'aurora') return auroraSvg(input)
+  if (designStyles.some((design) => design.id === style)) return designSvg(input, style as DesignStyle)
   const r = random(seedHash(`${style}:${input}`))
   const palette = palettes[Math.floor(r() * palettes.length)]!
   const color = () => palette[Math.floor(r() * palette.length)]!
@@ -140,8 +138,6 @@ export function avatarSvg(input: string, style: AvatarStyle): string {
       art += `<circle cx="${n(50 + lean + Math.cos(angle) * 7)}" cy="${n(18 + Math.sin(angle) * 7)}" r="5.5" fill="${bloom}"/>`
     }
     art += `<circle cx="${n(50 + lean)}" cy="18" r="3.5" fill="#795b3b"/>`
-  } else if (style !== 'sprite') {
-    art = pixelCreature(style as PixelStyle, r, palette)
   } else {
     const body = color(),
       secondary = color(),

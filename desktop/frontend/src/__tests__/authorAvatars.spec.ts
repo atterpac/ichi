@@ -14,7 +14,7 @@ describe('author avatars', () => {
 
   it('deduplicates image loads and caches missing avatars', async () => {
     let image: { onerror: (() => void) | null; src: string; referrerPolicy: string }
-    const constructor = vi.fn(function () {
+    const constructor = vi.fn<() => { onerror: (() => void) | null; src: string; referrerPolicy: string }>(function () {
       image = { onerror: null, src: '', referrerPolicy: '' }
       return image
     })

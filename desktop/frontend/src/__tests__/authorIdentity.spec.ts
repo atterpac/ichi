@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { resolveCommitAvatarHash } from '../components/graph/authorIdentity'
-const lookup = vi.hoisted(() => vi.fn())
+const lookup = vi.hoisted(() => vi.fn<(commits: string[]) => Promise<Record<string, string>>>())
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({ GraphService: { AuthorAvatarHashes: lookup } }))
 
 describe('shared author attribution', () => {
@@ -9,8 +9,7 @@ describe('shared author attribution', () => {
     lookup.mockResolvedValue({ [first]: 'one', [second]: 'two' })
     const requests = [resolveCommitAvatarHash(first), resolveCommitAvatarHash(second), resolveCommitAvatarHash(first)]
     expect(await Promise.all(requests)).toEqual(['one', 'two', 'one'])
-    expect(lookup).toHaveBeenCalledTimes(1)
-    expect(lookup).toHaveBeenCalledWith([first, second])
+    expect(lookup).toHaveBeenCalledExactlyOnceWith([first, second])
     expect(await resolveCommitAvatarHash(first)).toBe('one')
     expect(lookup).toHaveBeenCalledTimes(1)
     expect(await resolveCommitAvatarHash('0'.repeat(40))).toBe('')

@@ -1,7 +1,45 @@
 <script setup lang="ts">
-import { PhCheck, PhCloud, PhMapPin, PhTag } from '@phosphor-icons/vue'
+import { computed, ref, watch } from 'vue'
+import { PhCheck } from '@phosphor-icons/vue'
+import { usePreferences } from '../../customization/usePreferences'
+import { refIcons, refPresentation, type RefLabelConfig } from '../../customization/refLabels'
+import { formatRef, refPresetText } from '../../customization/refFormatter'
 
-defineProps<{ name: string; kind: string; current?: boolean; colorVar?: string }>()
+const props = defineProps<{
+  name: string
+  kind: string
+  current?: boolean
+  colorVar?: string
+  expanded?: boolean
+  config?: RefLabelConfig
+}>()
+const preferences = usePreferences()
+const presentation = computed(() =>
+  refPresentation(
+    props.config ?? preferences.values.value['graph.refLabels'],
+    props.name,
+    props.kind,
+    props.current,
+    props.expanded,
+  ),
+)
+const formatted = ref('')
+watch(
+  () => presentation.value.request,
+  (request, _, cleanup) => {
+    let active = true
+    cleanup(() => {
+      active = false
+    })
+    formatted.value = refPresetText(request) ?? request.Name
+    if (refPresetText(request) !== undefined) return
+    void formatRef(request).then((result) => {
+      if (active) formatted.value = result.Text || request.Name
+    })
+  },
+  { immediate: true },
+)
+const icon = computed(() => refIcons[presentation.value.icon].component)
 </script>
 
 <template>
@@ -12,11 +50,17 @@ defineProps<{ name: string; kind: string; current?: boolean; colorVar?: string }
     :title="`${name}${current ? ' · current branch' : ''}`"
   >
     <PhCheck v-if="current" class="ref-marker" :size="14" weight="bold" aria-hidden="true" />
-    <PhCloud weight="bold" v-else-if="kind === 'remote'" class="ref-marker" :size="14" aria-hidden="true" />
-    <PhTag weight="bold" v-else-if="kind === 'tag'" class="ref-marker" :size="14" aria-hidden="true" />
-    <PhMapPin weight="bold" v-else-if="kind === 'head'" class="ref-marker" :size="14" aria-hidden="true" />
-    <span v-else class="ref-dot" aria-hidden="true" />
-    <span class="ref-name">{{ name }}</span>
+    <component
+      :is="icon"
+      v-else-if="icon"
+      class="ref-marker"
+      :size="14"
+      weight="bold"
+      aria-hidden="true"
+    />
+    <span v-else-if="presentation.icon === 'dot'" class="ref-dot" aria-hidden="true" />
+    <span class="ref-name" aria-hidden="true">{{ formatted }}</span>
+    <span class="ref-sr">{{ name }}</span>
     <span v-if="current" class="ref-sr"> (current branch)</span>
   </span>
 </template>

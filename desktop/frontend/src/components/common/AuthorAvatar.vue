@@ -2,13 +2,13 @@
 import { computed, ref, watch } from 'vue'
 import { loadAuthorAvatar } from '../graph/authorAvatars'
 import { placeholderSvg } from './avatarPlaceholder'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings } from '../../customization/usePreferences'
 import { emailAvatarHash, resolveCommitAvatarHash } from '../graph/authorIdentity'
 
 const props = withDefaults(defineProps<{ name: string; commit?: string; email?: string; size?: number }>(), { size: 20 })
 const source = ref('')
-const settings = useShellSettings()
-const placeholder = computed(() => placeholderSvg(props.name, settings.avatarPlaceholder))
+const settings = usePreferenceBindings()
+const placeholder = computed(() => placeholderSvg(props.name, settings['appearance.avatarPlaceholder']))
 watch(() => [props.commit, props.email, props.name], async (_, __, onCleanup) => {
   let cancelled = false
   onCleanup(() => { cancelled = true })

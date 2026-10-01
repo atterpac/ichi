@@ -2,7 +2,7 @@
 import type { Component } from 'vue'
 import { PhCheckCircle, PhInfo, PhWarning, PhWarningCircle, PhX, PhArrowUpRight } from '@phosphor-icons/vue'
 import type { Toast } from '../../composables/useToasts'
-import type { ToastStyle } from '../../composables/useShellSettings'
+import type { ToastStyle } from '../../customization/usePreferences'
 
 defineProps<{ toast: Toast; design: ToastStyle; preview?: boolean }>()
 const emit = defineEmits<{ action: []; dismiss: [] }>()
