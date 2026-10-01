@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -9,11 +10,13 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 
+	"github.com/atterpac/dado/async"
 	"github.com/atterpac/dado/components"
 	"github.com/atterpac/dado/core"
 	"github.com/atterpac/dado/layout"
 	"github.com/atterpac/dado/theme"
 
+	"github.com/atterpac/ichi/internal/app"
 	"github.com/atterpac/ichi/internal/git"
 	"github.com/atterpac/ichi/internal/remote"
 	_ "github.com/atterpac/ichi/internal/remote/github" // Register GitHub provider
@@ -28,10 +31,18 @@ type PRListView struct {
 	app        *layout.App
 	repo       *git.Repository
 
-	provider    remote.Provider
-	repoPath    string // owner/repo
-	prs         []remote.PullRequest
-	stateFilter remote.PRState
+	provider       remote.Provider
+	repoPath       string // owner/repo
+	prs            []remote.PullRequest
+	stateFilter    remote.PRState
+	load           *async.Loader[prListData]
+	loadGeneration uint64
+}
+
+type prListData struct {
+	provider remote.Provider
+	repoPath string
+	prs      []remote.PullRequest
 }
 
 // NewPRListView creates a new PR list view
@@ -81,7 +92,13 @@ func (v *PRListView) Start() {
 	v.initProvider()
 }
 
-func (v *PRListView) Stop() {}
+func (v *PRListView) Stop() {
+	v.loadGeneration++
+	if v.load != nil {
+		v.load.Cancel()
+		v.load = nil
+	}
+}
 
 func (v *PRListView) Hints() []components.KeyHint {
 	return []components.KeyHint{
@@ -96,47 +113,51 @@ func (v *PRListView) Hints() []components.KeyHint {
 }
 
 func (v *PRListView) initProvider() {
-	// Get remote URL
-	remoteURL := v.repo.RemoteURL("origin")
-	if remoteURL == "" {
-		ShowErrorModal(v.app, "Error", "No remote 'origin' found")
-		return
-	}
-
-	// Detect provider
-	provider, repoPath, err := remote.DetectFromURL(remoteURL)
-	if err != nil {
-		ShowErrorModal(v.app, "Error", err.Error())
-		return
-	}
-
-	// Authenticate
-	if err := provider.Authenticate(); err != nil {
-		ShowErrorModal(v.app, "Authentication Error", err.Error())
-		return
-	}
-
-	v.provider = provider
-	v.repoPath = repoPath
-	v.loadPRs()
+	v.startPRLoad(true)
 }
 
 func (v *PRListView) loadPRs() {
-	if v.provider == nil {
-		return
-	}
+	v.startPRLoad(v.provider == nil)
+}
 
-	prs, err := v.provider.ListPRs(v.repoPath, remote.ListPRsOpts{
-		State: v.stateFilter,
-		Limit: 50,
+func (v *PRListView) startPRLoad(discover bool) {
+	v.Stop()
+	version := v.loadGeneration
+	repo := *v.repo
+	provider, repoPath, filter := v.provider, v.repoPath, v.stateFilter
+	v.load = app.RunAsync("Loading pull requests...", func(ctx context.Context) (prListData, error) {
+		if discover {
+			url, err := repo.WithContext(ctx).ReadRemoteURL("origin")
+			if err != nil {
+				return prListData{}, err
+			}
+			if url == "" {
+				return prListData{}, fmt.Errorf("no remote 'origin' found")
+			}
+			provider, repoPath, err = remote.DetectFromURL(url)
+			if err != nil {
+				return prListData{}, err
+			}
+			if err := provider.WithContext(ctx).Authenticate(); err != nil {
+				return prListData{}, err
+			}
+		}
+		prs, err := provider.WithContext(ctx).ListPRs(repoPath, remote.ListPRsOpts{State: filter, Limit: 50})
+		return prListData{provider, repoPath, prs}, err
+	}, func(data prListData) {
+		if version != v.loadGeneration {
+			return
+		}
+		v.load = nil
+		v.provider, v.repoPath, v.prs = data.provider, data.repoPath, data.prs
+		v.buildTree()
+	}, func(err error) {
+		if version != v.loadGeneration {
+			return
+		}
+		v.load = nil
+		v.detailText.SetText(fmt.Sprintf("[%s]Unable to load pull requests: %s[-]", theme.TagError(), core.EscapeMarkup(err.Error())))
 	})
-	if err != nil {
-		ShowErrorModal(v.app, "Error", "Failed to load PRs: "+err.Error())
-		return
-	}
-
-	v.prs = prs
-	v.buildTree()
 }
 
 func (v *PRListView) buildTree() {

@@ -1,16 +1,20 @@
 package views
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
 
+	"github.com/atterpac/dado/async"
 	"github.com/atterpac/dado/components"
 	"github.com/atterpac/dado/core"
 	"github.com/atterpac/dado/layout"
 	"github.com/atterpac/dado/theme"
 
+	"github.com/atterpac/ichi/internal/app"
 	"github.com/atterpac/ichi/internal/remote"
 )
 
@@ -30,7 +34,18 @@ type PRDetailView struct {
 	comments []remote.Comment
 	checks   []remote.Check
 
-	mode prViewMode // files, conversation, checks
+	mode           prViewMode // files, conversation, checks
+	load           *async.Loader[prDetailData]
+	loadGeneration uint64
+	loadError      error
+}
+
+type prDetailData struct {
+	files                                        []remote.ChangedFile
+	reviews                                      []remote.Review
+	comments                                     []remote.Comment
+	checks                                       []remote.Check
+	filesErr, reviewsErr, commentsErr, checksErr error
 }
 
 type prViewMode int
@@ -90,7 +105,13 @@ func (v *PRDetailView) Start() {
 	v.loadData()
 }
 
-func (v *PRDetailView) Stop() {}
+func (v *PRDetailView) Stop() {
+	v.loadGeneration++
+	if v.load != nil {
+		v.load.Cancel()
+		v.load = nil
+	}
+}
 
 func (v *PRDetailView) Hints() []components.KeyHint {
 	return []components.KeyHint{
@@ -108,31 +129,56 @@ func (v *PRDetailView) Hints() []components.KeyHint {
 }
 
 func (v *PRDetailView) loadData() {
-	// Load files
-	files, err := v.provider.GetPRFiles(v.repoPath, v.pr.Number)
-	if err == nil {
-		v.files = files
-	}
+	v.Stop()
+	version := v.loadGeneration
+	provider, repoPath, number := v.provider, v.repoPath, v.pr.Number
+	v.load = app.RunAsync("Loading pull request...", func(ctx context.Context) (prDetailData, error) {
+		return readPRDetails(ctx, provider.WithContext(ctx), repoPath, number)
+	}, func(data prDetailData) {
+		if version != v.loadGeneration {
+			return
+		}
+		v.load = nil
+		if data.filesErr == nil {
+			v.files = data.files
+		}
+		if data.reviewsErr == nil {
+			v.reviews = data.reviews
+		}
+		if data.commentsErr == nil {
+			v.comments = data.comments
+		}
+		if data.checksErr == nil {
+			v.checks = data.checks
+		}
+		v.loadError = errors.Join(data.filesErr, data.reviewsErr, data.commentsErr, data.checksErr)
+		v.buildTree()
+	}, func(err error) {
+		if version != v.loadGeneration {
+			return
+		}
+		v.load = nil
+		v.loadError = err
+		v.contentView.SetText(fmt.Sprintf("[%s]Unable to load pull request: %s[-]", theme.TagError(), core.EscapeMarkup(err.Error())))
+	})
+}
 
-	// Load reviews
-	reviews, err := v.provider.ListReviews(v.repoPath, v.pr.Number)
-	if err == nil {
-		v.reviews = reviews
+func readPRDetails(ctx context.Context, provider remote.Provider, repoPath string, number int) (prDetailData, error) {
+	data := prDetailData{}
+	data.files, data.filesErr = provider.GetPRFiles(repoPath, number)
+	if err := ctx.Err(); err != nil {
+		return data, err
 	}
-
-	// Load comments
-	comments, err := v.provider.ListComments(v.repoPath, v.pr.Number)
-	if err == nil {
-		v.comments = comments
+	data.reviews, data.reviewsErr = provider.ListReviews(repoPath, number)
+	if err := ctx.Err(); err != nil {
+		return data, err
 	}
-
-	// Load checks
-	checks, err := v.provider.GetChecks(v.repoPath, v.pr.Number)
-	if err == nil {
-		v.checks = checks
+	data.comments, data.commentsErr = provider.ListComments(repoPath, number)
+	if err := ctx.Err(); err != nil {
+		return data, err
 	}
-
-	v.buildTree()
+	data.checks, data.checksErr = provider.GetChecks(repoPath, number)
+	return data, ctx.Err()
 }
 
 func (v *PRDetailView) buildTree() {
@@ -143,6 +189,9 @@ func (v *PRDetailView) buildTree() {
 		v.buildConversationTree()
 	case prModeChecks:
 		v.buildChecksTree()
+	}
+	if v.loadError != nil {
+		v.contentView.SetText(fmt.Sprintf("[%s]Some pull request data is unavailable: %s[-]\n\n%s", theme.TagError(), core.EscapeMarkup(v.loadError.Error()), v.contentView.GetText()))
 	}
 }
 

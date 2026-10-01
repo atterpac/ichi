@@ -6,6 +6,7 @@ import (
 
 	"github.com/atterpac/ichi/internal/app"
 	"github.com/atterpac/ichi/internal/config"
+	"github.com/atterpac/ichi/internal/git"
 	"github.com/atterpac/ichi/internal/views"
 )
 
@@ -243,14 +244,18 @@ func handleFetch(ctx *Context, args []string) error {
 		ctx.Repo,
 		"Fetching...",
 		"Fetched from all remotes",
-		ctx.Repo.FetchAll,
+		func(repo *git.Repository) error { return repo.FetchAll() },
 	)
 	return nil
 }
 
 func handlePush(ctx *Context, args []string) error {
-	if !ctx.Repo.HasUpstream() {
-		branch := ctx.Repo.CurrentBranch()
+	status, err := ctx.Repo.LoadRepositoryStatus()
+	if err != nil {
+		return err
+	}
+	if !status.HasUpstream {
+		branch := status.Branch
 		views.ShowInputModalWithDefault(ctx.App, "Set Upstream", "Remote branch name:", branch, func(remoteBranch string) {
 			if remoteBranch == "" {
 				return
@@ -268,7 +273,7 @@ func handlePush(ctx *Context, args []string) error {
 		ctx.Repo,
 		"Pushing...",
 		"Pushed to remote",
-		ctx.Repo.Push,
+		func(repo *git.Repository) error { return repo.Push() },
 	)
 	return nil
 }
@@ -279,7 +284,7 @@ func handlePull(ctx *Context, args []string) error {
 		ctx.Repo,
 		"Pulling...",
 		"Pulled from remote",
-		ctx.Repo.Pull,
+		func(repo *git.Repository) error { return repo.Pull() },
 	)
 	return nil
 }
@@ -332,7 +337,9 @@ func handleDrop(ctx *Context, args []string) error {
 			func() {
 				app.RunAsyncSimple(
 					fmt.Sprintf("Dropping stash@{%d}...", stash.Index),
-					func(context.Context) error { return ctx.Repo.StashDropIndex(stash.Index) },
+					func(opContext context.Context) error {
+						return ctx.Repo.WithContext(opContext).StashDropIndex(stash.Index)
+					},
 					func() { app.ToastSuccess(fmt.Sprintf("Dropped stash@{%d}", stash.Index)) },
 					func(err error) { views.ShowErrorModal(ctx.App, "Drop Failed", err.Error()) },
 				)
@@ -346,7 +353,7 @@ func handleDrop(ctx *Context, args []string) error {
 			func() {
 				app.RunAsyncSimple(
 					fmt.Sprintf("Dropping %s...", commit.ShortHash),
-					func(context.Context) error { return ctx.Repo.DropCommit(commit.Hash) },
+					func(opContext context.Context) error { return ctx.Repo.WithContext(opContext).DropCommit(commit.Hash) },
 					func() { app.ToastSuccess(fmt.Sprintf("Dropped %s", commit.ShortHash)) },
 					func(err error) { views.ShowErrorModal(ctx.App, "Drop Failed", err.Error()) },
 				)
@@ -386,8 +393,12 @@ func handleMerge(ctx *Context, args []string) error {
 		return fmt.Errorf("merge: no branch selected")
 	}
 	branch := sel.Branch.Name
+	status, err := ctx.Repo.LoadRepositoryStatus()
+	if err != nil {
+		return err
+	}
 	views.ShowConfirmModal(ctx.App, "Merge",
-		fmt.Sprintf("Merge %s into %s?", branch, ctx.Repo.CurrentBranch()),
+		fmt.Sprintf("Merge %s into %s?", branch, status.Branch),
 		func() {
 			if err := ctx.Repo.MergeBranch(branch); err != nil {
 				views.ShowErrorModal(ctx.App, "Merge Failed", err.Error())
@@ -404,8 +415,12 @@ func handleRebase(ctx *Context, args []string) error {
 		return fmt.Errorf("rebase: no branch selected")
 	}
 	branch := sel.Branch.Name
+	status, err := ctx.Repo.LoadRepositoryStatus()
+	if err != nil {
+		return err
+	}
 	views.ShowConfirmModal(ctx.App, "Rebase",
-		fmt.Sprintf("Rebase %s onto %s?", ctx.Repo.CurrentBranch(), branch),
+		fmt.Sprintf("Rebase %s onto %s?", status.Branch, branch),
 		func() {
 			if err := ctx.Repo.RebaseBranch(branch); err != nil {
 				views.ShowErrorModal(ctx.App, "Rebase Failed", err.Error())
@@ -429,7 +444,9 @@ func handleRenameCommit(ctx *Context, args []string) error {
 		}
 		app.RunAsyncSimple(
 			fmt.Sprintf("Rewording %s...", commit.ShortHash),
-			func(context.Context) error { return ctx.Repo.RenameCommit(commit.Hash, newMessage) },
+			func(opContext context.Context) error {
+				return ctx.Repo.WithContext(opContext).RenameCommit(commit.Hash, newMessage)
+			},
 			func() { app.ToastSuccess(fmt.Sprintf("Reworded %s", commit.ShortHash)) },
 			func(err error) { views.ShowErrorModal(ctx.App, "Reword Failed", err.Error()) },
 		)

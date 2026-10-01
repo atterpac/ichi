@@ -1,9 +1,9 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/gdamore/tcell/v2"
 
@@ -19,18 +19,22 @@ import (
 
 // CommitView displays detailed commit information.
 type CommitView struct {
-	flex        *core.Flex
-	infoPanel   *core.TextView
-	filesTable  *components.Table
-	diffPreview *core.TextView
-	filesPanel  *components.Panel
-	diffPanel   *components.Panel
-	repo        *git.Repository
-	app         *layout.App
-	hash        string
-	commit      *git.CommitDetail
-	actions     *input.ActionRegistry
-	focusFiles  bool // true = files table focused, false = diff preview focused
+	flex          *core.Flex
+	infoPanel     *core.TextView
+	filesTable    *components.Table
+	diffPreview   *core.TextView
+	filesPanel    *components.Panel
+	diffPanel     *components.Panel
+	repo          *git.Repository
+	app           *layout.App
+	hash          string
+	metadata      *git.CommitMetadata
+	metadataError error
+	cancel        context.CancelFunc
+	commit        *git.CommitDetail
+	actions       *input.ActionRegistry
+	focusFiles    bool // true = files table focused, false = diff preview focused
+	mutations     commitActionOwner
 }
 
 // NewCommitView creates a new commit detail view.
@@ -124,8 +128,10 @@ func (v *CommitView) Selection() *selection.Context {
 			Date:      v.commit.AuthorDate,
 			Parents:   v.commit.Parents,
 			IsMerge:   len(v.commit.Parents) > 1,
-			Refs:      v.commit.Refs,
 		}
+	}
+	if sel.Commit != nil && v.metadata != nil {
+		sel.Commit.Refs = v.metadata.Refs
 	}
 	return sel
 }
@@ -138,7 +144,17 @@ func (v *CommitView) Start() {
 	v.loadCommit()
 }
 
-func (v *CommitView) Stop() {}
+func (v *CommitView) Stop() {
+	v.mutations.stop()
+	v.cancelDetail()
+}
+
+func (v *CommitView) cancelDetail() {
+	if v.cancel != nil {
+		v.cancel()
+		v.cancel = nil
+	}
+}
 
 func (v *CommitView) Hints() []components.KeyHint {
 	return []components.KeyHint{
@@ -155,14 +171,45 @@ func (v *CommitView) Hints() []components.KeyHint {
 // Business logic
 
 func (v *CommitView) loadCommit() {
-	commit, err := v.repo.LoadCommit(v.hash)
-	if err != nil {
-		v.showError(err)
-		return
-	}
-	v.commit = commit
-	v.updateInfo()
-	v.updateFiles()
+	v.cancelDetail()
+	ctx, cancel := context.WithCancel(context.Background())
+	v.cancel = cancel
+	v.metadata = nil
+	v.metadataError = nil
+	repo := *v.repo
+	go func() {
+		commit, err := repo.LoadCommit(ctx, v.hash)
+		if ctx.Err() != nil {
+			return
+		}
+		v.app.QueueUpdateDraw(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil {
+				v.showError(err)
+				return
+			}
+			v.commit = commit
+			v.updateInfo()
+			v.updateFiles()
+		})
+		if err != nil || ctx.Err() != nil {
+			return
+		}
+		metadata, err := repo.LoadCommitMetadata(ctx, commit.Hash)
+		if ctx.Err() != nil {
+			return
+		}
+		v.app.QueueUpdateDraw(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			v.metadata = metadata
+			v.metadataError = err
+			v.updateInfo()
+		})
+	}()
 }
 
 func (v *CommitView) updateInfo() {
@@ -171,37 +218,38 @@ func (v *CommitView) updateInfo() {
 	}
 
 	c := v.commit
+	presentation := presentCommit(c, v.metadata, v.metadataError)
 	var text strings.Builder
 
 	// Subject (title)
 	text.WriteString(fmt.Sprintf("[%s::b]%s[-:-:-]\n", theme.TagAccent(), c.Subject))
 
 	// Body (if different from subject)
-	if c.Body != "" && c.Body != c.Subject {
-		body := strings.TrimSpace(c.Body)
-		// Remove subject from body if it starts with it
-		body = strings.TrimPrefix(body, c.Subject)
-		body = strings.TrimSpace(body)
-		if body != "" {
-			text.WriteString(fmt.Sprintf("\n%s\n", body))
-		}
+	if presentation.body != "" {
+		text.WriteString(fmt.Sprintf("\n%s\n", core.EscapeMarkup(presentation.body)))
 	}
 
 	text.WriteString(fmt.Sprintf("\n[%s::b]─── Commit ───[-:-:-]\n", theme.TagFgDim()))
 	text.WriteString(fmt.Sprintf("[%s]Hash:[-]        %s\n", theme.TagFgDim(), c.Hash))
 
 	// GPG Signature
-	if c.GPGStatus.Signed {
-		if c.GPGStatus.Valid {
+	if presentation.signature == "loading" || presentation.signature == "unavailable" {
+		if presentation.signature == "unavailable" {
+			text.WriteString("Signature / branches: unavailable\n")
+		} else {
+			text.WriteString("Signature / branches: loading…\n")
+		}
+	} else if presentation.signature != "unsigned" {
+		if presentation.signature == "verified" {
 			text.WriteString(fmt.Sprintf("[%s]Signature:[-]   [%s]✓ Verified[-]", theme.TagFgDim(), theme.TagSuccess()))
-			if c.GPGStatus.Signer != "" {
-				text.WriteString(fmt.Sprintf(" by %s", c.GPGStatus.Signer))
+			if v.metadata.GPGStatus.Signer != "" {
+				text.WriteString(fmt.Sprintf(" by %s", v.metadata.GPGStatus.Signer))
 			}
-			if c.GPGStatus.TrustLevel != "good" {
-				text.WriteString(fmt.Sprintf(" (%s)", c.GPGStatus.TrustLevel))
+			if v.metadata.GPGStatus.TrustLevel != "good" {
+				text.WriteString(fmt.Sprintf(" (%s)", v.metadata.GPGStatus.TrustLevel))
 			}
 		} else {
-			text.WriteString(fmt.Sprintf("[%s]Signature:[-]   [%s]✗ Invalid[-] (%s)", theme.TagFgDim(), theme.TagError(), c.GPGStatus.TrustLevel))
+			text.WriteString(fmt.Sprintf("[%s]Signature:[-]   [%s]✗ Invalid[-] (%s)", theme.TagFgDim(), theme.TagError(), v.metadata.GPGStatus.TrustLevel))
 		}
 		text.WriteString("\n")
 	} else {
@@ -227,20 +275,11 @@ func (v *CommitView) updateInfo() {
 			relativeTime(c.CommitterDate)))
 	}
 
-	if len(c.Parents) > 0 {
+	if len(presentation.parents) > 0 {
 		text.WriteString(fmt.Sprintf("\n[%s::b]─── Parents ───[-:-:-]\n", theme.TagFgDim()))
-		for i, parent := range c.Parents {
-			shortParent := parent
-			if len(parent) > 7 {
-				shortParent = parent[:7]
-			}
-			subject := ""
-			if i < len(c.ParentSubjects) && c.ParentSubjects[i] != "" {
-				subject = c.ParentSubjects[i]
-				if len(subject) > 60 {
-					subject = subject[:57] + "..."
-				}
-			}
+		for _, parent := range presentation.parents {
+			shortParent := parent.hash
+			subject := truncateCommitText(parent.subject, 60)
 			if subject != "" {
 				text.WriteString(fmt.Sprintf("[%s]%s[-] %s\n", theme.TagInfo(), shortParent, subject))
 			} else {
@@ -249,10 +288,10 @@ func (v *CommitView) updateInfo() {
 		}
 	}
 
-	if len(c.Refs) > 0 {
+	if v.metadata != nil && len(v.metadata.Refs) > 0 {
 		text.WriteString(fmt.Sprintf("\n[%s::b]─── Refs ───[-:-:-]\n", theme.TagFgDim()))
-		for _, ref := range c.Refs {
-			if strings.HasPrefix(ref, "tag:") || strings.HasPrefix(ref, "v") {
+		for _, ref := range v.metadata.Refs {
+			if isTagRef(ref) {
 				text.WriteString(fmt.Sprintf("[%s]⚑[-] %s\n", theme.TagWarning(), ref))
 			} else {
 				text.WriteString(fmt.Sprintf("[%s]→[-] %s\n", theme.TagAccent(), ref))
@@ -260,12 +299,12 @@ func (v *CommitView) updateInfo() {
 		}
 	}
 
-	if len(c.Branches) > 0 {
+	if v.metadata != nil && len(v.metadata.Branches) > 0 {
 		text.WriteString(fmt.Sprintf("\n[%s::b]─── Branches Containing ───[-:-:-]\n", theme.TagFgDim()))
 		maxShow := 10
-		for i, branch := range c.Branches {
+		for i, branch := range v.metadata.Branches {
 			if i >= maxShow {
-				text.WriteString(fmt.Sprintf("[%s]... and %d more[-]\n", theme.TagFgDim(), len(c.Branches)-maxShow))
+				text.WriteString(fmt.Sprintf("[%s]... and %d more[-]\n", theme.TagFgDim(), len(v.metadata.Branches)-maxShow))
 				break
 			}
 			if strings.HasPrefix(branch, "origin/") {
@@ -286,53 +325,6 @@ func (v *CommitView) updateInfo() {
 	v.infoPanel.SetText(text.String())
 }
 
-// relativeTime returns a human-readable relative time string.
-func relativeTime(t time.Time) string {
-	now := time.Now()
-	diff := now.Sub(t)
-
-	switch {
-	case diff < time.Minute:
-		return "just now"
-	case diff < time.Hour:
-		mins := int(diff.Minutes())
-		if mins == 1 {
-			return "1 minute ago"
-		}
-		return fmt.Sprintf("%d minutes ago", mins)
-	case diff < 24*time.Hour:
-		hours := int(diff.Hours())
-		if hours == 1 {
-			return "1 hour ago"
-		}
-		return fmt.Sprintf("%d hours ago", hours)
-	case diff < 7*24*time.Hour:
-		days := int(diff.Hours() / 24)
-		if days == 1 {
-			return "1 day ago"
-		}
-		return fmt.Sprintf("%d days ago", days)
-	case diff < 30*24*time.Hour:
-		weeks := int(diff.Hours() / 24 / 7)
-		if weeks == 1 {
-			return "1 week ago"
-		}
-		return fmt.Sprintf("%d weeks ago", weeks)
-	case diff < 365*24*time.Hour:
-		months := int(diff.Hours() / 24 / 30)
-		if months == 1 {
-			return "1 month ago"
-		}
-		return fmt.Sprintf("%d months ago", months)
-	default:
-		years := int(diff.Hours() / 24 / 365)
-		if years == 1 {
-			return "1 year ago"
-		}
-		return fmt.Sprintf("%d years ago", years)
-	}
-}
-
 func (v *CommitView) updateFiles() {
 	if v.commit == nil {
 		return
@@ -342,17 +334,7 @@ func (v *CommitView) updateFiles() {
 	v.filesTable.SetHeaders("Status", "Changes", "File")
 
 	for _, file := range v.commit.Files {
-		statusColor := theme.TagFg()
-		switch file.Status {
-		case git.FileAdded:
-			statusColor = theme.TagSuccess()
-		case git.FileDeleted:
-			statusColor = theme.TagError()
-		case git.FileModified:
-			statusColor = theme.TagWarning()
-		case git.FileRenamed:
-			statusColor = theme.TagInfo()
-		}
+		statusColor := commitFileStatusTag(file.Status)
 
 		path := file.Path
 		if file.OldPath != "" && file.OldPath != file.Path {
@@ -407,14 +389,7 @@ func (v *CommitView) checkout() {
 		return
 	}
 
-	ShowConfirmModal(v.app, "Checkout",
-		fmt.Sprintf("Checkout commit %s?\n\n%s", v.commit.ShortHash, v.commit.Subject),
-		func() {
-			if err := v.repo.Checkout(v.hash); err != nil {
-				ShowErrorModal(v.app, "Checkout Failed", err.Error())
-				return
-			}
-		})
+	v.mutations.confirm(v.app, v.repo, commitAction{kind: checkoutCommit, hash: v.hash, shortHash: v.commit.ShortHash, subject: v.commit.Subject}, v.loadCommit)
 }
 
 func (v *CommitView) cherryPick() {
@@ -422,13 +397,7 @@ func (v *CommitView) cherryPick() {
 		return
 	}
 
-	ShowConfirmModal(v.app, "Cherry Pick",
-		fmt.Sprintf("Cherry-pick commit %s?\n\n%s", v.commit.ShortHash, v.commit.Subject),
-		func() {
-			if err := v.repo.CherryPick(v.hash); err != nil {
-				ShowErrorModal(v.app, "Cherry-pick Failed", err.Error())
-			}
-		})
+	v.mutations.confirm(v.app, v.repo, commitAction{kind: cherryPickCommit, hash: v.hash, shortHash: v.commit.ShortHash, subject: v.commit.Subject}, v.loadCommit)
 }
 
 func (v *CommitView) revert() {
@@ -436,13 +405,7 @@ func (v *CommitView) revert() {
 		return
 	}
 
-	ShowConfirmModal(v.app, "Revert Commit",
-		fmt.Sprintf("Revert commit %s?\n\n%s", v.commit.ShortHash, v.commit.Subject),
-		func() {
-			if err := v.repo.Revert(v.hash); err != nil {
-				ShowErrorModal(v.app, "Revert Failed", err.Error())
-			}
-		})
+	v.mutations.confirm(v.app, v.repo, commitAction{kind: revertCommit, hash: v.hash, shortHash: v.commit.ShortHash, subject: v.commit.Subject}, v.loadCommit)
 }
 
 func (v *CommitView) copyHash() {

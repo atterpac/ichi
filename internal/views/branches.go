@@ -272,7 +272,12 @@ func (v *BranchesView) mergeBranch() {
 		return
 	}
 
-	currentBranch := v.repo.CurrentBranch()
+	status, err := v.repo.LoadRepositoryStatus()
+	if err != nil {
+		ShowErrorModal(v.app, "Cannot Merge", err.Error())
+		return
+	}
+	currentBranch := status.Branch
 	ShowConfirmModal(v.app, "Merge Branch",
 		fmt.Sprintf("Merge %s into %s?", branch.Name, currentBranch),
 		func() {
@@ -302,7 +307,12 @@ func (v *BranchesView) rebaseBranch() {
 		return
 	}
 
-	currentBranch := v.repo.CurrentBranch()
+	status, err := v.repo.LoadRepositoryStatus()
+	if err != nil {
+		ShowErrorModal(v.app, "Cannot Rebase", err.Error())
+		return
+	}
+	currentBranch := status.Branch
 	ShowConfirmModal(v.app, "Rebase Branch",
 		fmt.Sprintf("Rebase %s onto %s?", currentBranch, branch.Name),
 		func() {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atterpac/dado/async"
 	"github.com/atterpac/ichi/internal/app"
 	"github.com/atterpac/ichi/internal/config"
 	ichiexec "github.com/atterpac/ichi/internal/exec"
@@ -23,6 +24,10 @@ func RegisterCustom(cmds []config.CustomCommand) []string {
 			continue
 		}
 		cmd := buildCommand(c)
+		if err := validateReplacement(cmd); err != nil {
+			warnings = append(warnings, err.Error())
+			continue
+		}
 		if c.Key != "" {
 			chord, err := parseKeyChord(c.Key)
 			if err != nil {
@@ -38,8 +43,31 @@ func RegisterCustom(cmds []config.CustomCommand) []string {
 
 // registerOrReplace adds cmd, replacing any existing command with the same name
 // (custom commands override builtins).
+// Replacing a primary name removes aliases owned by the old command. New
+// commands may replace an alias as a primary name, but never hijack unrelated
+// primary names or aliases through their new alias list.
+func validateReplacement(cmd *Command) error {
+	existing := registry[cmd.Name]
+	for _, alias := range cmd.Aliases {
+		if alias == cmd.Name {
+			continue
+		}
+		owner := registry[alias]
+		if owner != nil && (existing == nil || existing.Name != cmd.Name || owner != existing) {
+			return fmt.Errorf("command %q alias %q belongs to %q", cmd.Name, alias, owner.Name)
+		}
+	}
+	return nil
+}
+
 func registerOrReplace(cmd *Command) {
-	if existing, ok := registry[cmd.Name]; ok {
+	existing := registry[cmd.Name]
+	if existing != nil && existing.Name == cmd.Name {
+		for name, owner := range registry {
+			if owner == existing {
+				delete(registry, name)
+			}
+		}
 		for i, c := range allCommands {
 			if c == existing {
 				allCommands[i] = cmd
@@ -122,80 +150,50 @@ func checkRequires(requires string, sel *selection.Context) error {
 
 func runCustom(ctx *Context, c config.CustomCommand, command string) {
 	repoRoot := ctx.Repo.Path()
-
-	switch c.View {
-	case "editor":
+	if c.View == "editor" {
 		ctx.App.Suspend(func() {
-			_ = ichiexec.RunShellInteractive(repoRoot, command)
+			if err := ichiexec.RunShellInteractive(repoRoot, command); err != nil {
+				app.ToastError(err.Error())
+			}
 		})
 		return
-
-	case "pager", "diff":
-		var content string
-		app.RunAsyncSimple(
-			fmt.Sprintf("Running %s...", c.Name),
-			func(cctx context.Context) error {
-				out, errOut, err := ichiexec.RunShell(cctx, repoRoot, command)
-				if err != nil {
-					return fmt.Errorf("%s\n%s", strings.TrimSpace(errOut), err)
-				}
-				content = out
-				return nil
-			},
-			func() {
-				view := views.NewOutputView(ctx.App, c.Name, content, c.View == "diff")
-				ctx.App.Pages().Push(view)
-				ctx.App.Crumbs().SetPath([]string{c.Name})
-			},
-			func(err error) { views.ShowErrorModal(ctx.App, c.Name+" failed", err.Error()) },
-		)
-		return
-
-	case "commit", "graph":
-		out, _, err := ichiexec.RunShell(context.Background(), repoRoot, command)
-		if err != nil {
-			views.ShowErrorModal(ctx.App, c.Name+" failed", err.Error())
-			return
-		}
-		ref := firstToken(out)
-		if ref == "" {
-			app.ToastError(fmt.Sprintf("%s: command produced no commit ref", c.Name))
-			return
-		}
-		view := views.NewCommitView(ctx.App, ctx.Repo, ref)
-		ctx.App.Pages().Push(view)
-		ctx.App.Crumbs().SetPath([]string{c.Name, ref})
-		return
-
-	case "branch":
-		// Run for side effects (e.g. create/checkout), then show the branch list.
-		if _, errOut, err := ichiexec.RunShell(context.Background(), repoRoot, command); err != nil {
-			views.ShowErrorModal(ctx.App, c.Name+" failed", strings.TrimSpace(errOut)+"\n"+err.Error())
-			return
-		}
-		view := views.NewBranchesView(ctx.App, ctx.Repo)
-		ctx.App.Pages().Push(view)
-		ctx.App.Crumbs().SetPath([]string{"Branches"})
-		return
-
-	default: // "none" / ""
-		out, errOut, err := ichiexec.RunShell(context.Background(), repoRoot, command)
-		if err != nil {
-			msg := strings.TrimSpace(errOut)
-			if msg == "" {
-				msg = err.Error()
-			}
-			views.ShowErrorModal(ctx.App, c.Name+" failed", msg)
-			return
-		}
-		// Toast the command's output so the result is visible; fall back to a
-		// generic confirmation when the command is silent.
-		msg := strings.TrimSpace(out)
-		if msg == "" {
-			msg = c.Name + " done"
-		}
-		app.ToastSuccess(msg)
 	}
+	runCustomAsync(c.Name, repoRoot, command, func(out string) {
+		switch c.View {
+		case "pager", "diff":
+			ctx.App.Pages().Push(views.NewOutputView(ctx.App, c.Name, out, c.View == "diff"))
+			ctx.App.Crumbs().SetPath([]string{c.Name})
+		case "commit", "graph":
+			ref := firstToken(out)
+			if ref == "" {
+				app.ToastError(fmt.Sprintf("%s: command produced no commit ref", c.Name))
+				return
+			}
+			ctx.App.Pages().Push(views.NewCommitView(ctx.App, ctx.Repo, ref))
+			ctx.App.Crumbs().SetPath([]string{c.Name, ref})
+		case "branch":
+			ctx.App.Pages().Push(views.NewBranchesView(ctx.App, ctx.Repo))
+			ctx.App.Crumbs().SetPath([]string{"Branches"})
+		default:
+			message := strings.TrimSpace(out)
+			if message == "" {
+				message = c.Name + " done"
+			}
+			app.ToastSuccess(message)
+		}
+	}, func(err error) { views.ShowErrorModal(ctx.App, c.Name+" failed", err.Error()) })
+}
+
+// All noninteractive output modes share one cancellable execution lifecycle;
+// dado's loader dispatches the result callbacks onto the UI queue.
+func runCustomAsync(name, repoRoot, command string, onOutput func(string), onError func(error)) *async.Loader[string] {
+	return app.RunAsync("Running "+name+"...", func(ctx context.Context) (string, error) {
+		out, errOut, err := ichiexec.RunShell(ctx, repoRoot, command)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", strings.TrimSpace(errOut), err)
+		}
+		return out, nil
+	}, onOutput, onError)
 }
 
 // firstToken returns the first whitespace-delimited token of s.

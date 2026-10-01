@@ -1,8 +1,9 @@
 package app
 
 import (
+	"context"
 	"fmt"
-	"sync"
+	"time"
 
 	"github.com/atterpac/dado/layout"
 	"github.com/atterpac/dado/theme"
@@ -25,26 +26,22 @@ const (
 )
 
 // UpdateStatusBar updates the status bar with repository information.
-func UpdateStatusBar(statusBar *layout.StatusBar, repo *git.Repository) {
-	var (
-		branch     string
-		shortHead  string
-		ahead      int
-		behind     int
-		isDetached bool
-		staged     git.ChangeStats
-		unstaged   git.ChangeStats
-		stashCount int
-	)
-
-	var wg sync.WaitGroup
-	wg.Add(5)
-	go func() { defer wg.Done(); branch = repo.CurrentBranch() }()
-	go func() { defer wg.Done(); shortHead = repo.ShortHEAD() }()
-	go func() { defer wg.Done(); ahead, behind = repo.AheadBehind() }()
-	go func() { defer wg.Done(); isDetached = repo.IsDetachedHEAD() }()
-	go func() { defer wg.Done(); staged, unstaged, stashCount = repo.StatusCounts() }()
-	wg.Wait()
+func UpdateStatusBar(statusBar *layout.StatusBar, repo *git.Repository) error {
+	// Outcome refresh has its own lifetime: cancellation of a mutation must
+	// not turn the subsequent observation into a canceled/clean-looking read.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	snapshot, err := repo.WithContext(ctx).LoadRepositorySnapshot()
+	if err != nil {
+		statusBar.ClearSections().SetTitle("ichi").SetConnectionStatus(false, repo.Path())
+		statusBar.AddSection(layout.StatusSection{Text: "Repository status unavailable", Color: theme.Error()})
+		return err
+	}
+	branch, shortHead := snapshot.Branch, snapshot.ShortHead
+	ahead, behind := snapshot.Ahead, snapshot.Behind
+	isDetached := snapshot.DetachedHead
+	staged, unstaged := snapshot.Worktree.ChangeCounts()
+	stashCount := snapshot.StashCount
 
 	statusBar.ClearSections()
 
@@ -142,4 +139,5 @@ func UpdateStatusBar(statusBar *layout.StatusBar, repo *git.Repository) {
 			Color: theme.FgDim(),
 		})
 	}
+	return nil
 }

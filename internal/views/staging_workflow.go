@@ -715,68 +715,45 @@ func (v *StagingWorkflowView) stageSelected() {
 	// Remember cursor position to restore after reload
 	savedIndex := tree.GetSelectedIndex()
 
-	if data.isDir {
-		// Stage/unstage every file under the directory.
-		for _, fd := range collectFileData(node) {
-			var err error
-			if isUnstaging {
-				err = v.repo.UnstageFile(fd.file.Path)
-			} else {
-				err = v.repo.StageFile(fd.file.Path)
-			}
-			if err != nil {
-				verb := "Stage"
-				if isUnstaging {
-					verb = "Unstage"
-				}
-				ShowErrorModal(v.app, verb+" Failed", err.Error())
-				return
-			}
+	err := applyStagingNode(v.repo, node, data, isUnstaging)
+	// Index commands may partially change state before reporting an error.
+	v.loadFiles()
+	tree.SetSelectedIndex(savedIndex)
+	if err != nil {
+		title := "Stage Failed"
+		if isUnstaging {
+			title = "Unstage Failed"
 		}
-	} else if isUnstaging {
-		// Unstage operation
-		if data.isFile {
-			// Unstage entire file
-			if err := v.repo.UnstageFile(data.file.Path); err != nil {
-				ShowErrorModal(v.app, "Unstage Failed", err.Error())
-				return
-			}
-		} else {
-			// Unstage specific hunk
-			if err := v.repo.UnstageHunk(data.file.Path, data.hunk); err != nil {
-				ShowErrorModal(v.app, "Unstage Failed", err.Error())
-				return
-			}
+		ShowErrorModal(v.app, title, err.Error())
+	}
+}
+
+// applyStagingNode keeps target selection separate from feedback and refresh.
+func applyStagingNode(repo *git.Repository, node *components.TreeNode, data *nodeData, unstaging bool) error {
+	var paths []string
+	if data.isDir {
+		for _, file := range collectFileData(node) {
+			paths = append(paths, stagingFilePaths(file.file, unstaging)...)
 		}
 	} else {
-		// Stage operation
-		if data.isFile {
-			// Stage entire file
-			if err := v.repo.StageFile(data.file.Path); err != nil {
-				ShowErrorModal(v.app, "Stage Failed", err.Error())
-				return
-			}
-		} else {
-			// Stage specific hunk
-			if data.file.IsUntracked {
-				// For untracked files, must stage whole file
-				if err := v.repo.StageFile(data.file.Path); err != nil {
-					ShowErrorModal(v.app, "Stage Failed", err.Error())
-					return
-				}
-			} else {
-				if err := v.repo.StageHunk(data.file.Path, data.hunk); err != nil {
-					ShowErrorModal(v.app, "Stage Failed", err.Error())
-					return
-				}
-			}
+		if data.file == nil {
+			return fmt.Errorf("selected staging node has no file")
 		}
+		if !data.isFile && !data.file.IsUntracked {
+			if data.hunk == nil {
+				return fmt.Errorf("selected staging node has no hunk")
+			}
+			if unstaging {
+				return repo.UnstageHunk(data.file.Path, data.hunk)
+			}
+			return repo.StageHunk(data.file.Path, data.hunk)
+		}
+		paths = stagingFilePaths(data.file, unstaging)
 	}
-
-	v.loadFiles()
-
-	// Restore cursor position in the same tree (clamped to new bounds)
-	tree.SetSelectedIndex(savedIndex)
+	if unstaging {
+		return repo.UnstageFiles(paths)
+	}
+	return repo.StageFiles(paths)
 }
 
 func (v *StagingWorkflowView) discardSelected() {
@@ -1212,4 +1189,12 @@ func (v *StagingWorkflowView) HandleKey(event *tcell.EventKey) bool {
 		}
 	}
 	return false
+}
+
+func stagingFilePaths(file *git.StatusEntry, staged bool) []string {
+	paths := []string{file.Path}
+	if file.OldPath != "" && ((staged && file.IndexStatus == git.FileRenamed) || (!staged && file.WorkStatus == git.FileRenamed)) {
+		paths = append(paths, file.OldPath)
+	}
+	return paths
 }

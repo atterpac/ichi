@@ -203,11 +203,15 @@ func (v *StatusView) toggleStage() {
 		return
 	}
 
+	paths := []string{entry.Path}
+	if entry.OldPath != "" && ((v.focusStaged.Get() && entry.IndexStatus == git.FileRenamed) || (!v.focusStaged.Get() && entry.WorkStatus == git.FileRenamed)) {
+		paths = append(paths, entry.OldPath)
+	}
 	var err error
 	if v.focusStaged.Get() {
-		err = v.repo.UnstageFile(entry.Path)
+		err = v.repo.UnstageFiles(paths)
 	} else {
-		err = v.repo.StageFile(entry.Path)
+		err = v.repo.StageFiles(paths)
 	}
 	if err != nil {
 		ShowErrorModal(v.app, "Error", err.Error())

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -126,11 +127,12 @@ func init() {
 	load()
 }
 
-// Get returns the current config.
+// Get returns an independent snapshot of the current config.
 func Get() *Config {
 	mu.RLock()
 	defer mu.RUnlock()
-	return current
+	snapshot := cloneConfig(current)
+	return &snapshot
 }
 
 // GetTheme returns the current theme name.
@@ -141,11 +143,32 @@ func GetTheme() string {
 }
 
 // SetTheme updates the theme and saves config.
-func SetTheme(name string) {
+func SetTheme(name string) error {
+	return update(func(next *Config) { next.Theme = name })
+}
+
+// update serializes persistence and publication. A failed save leaves both the
+// previous in-memory snapshot and the previous on-disk configuration intact.
+func update(change func(*Config)) error {
 	mu.Lock()
-	current.Theme = name
-	mu.Unlock()
-	save()
+	defer mu.Unlock()
+	next := cloneConfig(current)
+	change(&next)
+	if err := persistConfig(configPath, &next, os.Rename); err != nil {
+		return err
+	}
+	current = &next
+	return nil
+}
+
+func cloneConfig(c *Config) Config {
+	next := *c
+	next.Repos = slices.Clone(c.Repos)
+	next.Commands = slices.Clone(c.Commands)
+	for i := range next.Commands {
+		next.Commands[i].Aliases = slices.Clone(next.Commands[i].Aliases)
+	}
+	return next
 }
 
 func load() {
@@ -196,46 +219,40 @@ func FindRepo(query string) (Repo, bool) {
 // SaveRepo adds or updates a saved repo and persists the config. When oldName
 // is non-empty the existing entry with that name is replaced (supporting
 // renames); otherwise the repo is upserted by name.
-func SaveRepo(oldName string, r Repo) {
-	mu.Lock()
-	key := oldName
-	if key == "" {
-		key = r.Name
-	}
-	updated := false
-	for i := range current.Repos {
-		if current.Repos[i].Name == key {
-			current.Repos[i] = r
-			updated = true
-			break
+func SaveRepo(oldName string, r Repo) error {
+	return update(func(next *Config) {
+		key := oldName
+		if key == "" {
+			key = r.Name
 		}
-	}
-	if !updated {
-		current.Repos = append(current.Repos, r)
-	}
-	mu.Unlock()
-	save()
+		for i := range next.Repos {
+			if next.Repos[i].Name == key {
+				next.Repos[i] = r
+				return
+			}
+		}
+		next.Repos = append(next.Repos, r)
+	})
 }
 
 // DeleteRepo removes a saved repo by name and persists the config.
-func DeleteRepo(name string) {
-	mu.Lock()
-	filtered := current.Repos[:0]
-	for _, r := range current.Repos {
-		if r.Name != name {
-			filtered = append(filtered, r)
+func DeleteRepo(name string) error {
+	return update(func(next *Config) {
+		filtered := next.Repos[:0]
+		for _, r := range next.Repos {
+			if r.Name != name {
+				filtered = append(filtered, r)
+			}
 		}
-	}
-	current.Repos = filtered
-	mu.Unlock()
-	save()
+		next.Repos = filtered
+	})
 }
 
 // GetCommands returns the user-defined custom commands.
 func GetCommands() []CustomCommand {
 	mu.RLock()
 	defer mu.RUnlock()
-	return current.Commands
+	return cloneConfig(current).Commands
 }
 
 // validViews and validRequires bound the accepted enum-like fields.
@@ -266,18 +283,43 @@ func ValidateCommand(c CustomCommand) error {
 	return nil
 }
 
-func save() {
-	mu.RLock()
-	data, err := yaml.Marshal(current)
-	mu.RUnlock()
+// persistConfig replaces one complete file. The replacement dependency lets
+// failure tests exercise the boundary after the temporary file is fully written.
+func persistConfig(path string, next *Config, replace func(string, string) error) error {
+	data, err := yaml.Marshal(next)
 	if err != nil {
-		return
+		return fmt.Errorf("encode config: %w", err)
 	}
-
-	dir := filepath.Dir(configPath)
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return
+		return fmt.Errorf("create config directory: %w", err)
 	}
-
-	_ = os.WriteFile(configPath, append([]byte(configHeader), data...), 0644)
+	mode := os.FileMode(0644)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect config: %w", err)
+	}
+	file, err := os.CreateTemp(dir, ".config-*")
+	if err != nil {
+		return fmt.Errorf("create config file: %w", err)
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if err := file.Chmod(mode); err != nil {
+		return fmt.Errorf("set config permissions: %w", err)
+	}
+	if _, err := file.Write(append([]byte(configHeader), data...)); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync config: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close config: %w", err)
+	}
+	if err := replace(file.Name(), path); err != nil {
+		return fmt.Errorf("replace config: %w", err)
+	}
+	return nil
 }

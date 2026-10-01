@@ -65,7 +65,10 @@ func PreloadGraph(repo *git.Repository) (*PreloadedGraph, error) {
 	// Check for working changes
 	hasChanges := false
 	status, err := repo.Status()
-	if err == nil {
+	if err != nil {
+		return nil, err
+	}
+	{
 		for _, entry := range status {
 			if entry.WorkStatus != 0 || entry.IndexStatus != 0 || entry.IsUntracked {
 				hasChanges = true
@@ -92,7 +95,10 @@ type GraphView struct {
 
 	// detailCache memoizes LoadCommit by hash (immutable per hash) so scrolling
 	// doesn't re-spawn git processes. Cleared on refresh().
-	detailCache map[string]*git.CommitDetail
+	detailCancel context.CancelFunc
+	detailCache  map[string]*git.CommitDetail
+	mutations    commitActionOwner
+	active       bool
 
 	// Search
 	searchActive  bool
@@ -189,6 +195,7 @@ func (v *GraphView) SetPreloadedGraph(p *PreloadedGraph) {
 }
 
 func (v *GraphView) Start() {
+	v.active = true
 	if v.preloaded != nil {
 		graph := v.preloaded.Graph
 		hasChanges := v.preloaded.HasChanges
@@ -216,7 +223,18 @@ func (v *GraphView) Start() {
 	v.refresh()
 }
 
-func (v *GraphView) Stop() {}
+func (v *GraphView) Stop() {
+	v.active = false
+	v.mutations.stop()
+	v.cancelDetail()
+}
+
+func (v *GraphView) cancelDetail() {
+	if v.detailCancel != nil {
+		v.detailCancel()
+		v.detailCancel = nil
+	}
+}
 
 func (v *GraphView) Hints() []components.KeyHint {
 	if v.searchActive {
@@ -240,7 +258,8 @@ func (v *GraphView) Hints() []components.KeyHint {
 // Business logic
 
 func (v *GraphView) refresh() {
-	// Drop cached details; a refresh may have moved branches/refs.
+	v.cancelDetail()
+	// Refresh may also switch repositories or change Git configuration.
 	v.detailCache = nil
 
 	g, err := v.repo.LoadGraph(500)
@@ -252,7 +271,11 @@ func (v *GraphView) refresh() {
 
 	// Add stashes to graph if enabled - insert chronologically
 	if v.showStashes {
-		stashes, _ := v.repo.LoadStashes()
+		stashes, err := v.repo.LoadStashes()
+		if err != nil {
+			v.showError(err)
+			return
+		}
 		for _, st := range stashes {
 			stash := toGitCommit(st)
 			graph.CommitMap[stash.Hash] = stash
@@ -276,7 +299,12 @@ func (v *GraphView) refresh() {
 	}
 
 	// Check for unstaged changes and prepend pseudo-node
-	if v.hasWorkingChanges() {
+	hasChanges, err := v.hasWorkingChanges()
+	if err != nil {
+		v.showError(err)
+		return
+	}
+	if hasChanges {
 		pseudoNode := &components.GitCommit{
 			Hash:         "unstaged",
 			ShortHash:    "○",
@@ -298,17 +326,17 @@ func (v *GraphView) refresh() {
 }
 
 // hasWorkingChanges returns true if there are staged or unstaged changes in the repo.
-func (v *GraphView) hasWorkingChanges() bool {
+func (v *GraphView) hasWorkingChanges() (bool, error) {
 	status, err := v.repo.Status()
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, entry := range status {
 		if entry.WorkStatus != 0 || entry.IndexStatus != 0 || entry.IsUntracked {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func (v *GraphView) toggleStashes() {
@@ -317,33 +345,73 @@ func (v *GraphView) toggleStashes() {
 }
 
 func (v *GraphView) updateDetail(commit *components.GitCommit) {
+	// dado's debounced highlight can already be queued when navigation stops
+	// this view. It must not create a new read lifetime after Stop.
+	if !v.active {
+		return
+	}
+	v.cancelDetail()
 	if commit == nil {
 		v.detailView.SetText("")
 		return
 	}
-
-	// Handle pseudo-node - show unstaged changes summary
 	if commit.IsPseudoNode && commit.PseudoType == "unstaged" {
 		v.updateDetailUnstaged()
 		return
 	}
-
-	// Memoized by hash so scrolling back over a commit avoids re-spawning git.
-	detail, ok := v.detailCache[commit.Hash]
-	if !ok {
-		var err error
-		detail, err = v.repo.LoadCommit(commit.Hash)
-		if err != nil {
-			// Fallback to basic info from graph commit
-			v.updateDetailBasic(commit)
+	ctx, cancel := context.WithCancel(context.Background())
+	v.detailCancel = cancel
+	detail := v.detailCache[commit.Hash]
+	if detail != nil {
+		v.renderDetail(commit, detail, nil, nil)
+	} else {
+		v.updateDetailBasic(commit)
+	}
+	repo := *v.repo
+	go func() {
+		if detail == nil {
+			var err error
+			detail, err = repo.LoadCommit(ctx, commit.Hash)
+			if err != nil || ctx.Err() != nil {
+				return
+			}
+			v.app.QueueUpdateDraw(func() {
+				if ctx.Err() != nil {
+					return
+				}
+				if v.detailCache == nil {
+					v.detailCache = make(map[string]*git.CommitDetail)
+				}
+				// Bound the preview cache; large commit lists must not retain every detail.
+				if len(v.detailCache) >= 80 {
+					for key := range v.detailCache {
+						delete(v.detailCache, key)
+						break
+					}
+				}
+				if len(detail.Files) <= 2000 && len(detail.Body) <= 65536 {
+					v.detailCache[commit.Hash] = detail
+				}
+				v.renderDetail(commit, detail, nil, nil)
+			})
+		}
+		if ctx.Err() != nil {
 			return
 		}
-		if v.detailCache == nil {
-			v.detailCache = make(map[string]*git.CommitDetail)
+		metadata, err := repo.LoadCommitMetadata(ctx, detail.Hash)
+		if ctx.Err() != nil {
+			return
 		}
-		v.detailCache[commit.Hash] = detail
-	}
+		v.app.QueueUpdateDraw(func() {
+			if ctx.Err() == nil {
+				v.renderDetail(commit, detail, metadata, err)
+			}
+		})
+	}()
+}
 
+func (v *GraphView) renderDetail(commit *components.GitCommit, detail *git.CommitDetail, metadata *git.CommitMetadata, metadataErr error) {
+	presentation := presentCommit(detail, metadata, metadataErr)
 	var text strings.Builder
 
 	// Subject
@@ -357,10 +425,10 @@ func (v *GraphView) updateDetail(commit *components.GitCommit) {
 	}
 
 	// Show branch info prominently right after subject
-	if len(detail.Branches) > 0 {
+	if metadata != nil && len(metadata.Branches) > 0 {
 		// Find the primary branch (prefer local over remote, current branch first)
 		var localBranches, remoteBranches []string
-		for _, branch := range detail.Branches {
+		for _, branch := range metadata.Branches {
 			if strings.HasPrefix(branch, "origin/") {
 				remoteBranches = append(remoteBranches, branch)
 			} else {
@@ -389,8 +457,14 @@ func (v *GraphView) updateDetail(commit *components.GitCommit) {
 	text.WriteString(fmt.Sprintf("[%s]Hash:[-]   %s\n", theme.TagFgDim(), detail.ShortHash))
 
 	// GPG Signature (compact)
-	if detail.GPGStatus.Signed {
-		if detail.GPGStatus.Valid {
+	if presentation.signature == "loading" || presentation.signature == "unavailable" {
+		if presentation.signature == "unavailable" {
+			text.WriteString("Signature / branches: unavailable\n")
+		} else {
+			text.WriteString("Signature / branches: loading…\n")
+		}
+	} else if presentation.signature != "unsigned" {
+		if presentation.signature == "verified" {
 			text.WriteString(fmt.Sprintf("[%s]Signed:[-] [%s]✓ Verified[-]\n", theme.TagFgDim(), theme.TagSuccess()))
 		} else {
 			text.WriteString(fmt.Sprintf("[%s]Signed:[-] [%s]✗ Invalid[-]\n", theme.TagFgDim(), theme.TagError()))
@@ -413,20 +487,11 @@ func (v *GraphView) updateDetail(commit *components.GitCommit) {
 	}
 
 	// ─── Parents ─── (with subjects)
-	if len(detail.Parents) > 0 {
+	if len(presentation.parents) > 0 {
 		text.WriteString(fmt.Sprintf("\n[%s::b]─── Parents ───[-:-:-]\n", theme.TagFgDim()))
-		for i, parent := range detail.Parents {
-			shortParent := parent
-			if len(parent) > 7 {
-				shortParent = parent[:7]
-			}
-			subject := ""
-			if i < len(detail.ParentSubjects) && detail.ParentSubjects[i] != "" {
-				subject = detail.ParentSubjects[i]
-				if len(subject) > 40 {
-					subject = subject[:37] + "..."
-				}
-			}
+		for _, parent := range presentation.parents {
+			shortParent := parent.hash
+			subject := truncateCommitText(parent.subject, 40)
 			if subject != "" {
 				text.WriteString(fmt.Sprintf("[%s]%s[-] %s\n", theme.TagInfo(), shortParent, subject))
 			} else {
@@ -436,10 +501,10 @@ func (v *GraphView) updateDetail(commit *components.GitCommit) {
 	}
 
 	// ─── Refs ───
-	if len(detail.Refs) > 0 {
+	if metadata != nil && len(metadata.Refs) > 0 {
 		text.WriteString(fmt.Sprintf("\n[%s::b]─── Refs ───[-:-:-]\n", theme.TagFgDim()))
-		for _, ref := range detail.Refs {
-			if strings.HasPrefix(ref, "tag:") || (len(ref) > 0 && ref[0] == 'v' && len(ref) > 1 && ref[1] >= '0' && ref[1] <= '9') {
+		for _, ref := range metadata.Refs {
+			if isTagRef(ref) {
 				text.WriteString(fmt.Sprintf("[%s]⚑[-] %s\n", theme.TagWarning(), ref))
 			} else {
 				text.WriteString(fmt.Sprintf("[%s]→[-] %s\n", theme.TagAccent(), ref))
@@ -448,12 +513,12 @@ func (v *GraphView) updateDetail(commit *components.GitCommit) {
 	}
 
 	// ─── Branches ─── (compact, max 5)
-	if len(detail.Branches) > 0 {
+	if metadata != nil && len(metadata.Branches) > 0 {
 		text.WriteString(fmt.Sprintf("\n[%s::b]─── Branches ───[-:-:-]\n", theme.TagFgDim()))
 		maxShow := 5
-		for i, branch := range detail.Branches {
+		for i, branch := range metadata.Branches {
 			if i >= maxShow {
-				text.WriteString(fmt.Sprintf("[%s]... +%d more[-]\n", theme.TagFgDim(), len(detail.Branches)-maxShow))
+				text.WriteString(fmt.Sprintf("[%s]... +%d more[-]\n", theme.TagFgDim(), len(metadata.Branches)-maxShow))
 				break
 			}
 			if strings.HasPrefix(branch, "origin/") {
@@ -483,25 +548,8 @@ func (v *GraphView) updateDetail(commit *components.GitCommit) {
 			}
 
 			// Status color
-			statusColor := theme.TagFg()
-			statusChar := "M"
-			switch file.Status {
-			case git.FileAdded:
-				statusColor = theme.TagSuccess()
-				statusChar = "A"
-			case git.FileDeleted:
-				statusColor = theme.TagError()
-				statusChar = "D"
-			case git.FileModified:
-				statusColor = theme.TagWarning()
-				statusChar = "M"
-			case git.FileRenamed:
-				statusColor = theme.TagInfo()
-				statusChar = "R"
-			case git.FileCopied:
-				statusColor = theme.TagInfo()
-				statusChar = "C"
-			}
+			statusColor := commitFileStatusTag(file.Status)
+			statusChar := file.Status.String()
 
 			// Format stats
 			var stats string
@@ -515,8 +563,9 @@ func (v *GraphView) updateDetail(commit *components.GitCommit) {
 
 			// Truncate path if needed
 			path := file.Path
-			if len(path) > 35 {
-				path = "..." + path[len(path)-32:]
+			runes := []rune(path)
+			if len(runes) > 35 {
+				path = "..." + string(runes[len(runes)-32:])
 			}
 
 			text.WriteString(fmt.Sprintf("[%s]%s[-] %s %s\n", statusColor, statusChar, stats, path))
@@ -648,27 +697,6 @@ func (v *GraphView) updateDetailBasic(commit *components.GitCommit) {
 	v.detailView.SetText(text.String())
 }
 
-// relativeTimeCompact returns a short relative time string.
-func relativeTimeCompact(t time.Time) string {
-	diff := time.Since(t)
-	switch {
-	case diff < time.Minute:
-		return "now"
-	case diff < time.Hour:
-		return fmt.Sprintf("%dm", int(diff.Minutes()))
-	case diff < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(diff.Hours()))
-	case diff < 7*24*time.Hour:
-		return fmt.Sprintf("%dd", int(diff.Hours()/24))
-	case diff < 30*24*time.Hour:
-		return fmt.Sprintf("%dw", int(diff.Hours()/24/7))
-	case diff < 365*24*time.Hour:
-		return fmt.Sprintf("%dmo", int(diff.Hours()/24/30))
-	default:
-		return fmt.Sprintf("%dy", int(diff.Hours()/24/365))
-	}
-}
-
 func (v *GraphView) showCommitView(commit *components.GitCommit) {
 	if commit == nil {
 		return
@@ -703,17 +731,10 @@ func (v *GraphView) checkout() {
 		return
 	}
 
-	// Show confirmation modal
-	ShowConfirmModal(v.app, "Checkout",
-		fmt.Sprintf("Checkout commit %s?\n\n%s", commit.ShortHash, commit.Message),
-		func() {
-			if err := v.repo.Checkout(commit.Hash); err != nil {
-				ShowErrorModal(v.app, "Checkout Failed", err.Error())
-				return
-			}
-			app.ToastSuccess(fmt.Sprintf("Checked out %s", commit.ShortHash))
-			v.refresh()
-		})
+	if commit.IsPseudoNode {
+		return
+	}
+	v.mutations.confirm(v.app, v.repo, commitAction{kind: checkoutCommit, hash: commit.Hash, shortHash: commit.ShortHash, subject: commit.Message}, v.refresh)
 }
 
 func (v *GraphView) cherryPick() {
@@ -722,16 +743,10 @@ func (v *GraphView) cherryPick() {
 		return
 	}
 
-	ShowConfirmModal(v.app, "Cherry Pick",
-		fmt.Sprintf("Cherry-pick commit %s?\n\n%s", commit.ShortHash, commit.Message),
-		func() {
-			if err := v.repo.CherryPick(commit.Hash); err != nil {
-				ShowErrorModal(v.app, "Cherry-pick Failed", err.Error())
-				return
-			}
-			app.ToastSuccess(fmt.Sprintf("Cherry-picked %s", commit.ShortHash))
-			v.refresh()
-		})
+	if commit.IsPseudoNode {
+		return
+	}
+	v.mutations.confirm(v.app, v.repo, commitAction{kind: cherryPickCommit, hash: commit.Hash, shortHash: commit.ShortHash, subject: commit.Message}, v.refresh)
 }
 
 func (v *GraphView) revert() {
@@ -740,16 +755,10 @@ func (v *GraphView) revert() {
 		return
 	}
 
-	ShowConfirmModal(v.app, "Revert Commit",
-		fmt.Sprintf("Revert commit %s?\n\n%s", commit.ShortHash, commit.Message),
-		func() {
-			if err := v.repo.Revert(commit.Hash); err != nil {
-				ShowErrorModal(v.app, "Revert Failed", err.Error())
-				return
-			}
-			app.ToastSuccess(fmt.Sprintf("Reverted %s", commit.ShortHash))
-			v.refresh()
-		})
+	if commit.IsPseudoNode {
+		return
+	}
+	v.mutations.confirm(v.app, v.repo, commitAction{kind: revertCommit, hash: commit.Hash, shortHash: commit.ShortHash, subject: commit.Message}, v.refresh)
 }
 
 func (v *GraphView) copyHash() {
@@ -773,7 +782,12 @@ func (v *GraphView) editCommitMessage() {
 	}
 
 	// Safety check: is this commit pushed to a remote?
-	if v.repo.IsCommitPushed(commit.Hash) {
+	pushed, err := v.repo.ReadCommitPushed(commit.Hash)
+	if err != nil {
+		ShowErrorModal(v.app, "Cannot Edit", err.Error())
+		return
+	}
+	if pushed {
 		ShowErrorModal(v.app, "Cannot Edit",
 			"This commit has been pushed to a remote.\n\n"+
 				"Editing the message would require a force push,\n"+
@@ -796,11 +810,7 @@ func (v *GraphView) editCommitMessage() {
 				return // No change
 			}
 
-			if err := v.repo.RenameCommit(commit.Hash, newMessage); err != nil {
-				ShowErrorModal(v.app, "Edit Failed", err.Error())
-				return
-			}
-			v.refresh()
+			v.mutations.execute(v.app, v.repo, commitAction{kind: rewordCommit, hash: commit.Hash, shortHash: commit.ShortHash, subject: commit.Message, message: newMessage}, v.refresh)
 		})
 }
 
@@ -819,7 +829,12 @@ func (v *GraphView) dropCommit() {
 		return
 	}
 
-	if v.repo.IsCommitPushed(commit.Hash) {
+	pushed, err := v.repo.ReadCommitPushed(commit.Hash)
+	if err != nil {
+		ShowErrorModal(v.app, "Cannot Drop", err.Error())
+		return
+	}
+	if pushed {
 		ShowErrorModal(v.app, "Cannot Drop",
 			"This commit has been pushed to a remote.\n\n"+
 				"Dropping it would require a force push,\n"+
@@ -827,19 +842,7 @@ func (v *GraphView) dropCommit() {
 		return
 	}
 
-	ShowConfirmModal(v.app, "Drop Commit",
-		fmt.Sprintf("Drop commit %s?\n\n%s\n\nThis will remove the commit from history.", commit.ShortHash, commit.Message),
-		func() {
-			app.RunAsyncSimple(
-				fmt.Sprintf("Dropping %s...", commit.ShortHash),
-				func(ctx context.Context) error { return v.repo.DropCommit(commit.Hash) },
-				func() {
-					app.ToastSuccess(fmt.Sprintf("Dropped %s", commit.ShortHash))
-					v.refresh()
-				},
-				func(err error) { ShowErrorModal(v.app, "Drop Failed", err.Error()) },
-			)
-		})
+	v.mutations.confirm(v.app, v.repo, commitAction{kind: dropCommit, hash: commit.Hash, shortHash: commit.ShortHash, subject: commit.Message}, v.refresh)
 }
 
 func (v *GraphView) newBranch() {

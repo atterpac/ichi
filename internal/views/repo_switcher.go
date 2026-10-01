@@ -129,7 +129,10 @@ func (m *RepoSwitcherModal) HandleKey(ev *tcell.EventKey) bool {
 		if row >= 0 && row < len(m.repos) {
 			name := m.repos[row].Name
 			ShowConfirmModal(m.app, "Delete Repository", "Remove '"+name+"' from saved repos?", func() {
-				config.DeleteRepo(name)
+				if err := config.DeleteRepo(name); err != nil {
+					ShowErrorModal(m.app, "Delete Repository", err.Error())
+					return
+				}
 				app.ToastSuccess("Removed " + name)
 				m.loadRepos()
 			})
@@ -203,7 +206,10 @@ func ShowRepoForm(a *layout.App, repo *git.Repository, statusBar *layout.StatusB
 			return
 		}
 		r := config.Repo{Name: name, Path: path, Alias: alias}
-		config.SaveRepo(original.Name, r)
+		if err := config.SaveRepo(original.Name, r); err != nil {
+			ShowErrorModal(a, "Save Repository", err.Error())
+			return
+		}
 		a.Pages().Pop()
 		app.ToastSuccess("Saved " + name)
 		if err := SwitchRepo(a, repo, statusBar, path); err != nil {

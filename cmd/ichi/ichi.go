@@ -155,10 +155,14 @@ func main() {
 		}
 	}
 	application.EnableThemes(layout.ThemeOptions{
-		Themes:   themeSet,
-		Names:    themes.Names(),
-		Default:  savedTheme,
-		OnChange: config.SetTheme,
+		Themes:  themeSet,
+		Names:   themes.Names(),
+		Default: savedTheme,
+		OnChange: func(name string) {
+			if err := config.SetTheme(name); err != nil {
+				app.ToastError("Could not save theme: " + err.Error())
+			}
+		},
 	})
 
 	// Initialize toast notifications and draw them on top of every frame via the

@@ -174,7 +174,12 @@ func (v *StashView) dropStash() {
 
 func (v *StashView) newStash() {
 	// Check for uncommitted changes
-	if !v.repo.HasUncommitted() {
+	status, err := v.repo.LoadRepositoryStatus()
+	if err != nil {
+		ShowErrorModal(v.app, "Cannot Stash", err.Error())
+		return
+	}
+	if len(status.Entries) == 0 {
 		ShowErrorModal(v.app, "No Changes", "No changes to stash")
 		return
 	}
