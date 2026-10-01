@@ -313,6 +313,7 @@ export class Commit {
 }
 
 /**
+ * LoadCommit loads detailed information about a single commit.
  * CommitDetail contains detailed commit information.
  */
 export class CommitDetail {
@@ -332,15 +333,8 @@ export class CommitDetail {
      * Subject lines of parent commits
      */
     "ParentSubjects": string[];
-    "Refs": string[];
-
-    /**
-     * Branches containing this commit
-     */
-    "Branches": string[];
     "Stats": CommitStats;
     "Files": ChangedFile[];
-    "GPGStatus": GPGSignature;
 
     /** Creates a new CommitDetail instance. */
     constructor($$source: Partial<CommitDetail> = {}) {
@@ -380,20 +374,11 @@ export class CommitDetail {
         if (!("ParentSubjects" in $$source)) {
             this["ParentSubjects"] = [];
         }
-        if (!("Refs" in $$source)) {
-            this["Refs"] = [];
-        }
-        if (!("Branches" in $$source)) {
-            this["Branches"] = [];
-        }
         if (!("Stats" in $$source)) {
             this["Stats"] = (new CommitStats());
         }
         if (!("Files" in $$source)) {
             this["Files"] = [];
-        }
-        if (!("GPGStatus" in $$source)) {
-            this["GPGStatus"] = (new GPGSignature());
         }
 
         Object.assign(this, $$source);
@@ -405,11 +390,8 @@ export class CommitDetail {
     static createFrom($$source: any = {}): CommitDetail {
         const $$createField10_0 = $$createType0;
         const $$createField11_0 = $$createType0;
-        const $$createField12_0 = $$createType0;
-        const $$createField13_0 = $$createType0;
-        const $$createField14_0 = $$createType3;
-        const $$createField15_0 = $$createType5;
-        const $$createField16_0 = $$createType6;
+        const $$createField12_0 = $$createType3;
+        const $$createField13_0 = $$createType5;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Parents" in $$parsedSource) {
             $$parsedSource["Parents"] = $$createField10_0($$parsedSource["Parents"]);
@@ -417,22 +399,58 @@ export class CommitDetail {
         if ("ParentSubjects" in $$parsedSource) {
             $$parsedSource["ParentSubjects"] = $$createField11_0($$parsedSource["ParentSubjects"]);
         }
-        if ("Refs" in $$parsedSource) {
-            $$parsedSource["Refs"] = $$createField12_0($$parsedSource["Refs"]);
-        }
-        if ("Branches" in $$parsedSource) {
-            $$parsedSource["Branches"] = $$createField13_0($$parsedSource["Branches"]);
-        }
         if ("Stats" in $$parsedSource) {
-            $$parsedSource["Stats"] = $$createField14_0($$parsedSource["Stats"]);
+            $$parsedSource["Stats"] = $$createField12_0($$parsedSource["Stats"]);
         }
         if ("Files" in $$parsedSource) {
-            $$parsedSource["Files"] = $$createField15_0($$parsedSource["Files"]);
-        }
-        if ("GPGStatus" in $$parsedSource) {
-            $$parsedSource["GPGStatus"] = $$createField16_0($$parsedSource["GPGStatus"]);
+            $$parsedSource["Files"] = $$createField13_0($$parsedSource["Files"]);
         }
         return new CommitDetail($$parsedSource as Partial<CommitDetail>);
+    }
+}
+
+/**
+ * CommitMetadata is mutable: refs, branch containment and signature trust may
+ * change without changing the commit hash. Never store it in the content cache.
+ */
+export class CommitMetadata {
+    "Refs": string[];
+    "Branches": string[];
+    "GPGStatus": GPGSignature;
+
+    /** Creates a new CommitMetadata instance. */
+    constructor($$source: Partial<CommitMetadata> = {}) {
+        if (!("Refs" in $$source)) {
+            this["Refs"] = [];
+        }
+        if (!("Branches" in $$source)) {
+            this["Branches"] = [];
+        }
+        if (!("GPGStatus" in $$source)) {
+            this["GPGStatus"] = (new GPGSignature());
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CommitMetadata instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CommitMetadata {
+        const $$createField0_0 = $$createType0;
+        const $$createField1_0 = $$createType0;
+        const $$createField2_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Refs" in $$parsedSource) {
+            $$parsedSource["Refs"] = $$createField0_0($$parsedSource["Refs"]);
+        }
+        if ("Branches" in $$parsedSource) {
+            $$parsedSource["Branches"] = $$createField1_0($$parsedSource["Branches"]);
+        }
+        if ("GPGStatus" in $$parsedSource) {
+            $$parsedSource["GPGStatus"] = $$createField2_0($$parsedSource["GPGStatus"]);
+        }
+        return new CommitMetadata($$parsedSource as Partial<CommitMetadata>);
     }
 }
 
@@ -825,6 +843,11 @@ export class Divergence {
  */
 export class FileChurn {
     "Path": string;
+
+    /**
+     * Source path for a rename; empty for other changes.
+     */
+    "OldPath": string;
     "Added": number;
     "Deleted": number;
 
@@ -832,6 +855,9 @@ export class FileChurn {
     constructor($$source: Partial<FileChurn> = {}) {
         if (!("Path" in $$source)) {
             this["Path"] = "";
+        }
+        if (!("OldPath" in $$source)) {
+            this["OldPath"] = "";
         }
         if (!("Added" in $$source)) {
             this["Added"] = 0;
@@ -849,6 +875,46 @@ export class FileChurn {
     static createFrom($$source: any = {}): FileChurn {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new FileChurn($$parsedSource as Partial<FileChurn>);
+    }
+}
+
+/**
+ * FileDelta contains counts only: no patch text, hunks, or line objects.
+ */
+export class FileDelta {
+    "Path": string;
+    "OldPath": string;
+    "Added": number;
+    "Deleted": number;
+    "Binary": boolean;
+
+    /** Creates a new FileDelta instance. */
+    constructor($$source: Partial<FileDelta> = {}) {
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("OldPath" in $$source)) {
+            this["OldPath"] = "";
+        }
+        if (!("Added" in $$source)) {
+            this["Added"] = 0;
+        }
+        if (!("Deleted" in $$source)) {
+            this["Deleted"] = 0;
+        }
+        if (!("Binary" in $$source)) {
+            this["Binary"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileDelta instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FileDelta {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FileDelta($$parsedSource as Partial<FileDelta>);
     }
 }
 
@@ -976,6 +1042,40 @@ export class FileLogEntry {
     static createFrom($$source: any = {}): FileLogEntry {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new FileLogEntry($$parsedSource as Partial<FileLogEntry>);
+    }
+}
+
+/**
+ * FilePreview is bounded before serialization. Binary includes invalid UTF-8;
+ * binary previews contain no text. Truncated refers to the sampled prefix, not
+ * a promise that a later part of the file contains no binary bytes.
+ */
+export class FilePreview {
+    "Content": string;
+    "Truncated": boolean;
+    "Binary": boolean;
+
+    /** Creates a new FilePreview instance. */
+    constructor($$source: Partial<FilePreview> = {}) {
+        if (!("Content" in $$source)) {
+            this["Content"] = "";
+        }
+        if (!("Truncated" in $$source)) {
+            this["Truncated"] = false;
+        }
+        if (!("Binary" in $$source)) {
+            this["Binary"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FilePreview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FilePreview {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FilePreview($$parsedSource as Partial<FilePreview>);
     }
 }
 
@@ -1368,6 +1468,47 @@ export class Tag {
     }
 }
 
+export class WorktreeSummary {
+    "Entries": StatusEntry[];
+    "Working": FileDelta[];
+    "Staged": FileDelta[];
+
+    /** Creates a new WorktreeSummary instance. */
+    constructor($$source: Partial<WorktreeSummary> = {}) {
+        if (!("Entries" in $$source)) {
+            this["Entries"] = [];
+        }
+        if (!("Working" in $$source)) {
+            this["Working"] = [];
+        }
+        if (!("Staged" in $$source)) {
+            this["Staged"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorktreeSummary instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorktreeSummary {
+        const $$createField0_0 = $$createType18;
+        const $$createField1_0 = $$createType20;
+        const $$createField2_0 = $$createType20;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Entries" in $$parsedSource) {
+            $$parsedSource["Entries"] = $$createField0_0($$parsedSource["Entries"]);
+        }
+        if ("Working" in $$parsedSource) {
+            $$parsedSource["Working"] = $$createField1_0($$parsedSource["Working"]);
+        }
+        if ("Staged" in $$parsedSource) {
+            $$parsedSource["Staged"] = $$createField2_0($$parsedSource["Staged"]);
+        }
+        return new WorktreeSummary($$parsedSource as Partial<WorktreeSummary>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
 const $$createType1 = RefDecoration.createFrom;
@@ -1386,3 +1527,7 @@ const $$createType13 = Commit.createFrom;
 const $$createType14 = $Create.Nullable($$createType13);
 const $$createType15 = $Create.Array($$createType14);
 const $$createType16 = $Create.Map($Create.Any, $$createType14);
+const $$createType17 = StatusEntry.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = FileDelta.createFrom;
+const $$createType20 = $Create.Array($$createType19);

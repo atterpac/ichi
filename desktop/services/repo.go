@@ -1,17 +1,20 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/atterpac/ichi/internal/config"
 	"github.com/atterpac/ichi/internal/git"
 )
 
 type RepoInfo struct {
+	worktree       *git.WorktreeSummary // Shared with Summary; never serialized into Info.
 	Path           string
 	Name           string
 	Branch         string
@@ -37,7 +40,7 @@ type RepoService struct {
 	state *State
 }
 
-func (s *RepoService) Open(path string) (*RepoInfo, error) {
+func (s *RepoService) Open(ctx context.Context, path string) (*RepoInfo, error) {
 	s.state.conflictMu.Lock()
 	defer s.state.conflictMu.Unlock()
 	path = strings.TrimSpace(path)
@@ -55,60 +58,70 @@ func (s *RepoService) Open(path string) (*RepoInfo, error) {
 			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
 		}
 	}
-	root, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output()
+	// Raw discovery precedes Repository construction and profile selection.
+	discovery := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--show-toplevel")
+	discovery.WaitDelay = time.Second
+	root, err := discovery.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("not a Git working tree: %s", path)
 	}
-	repo, err := git.OpenRepository(strings.TrimSpace(string(root)))
+	repo, err := git.OpenRepositoryContext(ctx, strings.TrimSpace(string(root)))
 	if err != nil {
 		return nil, err
 	}
-	s.state.mu.RLock()
-	profile := s.state.profiles[repo.Path()]
-	s.state.mu.RUnlock()
-	if profile != "" {
-		if _, err := profileValues(profile); err != nil {
-			return nil, err
-		}
+	candidate, err := s.state.configuredRepoContext(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	// Finish the read before publishing: a failed snapshot must never leave the
+	// backend targeting a repository the frontend failed to open.
+	info, err := loadRepoInfo(candidate.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	s.state.SetRepo(repo)
-	info, err := s.Info()
-	if err == nil {
-		rememberRepository(repo.Path())
-	}
-	return info, err
+	rememberRepository(repo.Path())
+	return info, nil
 }
 
-func (s *RepoService) SetPath(path string) (*RepoInfo, error) {
-	return s.Open(path)
+func (s *RepoService) SetPath(ctx context.Context, path string) (*RepoInfo, error) {
+	return s.Open(ctx, path)
 }
 
-func (s *RepoService) Info() (*RepoInfo, error) {
-	repo, err := s.state.Repo()
+func (s *RepoService) Info(ctx context.Context) (*RepoInfo, error) {
+	return s.state.infoReads.readContext(ctx, s.loadInfo)
+}
+
+func (s *RepoService) loadInfo(ctx context.Context) (*RepoInfo, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	ahead, behind := repo.AheadBehind()
-	staged, unstaged, stashCount := repo.StatusCounts()
-	remotes := repo.ListRemotes()
-	info := &RepoInfo{
-		Path:           repo.Path(),
-		Name:           filepath.Base(repo.Path()),
-		Branch:         repo.CurrentBranch(),
-		Head:           repo.HEAD(),
-		ShortHead:      repo.ShortHEAD(),
-		DetachedHead:   repo.IsDetachedHEAD(),
-		HasUpstream:    repo.HasUpstream(),
-		HasUncommitted: repo.HasUncommitted(),
-		Ahead:          ahead,
-		Behind:         behind,
-		Staged:         staged,
-		Unstaged:       unstaged,
-		StashCount:     stashCount,
-		Remotes:        make([]RemoteInfo, 0, len(remotes)),
+	return loadRepoInfo(repo)
+}
+
+func loadRepoInfo(repo *git.Repository) (*RepoInfo, error) {
+	snapshot, err := repo.LoadRepositorySnapshot()
+	if err != nil {
+		return nil, err
 	}
-	for _, name := range remotes {
-		info.Remotes = append(info.Remotes, RemoteInfo{Name: name, URL: repo.RemoteURL(name)})
+	staged, unstaged := snapshot.Worktree.ChangeCounts()
+	info := &RepoInfo{
+		worktree: snapshot.Worktree,
+		Path:     repo.Path(), Name: filepath.Base(repo.Path()), Branch: snapshot.Branch,
+		Head: snapshot.Head, ShortHead: snapshot.ShortHead, DetachedHead: snapshot.DetachedHead,
+		HasUpstream: snapshot.HasUpstream, HasUncommitted: len(snapshot.Worktree.Entries) > 0,
+		Ahead: snapshot.Ahead, Behind: snapshot.Behind, Staged: staged, Unstaged: unstaged,
+		StashCount: snapshot.StashCount, Remotes: make([]RemoteInfo, 0, len(snapshot.Remotes)),
+	}
+	for _, remote := range snapshot.Remotes {
+		info.Remotes = append(info.Remotes, RemoteInfo{Name: remote.Name, URL: remote.URL})
 	}
 	return info, nil
 }
@@ -117,12 +130,12 @@ func (s *RepoService) ListSavedRepos() []config.Repo {
 	return config.GetRepos()
 }
 
-func (s *RepoService) SaveRepo(oldName string, repo config.Repo) {
-	config.SaveRepo(oldName, repo)
+func (s *RepoService) SaveRepo(oldName string, repo config.Repo) error {
+	return config.SaveRepo(oldName, repo)
 }
 
-func (s *RepoService) DeleteRepo(name string) {
-	config.DeleteRepo(name)
+func (s *RepoService) DeleteRepo(name string) error {
+	return config.DeleteRepo(name)
 }
 
 func (s *RepoService) ListRemotes() ([]string, error) {
@@ -130,7 +143,7 @@ func (s *RepoService) ListRemotes() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return repo.ListRemotes(), nil
+	return repo.ReadRemoteNames()
 }
 
 func (s *RepoService) RemoteURL(name string) (string, error) {
@@ -138,5 +151,5 @@ func (s *RepoService) RemoteURL(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return repo.RemoteURL(name), nil
+	return repo.ReadRemoteURL(name)
 }

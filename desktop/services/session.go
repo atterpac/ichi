@@ -24,6 +24,7 @@ func sessionPath() (string, error) {
 }
 
 func openWorkingTree(path string) (*git.Repository, error) {
+	// Startup discovers a repository before workspace profiles are loaded.
 	root, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return nil, err

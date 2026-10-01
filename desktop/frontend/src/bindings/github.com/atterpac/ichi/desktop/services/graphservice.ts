@@ -50,21 +50,27 @@ export function LoadCommit(hash: string): $CancellablePromise<git$0.CommitDetail
     });
 }
 
-export function LoadGraph(limit: number): $CancellablePromise<git$0.Graph | null> {
-    return $Call.ByID(207611783, limit).then(($result: any) => {
+export function LoadCommitMetadata(hash: string): $CancellablePromise<git$0.CommitMetadata | null> {
+    return $Call.ByID(1251198009, hash).then(($result: any) => {
         return $$createType6($result);
     });
 }
 
-export function LoadGraphLayout(limit: number): $CancellablePromise<$models.GraphLayout | null> {
-    return $Call.ByID(3171989245, limit).then(($result: any) => {
+export function LoadGraph(limit: number): $CancellablePromise<git$0.Graph | null> {
+    return $Call.ByID(207611783, limit).then(($result: any) => {
+        return $$createType8($result);
+    });
+}
+
+export function LoadGraphLayout(limit: number, includeStashes: boolean): $CancellablePromise<$models.GraphLayout | null> {
+    return $Call.ByID(3171989245, limit, includeStashes).then(($result: any) => {
         return $$createType2($result);
     });
 }
 
 export function LoadGraphStashes(): $CancellablePromise<(git$0.Commit | null)[]> {
     return $Call.ByID(1387277908).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType11($result);
     });
 }
 
@@ -74,7 +80,7 @@ export function RenameCommit(hash: string, message: string): $CancellablePromise
 
 export function SearchCommits(query: string, limit: number): $CancellablePromise<(git$0.Commit | null)[]> {
     return $Call.ByID(3800079149, query, limit).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType11($result);
     });
 }
 
@@ -84,8 +90,10 @@ const $$createType1 = $models.GraphLayout.createFrom;
 const $$createType2 = $Create.Nullable($$createType1);
 const $$createType3 = git$0.CommitDetail.createFrom;
 const $$createType4 = $Create.Nullable($$createType3);
-const $$createType5 = git$0.Graph.createFrom;
+const $$createType5 = git$0.CommitMetadata.createFrom;
 const $$createType6 = $Create.Nullable($$createType5);
-const $$createType7 = git$0.Commit.createFrom;
+const $$createType7 = git$0.Graph.createFrom;
 const $$createType8 = $Create.Nullable($$createType7);
-const $$createType9 = $Create.Array($$createType8);
+const $$createType9 = git$0.Commit.createFrom;
+const $$createType10 = $Create.Nullable($$createType9);
+const $$createType11 = $Create.Array($$createType10);

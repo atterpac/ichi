@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"github.com/atterpac/ichi/internal/git"
 	"strings"
@@ -14,7 +15,7 @@ type ConflictService struct{ state *State }
 
 // Compatibility API; the desktop resolver uses Workspace and snapshot-checked writes.
 func (s *ConflictService) GetConflictState() (*git.ConflictState, error) {
-	w, err := s.Workspace()
+	w, err := s.Workspace(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -95,17 +96,17 @@ func (s *ConflictService) StageResolvedFile(path string) error {
 	if err != nil {
 		return err
 	}
-	return s.ResolveConflict(repo.Path(), path, doc.Token, "working", "")
+	return s.ResolveConflict(context.Background(), repo.Path(), path, doc.Token, "working", "")
 }
 func (s *ConflictService) legacyControl(kind, action string) error {
-	w, err := s.Workspace()
+	w, err := s.Workspace(context.Background())
 	if err != nil {
 		return err
 	}
 	if kind != "" && w.Kind != kind {
 		return fmt.Errorf("no %s is in progress", kind)
 	}
-	return s.ControlConflict(w.RepoPath, w.Token, action)
+	return s.ControlConflict(context.Background(), w.RepoPath, w.Token, action)
 }
 func (s *ConflictService) MergeContinue() error    { return s.legacyControl("merge", "continue") }
 func (s *ConflictService) MergeAbort() error       { return s.legacyControl("merge", "abort") }

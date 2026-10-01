@@ -130,6 +130,8 @@ func configValuesBytes(initial []byte, values map[string]string) ([]byte, error)
 	return os.ReadFile(path)
 }
 func repositoryConfigPath(repo string) (string, error) {
+	// Raw discovery is intentional: locate the native config files whose
+	// assignments are being changed, independently of effective profile values.
 	run := func(args ...string) (string, error) {
 		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
 		var exitErr *exec.ExitError

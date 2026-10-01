@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,7 +70,7 @@ func TestRealConflictResolveAndContinue(t *testing.T) {
 	for _, kind := range []string{"merge", "rebase", "cherry-pick"} {
 		t.Run(kind, func(t *testing.T) {
 			path, service, run := makeTextConflict(t, kind)
-			w, err := service.Workspace()
+			w, err := service.Workspace(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -79,20 +80,20 @@ func TestRealConflictResolveAndContinue(t *testing.T) {
 			if kind == "rebase" && (w.Step != 1 || w.Total != 1 || w.Commit == "") {
 				t.Fatalf("rebase progress: %+v", w)
 			}
-			doc, err := service.LoadConflict(path, "file.txt")
+			doc, err := service.LoadConflict(context.Background(), path, "file.txt")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !doc.Base.Exists || !doc.Current.Exists || !doc.Incoming.Exists {
 				t.Fatalf("missing stages: %+v", doc)
 			}
-			if err := service.ControlConflict(path, w.Token, "continue"); err == nil {
+			if err := service.ControlConflict(context.Background(), path, w.Token, "continue"); err == nil {
 				t.Fatal("continued unresolved operation")
 			}
-			if err := service.ResolveConflict(path, "file.txt", doc.Token, "edit", "<<<<<<< left\n"); err == nil {
+			if err := service.ResolveConflict(context.Background(), path, "file.txt", doc.Token, "edit", "<<<<<<< left\n"); err == nil {
 				t.Fatal("staged unresolved markers")
 			}
-			if err := service.ResolveConflict(path, "file.txt", doc.Token, "edit", "before\nresolved\nafter\n"); err != nil {
+			if err := service.ResolveConflict(context.Background(), path, "file.txt", doc.Token, "edit", "before\nresolved\nafter\n"); err != nil {
 				t.Fatal(err)
 			}
 			if got := run("show", ":file.txt"); got != "before\nresolved\nafter" {
@@ -100,10 +101,10 @@ func TestRealConflictResolveAndContinue(t *testing.T) {
 			}
 			// Ambient editor must not launch or fail headless continuation.
 			t.Setenv("GIT_EDITOR", "false")
-			if err := service.ControlConflict(path, w.Token, "continue"); err != nil {
+			if err := service.ControlConflict(context.Background(), path, w.Token, "continue"); err != nil {
 				t.Fatal(err)
 			}
-			final, err := service.Workspace()
+			final, err := service.Workspace(context.Background())
 			if err != nil || final.Kind != "" || len(final.Files) != 0 {
 				t.Fatalf("completion: %+v %v", final, err)
 			}
@@ -112,23 +113,23 @@ func TestRealConflictResolveAndContinue(t *testing.T) {
 }
 func TestConflictRejectsExternalEditsAndRepositorySwitch(t *testing.T) {
 	path, service, _ := makeTextConflict(t, "merge")
-	doc, err := service.LoadConflict(path, "file.txt")
+	doc, err := service.LoadConflict(context.Background(), path, "file.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeProfile(t, filepath.Join(path, "file.txt"), "external edit\n")
-	if err := service.ResolveConflict(path, "file.txt", doc.Token, "edit", "lost edit"); err == nil || !strings.Contains(err.Error(), "changed externally") {
+	if err := service.ResolveConflict(context.Background(), path, "file.txt", doc.Token, "edit", "lost edit"); err == nil || !strings.Contains(err.Error(), "changed externally") {
 		t.Fatalf("expected stale guard: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(path, "file.txt"))
 	if string(got) != "external edit\n" {
 		t.Fatal("overwrote external edit")
 	}
-	if _, err := service.LoadConflict(path+"-other", "file.txt"); err == nil {
+	if _, err := service.LoadConflict(context.Background(), path+"-other", "file.txt"); err == nil {
 		t.Fatal("accepted wrong repository")
 	}
 	for _, p := range []string{"../outside", ".git/config", "file*", "file.txt\x00"} {
-		if _, err := service.LoadConflict(path, p); err == nil {
+		if _, err := service.LoadConflict(context.Background(), path, p); err == nil {
 			t.Fatalf("accepted %q", p)
 		}
 	}
@@ -164,7 +165,7 @@ func TestConflictDeletionAndBinaryChoices(t *testing.T) {
 				t.Fatal("expected conflict")
 			}
 			service := conflictService(t, path)
-			doc, err := service.LoadConflict(path, filename)
+			doc, err := service.LoadConflict(context.Background(), path, filename)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -178,7 +179,7 @@ func TestConflictDeletionAndBinaryChoices(t *testing.T) {
 			if binary {
 				choice = "incoming"
 			}
-			if err := service.ResolveConflict(path, filename, doc.Token, choice, ""); err != nil {
+			if err := service.ResolveConflict(context.Background(), path, filename, doc.Token, choice, ""); err != nil {
 				t.Fatal(err)
 			}
 			if binary {
@@ -191,7 +192,7 @@ func TestConflictDeletionAndBinaryChoices(t *testing.T) {
 					t.Fatal("deletion not kept")
 				}
 			}
-			w, _ := service.Workspace()
+			w, _ := service.Workspace(context.Background())
 			if len(w.Files) != 0 {
 				t.Fatal("conflict not staged")
 			}
@@ -203,11 +204,11 @@ func TestConflictPreservesCRLFModeAndNoFinalNewline(t *testing.T) {
 	content := "<<<<<<< HEAD\r\nmain\r\n=======\r\nother\r\n>>>>>>> topic\r\n"
 	writeProfile(t, filepath.Join(path, "file.txt"), content)
 	os.Chmod(filepath.Join(path, "file.txt"), 0755)
-	doc, err := service.LoadConflict(path, "file.txt")
+	doc, err := service.LoadConflict(context.Background(), path, "file.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ResolveConflict(path, "file.txt", doc.Token, "edit", "resolved\nlast line"); err != nil {
+	if err := service.ResolveConflict(context.Background(), path, "file.txt", doc.Token, "edit", "resolved\nlast line"); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(filepath.Join(path, "file.txt"))
@@ -218,8 +219,8 @@ func TestConflictPreservesCRLFModeAndNoFinalNewline(t *testing.T) {
 }
 func TestLinkedWorktreeConflictDetectionAndAbort(t *testing.T) {
 	path, service, run := makeTextConflict(t, "merge")
-	w, _ := service.Workspace()
-	if err := service.ControlConflict(path, w.Token, "abort"); err != nil {
+	w, _ := service.Workspace(context.Background())
+	if err := service.ControlConflict(context.Background(), path, w.Token, "abort"); err != nil {
 		t.Fatal(err)
 	}
 	linked := filepath.Join(filepath.Dir(path), "linked")
@@ -228,25 +229,25 @@ func TestLinkedWorktreeConflictDetectionAndAbort(t *testing.T) {
 		t.Fatal("expected conflict")
 	}
 	linkedService := conflictService(t, linked)
-	state, err := linkedService.Workspace()
+	state, err := linkedService.Workspace(context.Background())
 	if err != nil || state.Kind != "merge" || len(state.Files) != 1 {
 		t.Fatalf("linked workspace: %+v %v", state, err)
 	}
-	if err := linkedService.ControlConflict(linked, state.Token, "abort"); err != nil {
+	if err := linkedService.ControlConflict(context.Background(), linked, state.Token, "abort"); err != nil {
 		t.Fatal(err)
 	}
-	main, _ := service.Workspace()
+	main, _ := service.Workspace(context.Background())
 	if main.Kind != "" {
 		t.Fatal("affected main worktree")
 	}
 }
 func TestRebaseSkipAndStaleOperation(t *testing.T) {
 	path, service, _ := makeTextConflict(t, "rebase")
-	w, _ := service.Workspace()
-	if err := service.ControlConflict(path, w.Token, "skip"); err != nil {
+	w, _ := service.Workspace(context.Background())
+	if err := service.ControlConflict(context.Background(), path, w.Token, "skip"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ControlConflict(path, w.Token, "abort"); err == nil {
+	if err := service.ControlConflict(context.Background(), path, w.Token, "abort"); err == nil {
 		t.Fatal("accepted stale operation")
 	}
 }
@@ -258,7 +259,7 @@ func TestConflictSymlinkIsNotFollowed(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(path, "file.txt")); err != nil {
 		t.Skip(err)
 	}
-	if _, err := service.LoadConflict(path, "file.txt"); err == nil {
+	if _, err := service.LoadConflict(context.Background(), path, "file.txt"); err == nil {
 		t.Fatal("followed symlink")
 	}
 	got, _ := os.ReadFile(outside)
@@ -272,8 +273,8 @@ type conflictEvents struct{ names []string }
 func (e *conflictEvents) Emit(name string, _ ...any) { e.names = append(e.names, name) }
 func TestFailedMergeEmitsStatusAndCustomMarkersAreProtected(t *testing.T) {
 	path, service, run := makeTextConflict(t, "merge")
-	w, _ := service.Workspace()
-	if err := service.ControlConflict(path, w.Token, "abort"); err != nil {
+	w, _ := service.Workspace(context.Background())
+	if err := service.ControlConflict(context.Background(), path, w.Token, "abort"); err != nil {
 		t.Fatal(err)
 	}
 	writeProfile(t, filepath.Join(path, ".gitattributes"), "file.txt conflict-marker-size=5\n")
@@ -282,20 +283,20 @@ func TestFailedMergeEmitsStatusAndCustomMarkersAreProtected(t *testing.T) {
 	emitter := &conflictEvents{}
 	service.state.emitter = emitter
 	refs := &RefService{state: service.state}
-	if err := refs.MergeBranch("topic"); err == nil {
+	if err := refs.MergeBranch(context.Background(), "topic"); err == nil {
 		t.Fatal("expected merge conflict")
 	}
 	if len(emitter.names) != 2 || emitter.names[0] != EventStatusChanged {
 		t.Fatal("failed operation did not refresh state")
 	}
-	doc, err := service.LoadConflict(path, "file.txt")
+	doc, err := service.LoadConflict(context.Background(), path, "file.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if doc.MarkerSize != 5 {
 		t.Fatal(doc.MarkerSize)
 	}
-	if err := service.ResolveConflict(path, "file.txt", doc.Token, "edit", doc.Result); err == nil {
+	if err := service.ResolveConflict(context.Background(), path, "file.txt", doc.Token, "edit", doc.Result); err == nil {
 		t.Fatal("staged custom conflict markers")
 	}
 }
@@ -314,18 +315,18 @@ func TestRevertConflictsCanContinue(t *testing.T) {
 		t.Fatal("expected revert conflict")
 	}
 	service := conflictService(t, path)
-	w, err := service.Workspace()
+	w, err := service.Workspace(context.Background())
 	if err != nil || w.Kind != "revert" {
 		t.Fatalf("revert state %+v %v", w, err)
 	}
-	doc, err := service.LoadConflict(path, "file.txt")
+	doc, err := service.LoadConflict(context.Background(), path, "file.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ResolveConflict(path, "file.txt", doc.Token, "incoming", ""); err != nil {
+	if err := service.ResolveConflict(context.Background(), path, "file.txt", doc.Token, "incoming", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ControlConflict(path, w.Token, "continue"); err != nil {
+	if err := service.ControlConflict(context.Background(), path, w.Token, "continue"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -350,23 +351,23 @@ func TestRebaseContinueRefreshesTheNextConflict(t *testing.T) {
 		t.Fatal("expected conflict")
 	}
 	service := conflictService(t, path)
-	first, err := service.Workspace()
+	first, err := service.Workspace(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := service.LoadConflict(path, "one")
+	doc, err := service.LoadConflict(context.Background(), path, "one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ResolveConflict(path, "one", doc.Token, "incoming", ""); err != nil {
+	if err := service.ResolveConflict(context.Background(), path, "one", doc.Token, "incoming", ""); err != nil {
 		t.Fatal(err)
 	}
 	emitter := &conflictEvents{}
 	service.state.emitter = emitter
-	if err := service.ControlConflict(path, first.Token, "continue"); err == nil {
+	if err := service.ControlConflict(context.Background(), path, first.Token, "continue"); err == nil {
 		t.Fatal("expected second conflict")
 	}
-	second, err := service.Workspace()
+	second, err := service.Workspace(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,14 +377,14 @@ func TestRebaseContinueRefreshesTheNextConflict(t *testing.T) {
 	if len(emitter.names) != 2 {
 		t.Fatal("next conflict did not emit refresh")
 	}
-	doc, err = service.LoadConflict(path, "two")
+	doc, err = service.LoadConflict(context.Background(), path, "two")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ResolveConflict(path, "two", doc.Token, "incoming", ""); err != nil {
+	if err := service.ResolveConflict(context.Background(), path, "two", doc.Token, "incoming", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.ControlConflict(path, second.Token, "continue"); err != nil {
+	if err := service.ControlConflict(context.Background(), path, second.Token, "continue"); err != nil {
 		t.Fatal(err)
 	}
 }

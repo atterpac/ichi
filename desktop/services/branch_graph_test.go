@@ -1,6 +1,8 @@
 package services
 
 import (
+	"context"
+	"github.com/atterpac/ichi/internal/git"
 	"os/exec"
 	"strings"
 	"testing"
@@ -32,7 +34,11 @@ func TestBranchGraphIsolatedAncestry(t *testing.T) {
 	run("checkout", "main")
 	run("commit", "--allow-empty", "-m", "unrelated main progress")
 	excluded := run("rev-parse", "HEAD")
-	graph, err := loadBranchGraph(root, "feature", 80)
+	repo, err := git.OpenRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph, err := loadBranchGraph(context.Background(), repo, "feature", 80)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,11 +61,11 @@ func TestBranchGraphIsolatedAncestry(t *testing.T) {
 	if graph.Rows[4].Commit.Message != "root | with delimiter" {
 		t.Fatal("corrupted subject")
 	}
-	limited, err := loadBranchGraph(root, "feature", 2)
+	limited, err := loadBranchGraph(context.Background(), repo, "feature", 2)
 	if err != nil || len(limited.Rows) != 2 {
 		t.Fatalf("limit not respected: %v", err)
 	}
-	if _, err := loadBranchGraph(root, "--all", 80); err == nil {
+	if _, err := loadBranchGraph(context.Background(), repo, "--all", 80); err == nil {
 		t.Fatal("accepted option as ref")
 	}
 }

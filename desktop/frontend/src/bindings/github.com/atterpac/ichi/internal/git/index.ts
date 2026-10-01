@@ -8,6 +8,7 @@ export {
     ChangedFile,
     Commit,
     CommitDetail,
+    CommitMetadata,
     CommitStats,
     ConflictRegion,
     ConflictState,
@@ -16,8 +17,10 @@ export {
     DiffLine,
     Divergence,
     FileChurn,
+    FileDelta,
     FileDiff,
     FileLogEntry,
+    FilePreview,
     FileStatus,
     GPGSignature,
     Graph,
@@ -26,5 +29,6 @@ export {
     RefDecoration,
     Stash,
     StatusEntry,
-    Tag
+    Tag,
+    WorktreeSummary
 } from "./models.js";

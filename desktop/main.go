@@ -50,24 +50,9 @@ func buildApp() *application.App {
 	if err != nil {
 		log.Printf("starting without an open repository: %v", err)
 	}
-	registry := NewServices(repo, nil)
-
-	return application.New(application.Options{
+	app := application.New(application.Options{
 		Name:        "Ichi",
 		Description: "A keyboard focused git client",
-		Services: []application.Service{
-			application.NewService(registry.Repo),
-			application.NewService(registry.Graph),
-			application.NewService(registry.Worktree),
-			application.NewService(registry.Diff),
-			application.NewService(registry.Refs),
-			application.NewService(registry.Remote),
-			application.NewService(registry.Stash),
-			application.NewService(registry.Conflict),
-			application.NewService(registry.Inspect),
-			application.NewService(registry.Completion),
-			application.NewService(registry.PR),
-		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
@@ -75,6 +60,29 @@ func buildApp() *application.App {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
+
+	// Construct the event manager before services so every service shares the
+	// live bridge from the start. Registration must happen before app.Run.
+	registry := NewServices(repo, wailsEventEmitter{events: app.Event})
+	for _, service := range []application.Service{
+		application.NewService(registry.Preferences),
+		application.NewService(registry.Repo),
+		application.NewService(registry.Graph),
+		application.NewService(registry.Worktree),
+		application.NewService(registry.Diff),
+		application.NewService(registry.Refs),
+		application.NewService(registry.Remote),
+		application.NewService(registry.Stash),
+		application.NewService(registry.Conflict),
+		application.NewService(registry.Inspect),
+		application.NewService(registry.Completion),
+		application.NewService(registry.Search),
+		application.NewService(registry.PR),
+		application.NewService(registry.Review),
+	} {
+		app.RegisterService(service)
+	}
+	return app
 }
 
 func openStartupRepo() (*git.Repository, error) {

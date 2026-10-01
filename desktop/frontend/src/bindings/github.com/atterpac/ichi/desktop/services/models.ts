@@ -295,6 +295,171 @@ export class ConflictWorkspace {
     }
 }
 
+export class ContentMatch {
+    "Path": string;
+    "Line": number;
+
+    /**
+     * One-based byte offset, as reported by ripgrep.
+     */
+    "Column": number;
+    "Text": string;
+
+    /** Creates a new ContentMatch instance. */
+    constructor($$source: Partial<ContentMatch> = {}) {
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Line" in $$source)) {
+            this["Line"] = 0;
+        }
+        if (!("Column" in $$source)) {
+            this["Column"] = 0;
+        }
+        if (!("Text" in $$source)) {
+            this["Text"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ContentMatch instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ContentMatch {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ContentMatch($$parsedSource as Partial<ContentMatch>);
+    }
+}
+
+export class ContentSearchResult {
+    "Matches": ContentMatch[];
+    "Truncated": boolean;
+
+    /** Creates a new ContentSearchResult instance. */
+    constructor($$source: Partial<ContentSearchResult> = {}) {
+        if (!("Matches" in $$source)) {
+            this["Matches"] = [];
+        }
+        if (!("Truncated" in $$source)) {
+            this["Truncated"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ContentSearchResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ContentSearchResult {
+        const $$createField0_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Matches" in $$parsedSource) {
+            $$parsedSource["Matches"] = $$createField0_0($$parsedSource["Matches"]);
+        }
+        return new ContentSearchResult($$parsedSource as Partial<ContentSearchResult>);
+    }
+}
+
+/**
+ * DiscardResult reports partial completion without losing it in a bridge error.
+ * Processing stops on the first failure; Remaining paths were not attempted.
+ */
+export class DiscardResult {
+    "Completed": string[];
+    "FailedPath": string;
+    "Error": string;
+    "Remaining": string[];
+
+    /** Creates a new DiscardResult instance. */
+    constructor($$source: Partial<DiscardResult> = {}) {
+        if (!("Completed" in $$source)) {
+            this["Completed"] = [];
+        }
+        if (!("FailedPath" in $$source)) {
+            this["FailedPath"] = "";
+        }
+        if (!("Error" in $$source)) {
+            this["Error"] = "";
+        }
+        if (!("Remaining" in $$source)) {
+            this["Remaining"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiscardResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DiscardResult {
+        const $$createField0_0 = $$createType4;
+        const $$createField3_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Completed" in $$parsedSource) {
+            $$parsedSource["Completed"] = $$createField0_0($$parsedSource["Completed"]);
+        }
+        if ("Remaining" in $$parsedSource) {
+            $$parsedSource["Remaining"] = $$createField3_0($$parsedSource["Remaining"]);
+        }
+        return new DiscardResult($$parsedSource as Partial<DiscardResult>);
+    }
+}
+
+export class FileMatch {
+    "Path": string;
+    "Score": number;
+
+    /** Creates a new FileMatch instance. */
+    constructor($$source: Partial<FileMatch> = {}) {
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Score" in $$source)) {
+            this["Score"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileMatch instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FileMatch {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FileMatch($$parsedSource as Partial<FileMatch>);
+    }
+}
+
+export class FileSearchResult {
+    "Matches": FileMatch[];
+    "Total": number;
+
+    /** Creates a new FileSearchResult instance. */
+    constructor($$source: Partial<FileSearchResult> = {}) {
+        if (!("Matches" in $$source)) {
+            this["Matches"] = [];
+        }
+        if (!("Total" in $$source)) {
+            this["Total"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FileSearchResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FileSearchResult {
+        const $$createField0_0 = $$createType12;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Matches" in $$parsedSource) {
+            $$parsedSource["Matches"] = $$createField0_0($$parsedSource["Matches"]);
+        }
+        return new FileSearchResult($$parsedSource as Partial<FileSearchResult>);
+    }
+}
+
 /**
  * GitProfile describes identity settings, never credentials or private key material.
  */
@@ -371,7 +536,7 @@ export class GitProfileCatalog {
      * Creates a new GitProfileCatalog instance from a string or object.
      */
     static createFrom($$source: any = {}): GitProfileCatalog {
-        const $$createField0_0 = $$createType10;
+        const $$createField0_0 = $$createType14;
         const $$createField1_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Profiles" in $$parsedSource) {
@@ -422,6 +587,7 @@ export class GraphGlyph {
 }
 
 export class GraphLane {
+    "Column"?: number | null;
     "Glyphs": GraphGlyph[];
     "ColorID": number;
     "CommitHash": string;
@@ -445,10 +611,10 @@ export class GraphLane {
      * Creates a new GraphLane instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLane {
-        const $$createField0_0 = $$createType12;
+        const $$createField1_0 = $$createType16;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Glyphs" in $$parsedSource) {
-            $$parsedSource["Glyphs"] = $$createField0_0($$parsedSource["Glyphs"]);
+            $$parsedSource["Glyphs"] = $$createField1_0($$parsedSource["Glyphs"]);
         }
         return new GraphLane($$parsedSource as Partial<GraphLane>);
     }
@@ -458,6 +624,8 @@ export class GraphLayout {
     "Rows": GraphLayoutRow[];
     "LaneCount": number;
     "CurrentBranch": string;
+    "Info"?: RepoInfo | null;
+    "Segments"?: GraphRailSegment[];
 
     /** Creates a new GraphLayout instance. */
     constructor($$source: Partial<GraphLayout> = {}) {
@@ -478,10 +646,18 @@ export class GraphLayout {
      * Creates a new GraphLayout instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLayout {
-        const $$createField0_0 = $$createType14;
+        const $$createField0_0 = $$createType18;
+        const $$createField3_0 = $$createType20;
+        const $$createField4_0 = $$createType22;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Rows" in $$parsedSource) {
             $$parsedSource["Rows"] = $$createField0_0($$parsedSource["Rows"]);
+        }
+        if ("Info" in $$parsedSource) {
+            $$parsedSource["Info"] = $$createField3_0($$parsedSource["Info"]);
+        }
+        if ("Segments" in $$parsedSource) {
+            $$parsedSource["Segments"] = $$createField4_0($$parsedSource["Segments"]);
         }
         return new GraphLayout($$parsedSource as Partial<GraphLayout>);
     }
@@ -491,6 +667,13 @@ export class GraphLayoutRow {
     "Commit": git$0.Commit | null;
     "Lanes": GraphLane[];
 
+    /**
+     * Routes records every loaded parent edge in this row's coordinates.
+     * Lanes hold node/through-rail glyphs; the SVG renderer draws these routes
+     * independently so a crossing cannot steal another edge's color or identity.
+     */
+    "Routes": GraphRoute[];
+
     /** Creates a new GraphLayoutRow instance. */
     constructor($$source: Partial<GraphLayoutRow> = {}) {
         if (!("Commit" in $$source)) {
@@ -498,6 +681,9 @@ export class GraphLayoutRow {
         }
         if (!("Lanes" in $$source)) {
             this["Lanes"] = [];
+        }
+        if (!("Routes" in $$source)) {
+            this["Routes"] = [];
         }
 
         Object.assign(this, $$source);
@@ -507,8 +693,9 @@ export class GraphLayoutRow {
      * Creates a new GraphLayoutRow instance from a string or object.
      */
     static createFrom($$source: any = {}): GraphLayoutRow {
-        const $$createField0_0 = $$createType16;
-        const $$createField1_0 = $$createType18;
+        const $$createField0_0 = $$createType24;
+        const $$createField1_0 = $$createType26;
+        const $$createField2_0 = $$createType28;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Commit" in $$parsedSource) {
             $$parsedSource["Commit"] = $$createField0_0($$parsedSource["Commit"]);
@@ -516,7 +703,107 @@ export class GraphLayoutRow {
         if ("Lanes" in $$parsedSource) {
             $$parsedSource["Lanes"] = $$createField1_0($$parsedSource["Lanes"]);
         }
+        if ("Routes" in $$parsedSource) {
+            $$parsedSource["Routes"] = $$createField2_0($$parsedSource["Routes"]);
+        }
         return new GraphLayoutRow($$parsedSource as Partial<GraphLayoutRow>);
+    }
+}
+
+/**
+ * A rail spans [FromRow, ToRow); nodes and routes own their row's stems.
+ * Encoding each rail once prevents the old rows-times-lanes bridge payload.
+ */
+export class GraphRailSegment {
+    "Lane": number;
+    "FromRow": number;
+    "ToRow": number;
+    "ColorID": number;
+    "CommitHash": string;
+
+    /**
+     * Dashed marks a stash's link to its base commit, which is not history.
+     */
+    "Dashed"?: boolean;
+
+    /** Creates a new GraphRailSegment instance. */
+    constructor($$source: Partial<GraphRailSegment> = {}) {
+        if (!("Lane" in $$source)) {
+            this["Lane"] = 0;
+        }
+        if (!("FromRow" in $$source)) {
+            this["FromRow"] = 0;
+        }
+        if (!("ToRow" in $$source)) {
+            this["ToRow"] = 0;
+        }
+        if (!("ColorID" in $$source)) {
+            this["ColorID"] = 0;
+        }
+        if (!("CommitHash" in $$source)) {
+            this["CommitHash"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GraphRailSegment instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GraphRailSegment {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new GraphRailSegment($$parsedSource as Partial<GraphRailSegment>);
+    }
+}
+
+/**
+ * GraphRoute starts at this row's commit and joins the rail for ParentHash.
+ * Routes are ordered farthest first to keep new intermediate rails from
+ * crossing longer routes in the same row. Equal-lane routes use the node stem.
+ */
+export class GraphRoute {
+    "ParentHash": string;
+    "FromLane": number;
+    "ToLane": number;
+    "ColorID": number;
+    "Continues": boolean;
+    "Crossings": number[];
+    "Dashed"?: boolean;
+
+    /** Creates a new GraphRoute instance. */
+    constructor($$source: Partial<GraphRoute> = {}) {
+        if (!("ParentHash" in $$source)) {
+            this["ParentHash"] = "";
+        }
+        if (!("FromLane" in $$source)) {
+            this["FromLane"] = 0;
+        }
+        if (!("ToLane" in $$source)) {
+            this["ToLane"] = 0;
+        }
+        if (!("ColorID" in $$source)) {
+            this["ColorID"] = 0;
+        }
+        if (!("Continues" in $$source)) {
+            this["Continues"] = false;
+        }
+        if (!("Crossings" in $$source)) {
+            this["Crossings"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GraphRoute instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GraphRoute {
+        const $$createField5_0 = $$createType29;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Crossings" in $$parsedSource) {
+            $$parsedSource["Crossings"] = $$createField5_0($$parsedSource["Crossings"]);
+        }
+        return new GraphRoute($$parsedSource as Partial<GraphRoute>);
     }
 }
 
@@ -554,6 +841,141 @@ export class PRProviderStatus {
     static createFrom($$source: any = {}): PRProviderStatus {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new PRProviderStatus($$parsedSource as Partial<PRProviderStatus>);
+    }
+}
+
+/**
+ * PreferenceSaveOutcome distinguishes a revision conflict from validation or I/O
+ * failure without requiring clients to classify Go error text.
+ */
+export class PreferenceSaveOutcome {
+    "Code": string;
+    "Snapshot": PreferenceSnapshot | null;
+    "Message": string;
+
+    /** Creates a new PreferenceSaveOutcome instance. */
+    constructor($$source: Partial<PreferenceSaveOutcome> = {}) {
+        if (!("Code" in $$source)) {
+            this["Code"] = "";
+        }
+        if (!("Snapshot" in $$source)) {
+            this["Snapshot"] = null;
+        }
+        if (!("Message" in $$source)) {
+            this["Message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PreferenceSaveOutcome instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PreferenceSaveOutcome {
+        const $$createField1_0 = $$createType31;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Snapshot" in $$parsedSource) {
+            $$parsedSource["Snapshot"] = $$createField1_0($$parsedSource["Snapshot"]);
+        }
+        return new PreferenceSaveOutcome($$parsedSource as Partial<PreferenceSaveOutcome>);
+    }
+}
+
+export class PreferenceSnapshot {
+    "Content": string;
+    "Revision": string;
+    "Path": string;
+
+    /** Creates a new PreferenceSnapshot instance. */
+    constructor($$source: Partial<PreferenceSnapshot> = {}) {
+        if (!("Content" in $$source)) {
+            this["Content"] = "";
+        }
+        if (!("Revision" in $$source)) {
+            this["Revision"] = "";
+        }
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new PreferenceSnapshot instance from a string or object.
+     */
+    static createFrom($$source: any = {}): PreferenceSnapshot {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new PreferenceSnapshot($$parsedSource as Partial<PreferenceSnapshot>);
+    }
+}
+
+/**
+ * RefFormatRequest contains plain metadata only; templates cannot access Git or files.
+ */
+export class RefFormatRequest {
+    "Format": string;
+    "Name": string;
+    "Branch": string;
+    "Remote": string;
+    "Kind": string;
+    "Current": boolean;
+
+    /** Creates a new RefFormatRequest instance. */
+    constructor($$source: Partial<RefFormatRequest> = {}) {
+        if (!("Format" in $$source)) {
+            this["Format"] = "";
+        }
+        if (!("Name" in $$source)) {
+            this["Name"] = "";
+        }
+        if (!("Branch" in $$source)) {
+            this["Branch"] = "";
+        }
+        if (!("Remote" in $$source)) {
+            this["Remote"] = "";
+        }
+        if (!("Kind" in $$source)) {
+            this["Kind"] = "";
+        }
+        if (!("Current" in $$source)) {
+            this["Current"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RefFormatRequest instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RefFormatRequest {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RefFormatRequest($$parsedSource as Partial<RefFormatRequest>);
+    }
+}
+
+export class RefFormatResult {
+    "Text": string;
+    "Error": string;
+
+    /** Creates a new RefFormatResult instance. */
+    constructor($$source: Partial<RefFormatResult> = {}) {
+        if (!("Text" in $$source)) {
+            this["Text"] = "";
+        }
+        if (!("Error" in $$source)) {
+            this["Error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new RefFormatResult instance from a string or object.
+     */
+    static createFrom($$source: any = {}): RefFormatResult {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new RefFormatResult($$parsedSource as Partial<RefFormatResult>);
     }
 }
 
@@ -650,9 +1072,9 @@ export class RepoInfo {
      * Creates a new RepoInfo instance from a string or object.
      */
     static createFrom($$source: any = {}): RepoInfo {
-        const $$createField10_0 = $$createType19;
-        const $$createField11_0 = $$createType19;
-        const $$createField13_0 = $$createType21;
+        const $$createField10_0 = $$createType32;
+        const $$createField11_0 = $$createType32;
+        const $$createField13_0 = $$createType34;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Staged" in $$parsedSource) {
             $$parsedSource["Staged"] = $$createField10_0($$parsedSource["Staged"]);
@@ -667,6 +1089,281 @@ export class RepoInfo {
     }
 }
 
+export class ReviewOptions {
+    "Backend": string;
+    "Model": string;
+    "Focus": string;
+    "RunID": string;
+
+    /** Creates a new ReviewOptions instance. */
+    constructor($$source: Partial<ReviewOptions> = {}) {
+        if (!("Backend" in $$source)) {
+            this["Backend"] = "";
+        }
+        if (!("Model" in $$source)) {
+            this["Model"] = "";
+        }
+        if (!("Focus" in $$source)) {
+            this["Focus"] = "";
+        }
+        if (!("RunID" in $$source)) {
+            this["RunID"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReviewOptions instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReviewOptions {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ReviewOptions($$parsedSource as Partial<ReviewOptions>);
+    }
+}
+
+export class ReviewReference {
+    "ID": string;
+    "FileIndex": number;
+
+    /**
+     * -1 for a binary, mode-only, or rename-only change
+     */
+    "HunkIndex": number;
+    "Label": string;
+
+    /** Creates a new ReviewReference instance. */
+    constructor($$source: Partial<ReviewReference> = {}) {
+        if (!("ID" in $$source)) {
+            this["ID"] = "";
+        }
+        if (!("FileIndex" in $$source)) {
+            this["FileIndex"] = 0;
+        }
+        if (!("HunkIndex" in $$source)) {
+            this["HunkIndex"] = 0;
+        }
+        if (!("Label" in $$source)) {
+            this["Label"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReviewReference instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReviewReference {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ReviewReference($$parsedSource as Partial<ReviewReference>);
+    }
+}
+
+export class ReviewSnapshot {
+    "ID": string;
+    "RepositoryPath": string;
+    "BaseBranch": string;
+    "HeadBranch": string;
+    "BaseCommit": string;
+    "HeadCommit": string;
+    "MergeBase": string;
+    "Files": (git$0.FileDiff | null)[];
+    "FileDetails": string[];
+    "References": ReviewReference[];
+    "GenerationNote": string;
+    "AnalysisBatches": number;
+
+    /** Creates a new ReviewSnapshot instance. */
+    constructor($$source: Partial<ReviewSnapshot> = {}) {
+        if (!("ID" in $$source)) {
+            this["ID"] = "";
+        }
+        if (!("RepositoryPath" in $$source)) {
+            this["RepositoryPath"] = "";
+        }
+        if (!("BaseBranch" in $$source)) {
+            this["BaseBranch"] = "";
+        }
+        if (!("HeadBranch" in $$source)) {
+            this["HeadBranch"] = "";
+        }
+        if (!("BaseCommit" in $$source)) {
+            this["BaseCommit"] = "";
+        }
+        if (!("HeadCommit" in $$source)) {
+            this["HeadCommit"] = "";
+        }
+        if (!("MergeBase" in $$source)) {
+            this["MergeBase"] = "";
+        }
+        if (!("Files" in $$source)) {
+            this["Files"] = [];
+        }
+        if (!("FileDetails" in $$source)) {
+            this["FileDetails"] = [];
+        }
+        if (!("References" in $$source)) {
+            this["References"] = [];
+        }
+        if (!("GenerationNote" in $$source)) {
+            this["GenerationNote"] = "";
+        }
+        if (!("AnalysisBatches" in $$source)) {
+            this["AnalysisBatches"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReviewSnapshot instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReviewSnapshot {
+        const $$createField7_0 = $$createType37;
+        const $$createField8_0 = $$createType4;
+        const $$createField9_0 = $$createType39;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Files" in $$parsedSource) {
+            $$parsedSource["Files"] = $$createField7_0($$parsedSource["Files"]);
+        }
+        if ("FileDetails" in $$parsedSource) {
+            $$parsedSource["FileDetails"] = $$createField8_0($$parsedSource["FileDetails"]);
+        }
+        if ("References" in $$parsedSource) {
+            $$parsedSource["References"] = $$createField9_0($$parsedSource["References"]);
+        }
+        return new ReviewSnapshot($$parsedSource as Partial<ReviewSnapshot>);
+    }
+}
+
+export class ReviewStep {
+    "title": string;
+    "explanation": string;
+    "diffRefs": string[];
+
+    /** Creates a new ReviewStep instance. */
+    constructor($$source: Partial<ReviewStep> = {}) {
+        if (!("title" in $$source)) {
+            this["title"] = "";
+        }
+        if (!("explanation" in $$source)) {
+            this["explanation"] = "";
+        }
+        if (!("diffRefs" in $$source)) {
+            this["diffRefs"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReviewStep instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReviewStep {
+        const $$createField2_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("diffRefs" in $$parsedSource) {
+            $$parsedSource["diffRefs"] = $$createField2_0($$parsedSource["diffRefs"]);
+        }
+        return new ReviewStep($$parsedSource as Partial<ReviewStep>);
+    }
+}
+
+export class ReviewWalkthrough {
+    "snapshotId": string;
+    "summary": string;
+    "steps": ReviewStep[];
+    "backend": string;
+    "model": string;
+
+    /** Creates a new ReviewWalkthrough instance. */
+    constructor($$source: Partial<ReviewWalkthrough> = {}) {
+        if (!("snapshotId" in $$source)) {
+            this["snapshotId"] = "";
+        }
+        if (!("summary" in $$source)) {
+            this["summary"] = "";
+        }
+        if (!("steps" in $$source)) {
+            this["steps"] = [];
+        }
+        if (!("backend" in $$source)) {
+            this["backend"] = "";
+        }
+        if (!("model" in $$source)) {
+            this["model"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReviewWalkthrough instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReviewWalkthrough {
+        const $$createField2_0 = $$createType41;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("steps" in $$parsedSource) {
+            $$parsedSource["steps"] = $$createField2_0($$parsedSource["steps"]);
+        }
+        return new ReviewWalkthrough($$parsedSource as Partial<ReviewWalkthrough>);
+    }
+}
+
+export class SearchCapabilities {
+    "ContentAvailable": boolean;
+
+    /** Creates a new SearchCapabilities instance. */
+    constructor($$source: Partial<SearchCapabilities> = {}) {
+        if (!("ContentAvailable" in $$source)) {
+            this["ContentAvailable"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SearchCapabilities instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SearchCapabilities {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SearchCapabilities($$parsedSource as Partial<SearchCapabilities>);
+    }
+}
+
+export class WorktreeSnapshot {
+    "Info": RepoInfo | null;
+    "Summary": git$0.WorktreeSummary | null;
+
+    /** Creates a new WorktreeSnapshot instance. */
+    constructor($$source: Partial<WorktreeSnapshot> = {}) {
+        if (!("Info" in $$source)) {
+            this["Info"] = null;
+        }
+        if (!("Summary" in $$source)) {
+            this["Summary"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WorktreeSnapshot instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WorktreeSnapshot {
+        const $$createField0_0 = $$createType20;
+        const $$createField1_0 = $$createType43;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Info" in $$parsedSource) {
+            $$parsedSource["Info"] = $$createField0_0($$parsedSource["Info"]);
+        }
+        if ("Summary" in $$parsedSource) {
+            $$parsedSource["Summary"] = $$createField1_0($$parsedSource["Summary"]);
+        }
+        return new WorktreeSnapshot($$parsedSource as Partial<WorktreeSnapshot>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = ConflictVersion.createFrom;
 const $$createType1 = git$0.ConflictRegion.createFrom;
@@ -677,16 +1374,38 @@ const $$createType5 = ConflictEntry.createFrom;
 const $$createType6 = $Create.Array($$createType5);
 const $$createType7 = ConflictStep.createFrom;
 const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = GitProfile.createFrom;
+const $$createType9 = ContentMatch.createFrom;
 const $$createType10 = $Create.Array($$createType9);
-const $$createType11 = GraphGlyph.createFrom;
+const $$createType11 = FileMatch.createFrom;
 const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = GraphLayoutRow.createFrom;
+const $$createType13 = GitProfile.createFrom;
 const $$createType14 = $Create.Array($$createType13);
-const $$createType15 = git$0.Commit.createFrom;
-const $$createType16 = $Create.Nullable($$createType15);
-const $$createType17 = GraphLane.createFrom;
+const $$createType15 = GraphGlyph.createFrom;
+const $$createType16 = $Create.Array($$createType15);
+const $$createType17 = GraphLayoutRow.createFrom;
 const $$createType18 = $Create.Array($$createType17);
-const $$createType19 = git$0.ChangeStats.createFrom;
-const $$createType20 = RemoteInfo.createFrom;
-const $$createType21 = $Create.Array($$createType20);
+const $$createType19 = RepoInfo.createFrom;
+const $$createType20 = $Create.Nullable($$createType19);
+const $$createType21 = GraphRailSegment.createFrom;
+const $$createType22 = $Create.Array($$createType21);
+const $$createType23 = git$0.Commit.createFrom;
+const $$createType24 = $Create.Nullable($$createType23);
+const $$createType25 = GraphLane.createFrom;
+const $$createType26 = $Create.Array($$createType25);
+const $$createType27 = GraphRoute.createFrom;
+const $$createType28 = $Create.Array($$createType27);
+const $$createType29 = $Create.Array($Create.Any);
+const $$createType30 = PreferenceSnapshot.createFrom;
+const $$createType31 = $Create.Nullable($$createType30);
+const $$createType32 = git$0.ChangeStats.createFrom;
+const $$createType33 = RemoteInfo.createFrom;
+const $$createType34 = $Create.Array($$createType33);
+const $$createType35 = git$0.FileDiff.createFrom;
+const $$createType36 = $Create.Nullable($$createType35);
+const $$createType37 = $Create.Array($$createType36);
+const $$createType38 = ReviewReference.createFrom;
+const $$createType39 = $Create.Array($$createType38);
+const $$createType40 = ReviewStep.createFrom;
+const $$createType41 = $Create.Array($$createType40);
+const $$createType42 = git$0.WorktreeSummary.createFrom;
+const $$createType43 = $Create.Nullable($$createType42);

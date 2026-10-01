@@ -7,9 +7,12 @@ import * as DiffService from "./diffservice.js";
 import * as GraphService from "./graphservice.js";
 import * as InspectService from "./inspectservice.js";
 import * as PRService from "./prservice.js";
+import * as PreferencesService from "./preferencesservice.js";
 import * as RefService from "./refservice.js";
 import * as RemoteService from "./remoteservice.js";
 import * as RepoService from "./reposervice.js";
+import * as ReviewService from "./reviewservice.js";
+import * as SearchService from "./searchservice.js";
 import * as StashService from "./stashservice.js";
 import * as WorktreeService from "./worktreeservice.js";
 export {
@@ -19,9 +22,12 @@ export {
     GraphService,
     InspectService,
     PRService,
+    PreferencesService,
     RefService,
     RemoteService,
     RepoService,
+    ReviewService,
+    SearchService,
     StashService,
     WorktreeService
 };
@@ -33,13 +39,31 @@ export {
     ConflictStep,
     ConflictVersion,
     ConflictWorkspace,
+    ContentMatch,
+    ContentSearchResult,
+    DiscardResult,
+    FileMatch,
+    FileSearchResult,
     GitProfile,
     GitProfileCatalog,
     GraphGlyph,
     GraphLane,
     GraphLayout,
     GraphLayoutRow,
+    GraphRailSegment,
+    GraphRoute,
     PRProviderStatus,
+    PreferenceSaveOutcome,
+    PreferenceSnapshot,
+    RefFormatRequest,
+    RefFormatResult,
     RemoteInfo,
-    RepoInfo
+    RepoInfo,
+    ReviewOptions,
+    ReviewReference,
+    ReviewSnapshot,
+    ReviewStep,
+    ReviewWalkthrough,
+    SearchCapabilities,
+    WorktreeSnapshot
 } from "./models.js";

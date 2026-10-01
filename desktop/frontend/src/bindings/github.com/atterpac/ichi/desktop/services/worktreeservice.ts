@@ -9,6 +9,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 // @ts-ignore: Unused imports
 import * as git$0 from "../../internal/git/models.js";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 export function Commit(message: string): $CancellablePromise<void> {
     return $Call.ByID(2799605265, message);
 }
@@ -17,27 +21,35 @@ export function CommitAmend(message: string): $CancellablePromise<void> {
     return $Call.ByID(3632320564, message);
 }
 
-export function DiscardFileChanges(path: string): $CancellablePromise<void> {
-    return $Call.ByID(44116913, path);
+export function DiscardFiles(paths: string[]): $CancellablePromise<$models.DiscardResult | null> {
+    return $Call.ByID(3531434601, paths).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
 export function StageAll(): $CancellablePromise<void> {
     return $Call.ByID(3489174377);
 }
 
-export function StageFile(path: string): $CancellablePromise<void> {
-    return $Call.ByID(84202900, path);
+export function StageFiles(paths: string[]): $CancellablePromise<void> {
+    return $Call.ByID(3449600677, paths);
 }
 
 export function StagedFiles(): $CancellablePromise<git$0.StatusEntry[]> {
     return $Call.ByID(4119002197).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
     });
 }
 
 export function Status(): $CancellablePromise<git$0.StatusEntry[]> {
     return $Call.ByID(1718111886).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
+    });
+}
+
+export function Summary(): $CancellablePromise<$models.WorktreeSnapshot | null> {
+    return $Call.ByID(449436940).then(($result: any) => {
+        return $$createType5($result);
     });
 }
 
@@ -45,22 +57,26 @@ export function UnstageAll(): $CancellablePromise<void> {
     return $Call.ByID(685188550);
 }
 
-export function UnstageFile(path: string): $CancellablePromise<void> {
-    return $Call.ByID(1344493549, path);
+export function UnstageFiles(paths: string[]): $CancellablePromise<void> {
+    return $Call.ByID(3315789242, paths);
 }
 
 export function UnstagedFiles(): $CancellablePromise<git$0.StatusEntry[]> {
     return $Call.ByID(651784768).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
     });
 }
 
 export function UntrackedFiles(): $CancellablePromise<git$0.StatusEntry[]> {
     return $Call.ByID(532524702).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
     });
 }
 
 // Private type creation functions
-const $$createType0 = git$0.StatusEntry.createFrom;
-const $$createType1 = $Create.Array($$createType0);
+const $$createType0 = $models.DiscardResult.createFrom;
+const $$createType1 = $Create.Nullable($$createType0);
+const $$createType2 = git$0.StatusEntry.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $models.WorktreeSnapshot.createFrom;
+const $$createType5 = $Create.Nullable($$createType4);

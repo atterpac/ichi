@@ -1,6 +1,10 @@
 package services
 
-import "github.com/atterpac/ichi/internal/commands"
+import (
+	"context"
+
+	"github.com/atterpac/ichi/internal/commands"
+)
 
 type CompletionService struct {
 	state *State
@@ -10,68 +14,76 @@ func (s *CompletionService) CommandNames() []string {
 	return commands.NamesWithAliases()
 }
 
-func (s *CompletionService) Complete(input string) ([]string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) Complete(ctx context.Context, input string) ([]string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return commands.GetCompletions(repo, input), nil
+	// The commands package deliberately provides best-effort suggestions.
+	// A missing completion stays empty, but request cancellation remains an error.
+	values := commands.GetCompletions(repo, input)
+	return values, ctx.Err()
 }
 
-func (s *CompletionService) Suggest(input string) (string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) Suggest(ctx context.Context, input string) (string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return "", err
 	}
-	return commands.GetSuggestion(repo, input), nil
+	value := commands.GetSuggestion(repo, input)
+	return value, ctx.Err()
 }
 
-func (s *CompletionService) ListFiles(prefix string) ([]string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) ListFiles(ctx context.Context, prefix string) ([]string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return repo.ListFiles(prefix), nil
+	return repo.ReadFiles(prefix)
 }
 
-func (s *CompletionService) ListBranchNames(prefix string) ([]string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) ListBranchNames(ctx context.Context, prefix string) ([]string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return repo.ListBranchNames(prefix), nil
+	return repo.ReadBranchNames(prefix)
 }
 
-func (s *CompletionService) ListTagNames(prefix string) ([]string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) ListTagNames(ctx context.Context, prefix string) ([]string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return repo.ListTagNames(prefix), nil
+	return repo.ReadTagNames(prefix)
 }
 
-func (s *CompletionService) ListRecentCommitHashes(prefix string, limit int) ([]string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) ListRecentCommitHashes(ctx context.Context, prefix string, limit int) ([]string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return repo.ListRecentCommitHashes(prefix, limit), nil
+	return repo.ReadRecentCommitHashes(prefix, limit)
 }
 
-func (s *CompletionService) ListStashEntries(prefix string) ([]string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) ListStashEntries(ctx context.Context, prefix string) ([]string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return repo.ListStashEntries(prefix), nil
+	return repo.ReadStashEntries(prefix)
 }
 
-func (s *CompletionService) ListRemotes(prefix string) ([]string, error) {
-	repo, err := s.state.Repo()
+func (s *CompletionService) ListRemotes(ctx context.Context, prefix string) ([]string, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return filterByPrefix(repo.ListRemotes(), prefix), nil
+	names, err := repo.ReadRemoteNames()
+	if err != nil {
+		return nil, err
+	}
+	return filterByPrefix(names, prefix), nil
 }
 
 func filterByPrefix(items []string, prefix string) []string {

@@ -1,111 +1,101 @@
 package services
 
-import "github.com/atterpac/ichi/internal/git"
+import (
+	"context"
+	"fmt"
+
+	"github.com/atterpac/ichi/internal/git"
+)
 
 type DiffService struct {
 	state *State
 }
 
-func (s *DiffService) WorkingDiff() (string, error) {
-	repo, err := s.state.Repo()
-	if err != nil {
-		return "", err
+// Diff reads return structured files. Patch text stays inside Go; all desktop
+// consumers receive the same parsed representation in one bridge call.
+func (s *DiffService) WorktreeFile(ctx context.Context, path, oldPath string, staged bool) (*git.FileDiff, error) {
+	if path == "" {
+		return nil, fmt.Errorf("a file path is required")
 	}
-	return repo.GetWorkingDiff()
+	files, err := s.readDiff(ctx, func(repo *git.Repository) (string, error) {
+		return repo.GetWorktreeFileDiff(path, oldPath, staged)
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		if file.Path == path {
+			return file, nil
+		}
+	}
+	return nil, nil
 }
 
-func (s *DiffService) WorkingFileDiff(path string) (string, error) {
-	repo, err := s.state.Repo()
-	if err != nil {
-		return "", err
-	}
-	return repo.GetWorkingFileDiff(path)
+func (s *DiffService) FileDiff(ctx context.Context, hash, path string) ([]*git.FileDiff, error) {
+	return s.readDiff(ctx, func(repo *git.Repository) (string, error) {
+		return repo.GetFileDiff(hash, path)
+	})
 }
 
-func (s *DiffService) StagedDiff() (string, error) {
-	repo, err := s.state.Repo()
-	if err != nil {
-		return "", err
-	}
-	return repo.GetStagedDiff()
+func (s *DiffService) DiffBetween(ctx context.Context, from, to string) ([]*git.FileDiff, error) {
+	return s.readDiff(ctx, func(repo *git.Repository) (string, error) {
+		return repo.GetDiffBetween(from, to)
+	})
 }
 
-func (s *DiffService) StagedFileDiff(path string) (string, error) {
-	repo, err := s.state.Repo()
-	if err != nil {
-		return "", err
+// DiffBetweenFile returns only the selected file. An empty oldPath lets Git
+// discover the rename source from the comparison's summary, without reading
+// unrelated patches into the desktop process or bridge payload.
+func (s *DiffService) DiffBetweenFile(ctx context.Context, from, to, path, oldPath string) (*git.FileDiff, error) {
+	if path == "" {
+		return nil, fmt.Errorf("a file path is required")
 	}
-	return repo.GetStagedFileDiff(path)
+	files, err := s.readDiff(ctx, func(repo *git.Repository) (string, error) {
+		return repo.GetDiffBetweenFile(from, to, path, oldPath)
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		if file.Path == path {
+			return file, nil
+		}
+	}
+	return nil, nil
 }
 
-func (s *DiffService) CommitDiff(hash string) (string, error) {
-	repo, err := s.state.Repo()
+func (s *DiffService) readDiff(ctx context.Context, read func(*git.Repository) (string, error)) ([]*git.FileDiff, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return repo.GetCommitDiff(hash)
-}
-
-func (s *DiffService) FileDiff(hash, path string) (string, error) {
-	repo, err := s.state.Repo()
+	raw, err := read(repo.WithReadLimit(4<<20, 20000))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return repo.GetFileDiff(hash, path)
-}
-
-func (s *DiffService) DiffBetween(from, to string) (string, error) {
-	repo, err := s.state.Repo()
-	if err != nil {
-		return "", err
-	}
-	return repo.GetDiffBetween(from, to)
-}
-
-func (s *DiffService) DiffStats(from, to string) (string, error) {
-	repo, err := s.state.Repo()
-	if err != nil {
-		return "", err
-	}
-	return repo.GetDiffStats(from, to)
-}
-
-func (s *DiffService) ParseDiff(raw string) ([]*git.FileDiff, error) {
 	return git.ParseDiff(raw)
 }
 
-func (s *DiffService) StageHunk(path string, hunk *git.DiffHunk) error {
-	return s.mutate(func(repo *git.Repository) error { return repo.StageHunk(path, hunk) })
+func (s *DiffService) StageHunk(ctx context.Context, path string, hunk *git.DiffHunk) error {
+	return s.state.mutate(ctx, "", func(repo *git.Repository) error { return repo.StageHunk(path, hunk) })
 }
 
-func (s *DiffService) StageLines(path string, hunk *git.DiffHunk, lines []*git.DiffLine) error {
-	return s.mutate(func(repo *git.Repository) error { return repo.StageLines(path, hunk, lines) })
+func (s *DiffService) StageLines(ctx context.Context, path string, hunk *git.DiffHunk, lines []*git.DiffLine) error {
+	return s.state.mutate(ctx, "", func(repo *git.Repository) error { return repo.StageLines(path, hunk, lines) })
 }
 
-func (s *DiffService) ApplyHunkEdit(path string, hunk *git.DiffHunk, replacement []string) error {
-	return s.mutate(func(repo *git.Repository) error { return repo.ApplyHunkEdit(path, hunk, replacement) })
+func (s *DiffService) ApplyHunkEdit(ctx context.Context, path string, hunk *git.DiffHunk, replacement []string) error {
+	return s.state.mutate(ctx, "", func(repo *git.Repository) error { return repo.ApplyHunkEdit(path, hunk, replacement) })
 }
 
-func (s *DiffService) UnstageHunk(path string, hunk *git.DiffHunk) error {
-	return s.mutate(func(repo *git.Repository) error { return repo.UnstageHunk(path, hunk) })
+func (s *DiffService) UnstageHunk(ctx context.Context, path string, hunk *git.DiffHunk) error {
+	return s.state.mutate(ctx, "", func(repo *git.Repository) error { return repo.UnstageHunk(path, hunk) })
 }
 
-func (s *DiffService) UnstageLines(path string, hunk *git.DiffHunk, lines []*git.DiffLine) error {
-	return s.mutate(func(repo *git.Repository) error { return repo.UnstageLines(path, hunk, lines) })
+func (s *DiffService) UnstageLines(ctx context.Context, path string, hunk *git.DiffHunk, lines []*git.DiffLine) error {
+	return s.state.mutate(ctx, "", func(repo *git.Repository) error { return repo.UnstageLines(path, hunk, lines) })
 }
 
-func (s *DiffService) DiscardHunk(path string, hunk *git.DiffHunk) error {
-	return s.mutate(func(repo *git.Repository) error { return repo.DiscardHunk(path, hunk) })
-}
-
-func (s *DiffService) mutate(fn func(*git.Repository) error) error {
-	repo, err := s.state.Repo()
-	if err != nil {
-		return err
-	}
-	if err := fn(repo); err != nil {
-		return err
-	}
-	s.state.emitStatusChanged()
-	return nil
+func (s *DiffService) DiscardHunk(ctx context.Context, path string, hunk *git.DiffHunk) error {
+	return s.state.mutate(ctx, "", func(repo *git.Repository) error { return repo.DiscardHunk(path, hunk) })
 }

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,11 +56,12 @@ func TestDiscardMixedGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := &WorktreeService{state: NewState(repo, nil)}
-	for _, path := range []string{"backlog/tracked.json", "backlog/_manifest.json", "backlog/nested/new file.json", "backlog/deleted.json"} {
-		if err := service.DiscardFileChanges(path); err != nil {
-			t.Fatalf("discard %s: %v", path, err)
-		}
+	paths := []string{"backlog/tracked.json", "backlog/_manifest.json", "backlog/nested/new file.json", "backlog/deleted.json"}
+	result, err := service.DiscardFiles(context.Background(), paths)
+	if err != nil || result.Error != "" || len(result.Completed) != len(paths) {
+		t.Fatalf("discard result: %+v, %v", result, err)
 	}
+
 	if read("backlog/tracked.json") != "staged version" {
 		t.Fatal("did not restore staged content")
 	}
@@ -80,15 +82,57 @@ func TestDiscardMixedGroup(t *testing.T) {
 	// A filename containing Git wildcard syntax must never select a sibling.
 	write("backlog/[ab].txt", "literal")
 	write("backlog/a.txt", "keep")
-	if err := service.DiscardFileChanges("backlog/[ab].txt"); err != nil {
+	if result, err := service.DiscardFiles(context.Background(), []string{"backlog/[ab].txt"}); err != nil || result.Error != "" {
 		t.Fatal(err)
 	}
 	if read("backlog/a.txt") != "keep" {
 		t.Fatal("expanded wildcard path")
 	}
-	for _, path := range []string{"backlog", ".", "../outside", root, ".git/config", "backlog/ignored.json"} {
-		if err := service.DiscardFileChanges(path); err == nil {
+	for _, path := range []string{"backlog", ".", "../outside", root, ".git/config", "backlog/ignored.json", "bad\x00path"} {
+		if result, err := service.DiscardFiles(context.Background(), []string{path}); err == nil && result.Error == "" {
 			t.Fatalf("accepted unsafe or ignored target: %s", path)
 		}
+	}
+}
+
+func TestDiscardBatchStopsAtFailureAndEmitsOnce(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("init: %s %v", out, err)
+	}
+	for _, path := range []string{"first", "later"} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte("keep until selected"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(root, "directory"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := git.OpenRepository(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := &batchEvents{}
+	service := &WorktreeService{state: &State{repo: repo, emitter: events}}
+	result, err := service.DiscardFiles(context.Background(), []string{"first", "./first", "directory", "later"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Completed) != 1 || result.Completed[0] != "first" || result.FailedPath != "directory" || result.Error == "" || len(result.Remaining) != 1 || result.Remaining[0] != "later" {
+		t.Fatalf("partial result: %+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "first")); !os.IsNotExist(err) {
+		t.Fatal("first was not removed")
+	}
+	if _, err := os.Stat(filepath.Join(root, "later")); err != nil {
+		t.Fatal("continued after failure")
+	}
+	if len(events.names) != 2 || events.names[0] != EventStatusChanged || events.names[1] != EventRepoChanged {
+		t.Fatalf("signals: %v", events.names)
+	}
+	events.names = nil
+	result, err = service.DiscardFiles(context.Background(), nil)
+	if err != nil || len(result.Completed) != 0 || len(events.names) != 0 {
+		t.Fatalf("empty batch: %+v %v %v", result, err, events.names)
 	}
 }

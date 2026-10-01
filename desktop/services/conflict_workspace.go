@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -68,8 +69,8 @@ type conflictIndexEntry struct {
 	stage      int
 }
 
-func conflictRead(root string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", append([]string{"-C", root, "--literal-pathspecs"}, args...)...)
+func conflictRead(repo *git.Repository, args ...string) ([]byte, error) {
+	cmd := repo.Command(append([]string{"--literal-pathspecs"}, args...)...)
 	out, err := cmd.Output()
 	if err != nil {
 		if e, ok := err.(*exec.ExitError); ok {
@@ -79,8 +80,8 @@ func conflictRead(root string, args ...string) ([]byte, error) {
 	}
 	return out, nil
 }
-func conflictText(root string, args ...string) string {
-	b, _ := conflictRead(root, args...)
+func conflictText(repo *git.Repository, args ...string) string {
+	b, _ := conflictRead(repo, args...)
 	return strings.TrimSpace(string(b))
 }
 func conflictHash(parts ...[]byte) string {
@@ -96,8 +97,8 @@ func readOperationFile(dir, name string) string {
 	return strings.TrimSpace(string(b))
 }
 
-func conflictIndex(root string) (map[string][]conflictIndexEntry, error) {
-	out, err := conflictRead(root, "ls-files", "--unmerged", "-z")
+func conflictIndex(repo *git.Repository) (map[string][]conflictIndexEntry, error) {
+	out, err := conflictRead(repo, "ls-files", "--unmerged", "-z")
 	if err != nil {
 		return nil, err
 	}
@@ -121,14 +122,14 @@ func conflictIndex(root string) (map[string][]conflictIndexEntry, error) {
 }
 func workspaceFor(repo *git.Repository) (*ConflictWorkspace, error) {
 	root := repo.Path()
-	dirBytes, err := conflictRead(root, "rev-parse", "--absolute-git-dir")
+	dirBytes, err := conflictRead(repo, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return nil, err
 	}
 	dir := strings.TrimSpace(string(dirBytes))
 	w := &ConflictWorkspace{RepoPath: root, Files: []ConflictEntry{}, Staged: []string{}, Steps: []ConflictStep{}, CurrentLabel: "Current version (HEAD)", IncomingLabel: "Incoming version"}
-	w.Branch = conflictText(root, "symbolic-ref", "--short", "-q", "HEAD")
-	head := conflictText(root, "rev-parse", "--verify", "HEAD")
+	w.Branch = conflictText(repo, "symbolic-ref", "--short", "-q", "HEAD")
+	head := conflictText(repo, "rev-parse", "--verify", "HEAD")
 	operationDir := ""
 	for _, name := range []string{"rebase-merge", "rebase-apply"} {
 		if info, e := os.Stat(filepath.Join(dir, name)); e == nil && info.IsDir() {
@@ -189,7 +190,7 @@ func workspaceFor(repo *git.Repository) (*ConflictWorkspace, error) {
 		}
 	}
 	if w.Commit != "" {
-		out, _ := conflictRead(root, "show", "-s", "--format=%H%x00%s%x00%an", w.Commit, "--")
+		out, _ := conflictRead(repo, "show", "-s", "--format=%H%x00%s%x00%an", w.Commit, "--")
 		p := strings.SplitN(strings.TrimSuffix(string(out), "\n"), "\x00", 3)
 		if len(p) == 3 {
 			w.Commit = p[0]
@@ -197,7 +198,7 @@ func workspaceFor(repo *git.Repository) (*ConflictWorkspace, error) {
 			w.Author = p[2]
 		}
 	}
-	index, err := conflictIndex(root)
+	index, err := conflictIndex(repo)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +218,7 @@ func workspaceFor(repo *git.Repository) (*ConflictWorkspace, error) {
 		w.Files = append(w.Files, ConflictEntry{path, kind})
 	}
 	sort.Slice(w.Files, func(i, j int) bool { return w.Files[i].Path < w.Files[j].Path })
-	staged, err := conflictRead(root, "diff", "--cached", "--name-only", "--diff-filter=ACDMRT", "-z")
+	staged, err := conflictRead(repo, "diff", "--cached", "--name-only", "--diff-filter=ACDMRT", "-z")
 	if err != nil {
 		return nil, err
 	}
@@ -274,8 +275,8 @@ func readRebaseSteps(dir, current string) []ConflictStep {
 	}
 	return result
 }
-func (s *ConflictService) Workspace() (*ConflictWorkspace, error) {
-	repo, err := s.state.Repo()
+func (s *ConflictService) Workspace(ctx context.Context) (*ConflictWorkspace, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -292,12 +293,12 @@ func conflictFilePath(root, path string) (string, error) {
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("conflict path is outside the worktree")
 	}
+	if containsGitMetadata(clean) {
+		return "", fmt.Errorf("cannot edit Git metadata")
+	}
 	current := root
 	parts := strings.Split(clean, string(filepath.Separator))
 	for i, part := range parts {
-		if strings.EqualFold(part, ".git") {
-			return "", fmt.Errorf("cannot edit Git metadata")
-		}
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if os.IsNotExist(err) && i == len(parts)-1 {
@@ -340,8 +341,8 @@ func readConflictWorktree(path string) ([]byte, os.FileMode, bool, error) {
 	}
 	return data, info.Mode().Perm(), true, err
 }
-func conflictBlob(root string, e conflictIndexEntry) ([]byte, error) {
-	size, err := conflictRead(root, "cat-file", "-s", e.hash)
+func conflictBlob(repo *git.Repository, e conflictIndexEntry) ([]byte, error) {
+	size, err := conflictRead(repo, "cat-file", "-s", e.hash)
 	if err != nil {
 		return nil, err
 	}
@@ -349,13 +350,13 @@ func conflictBlob(root string, e conflictIndexEntry) ([]byte, error) {
 	if n > editorMaxBytes {
 		return nil, fmt.Errorf("conflict preview is limited to 1 MiB; resolve this file externally")
 	}
-	return conflictRead(root, "cat-file", "blob", e.hash)
+	return conflictRead(repo, "cat-file", "blob", e.hash)
 }
 func editableConflict(data []byte) bool {
 	return utf8.Valid(data) && !bytes.ContainsRune(data, 0) && strings.Count(string(data), "\n") < editorMaxLines
 }
 func conflictDocument(repo *git.Repository, path string) (*ConflictDocument, error) {
-	index, err := conflictIndex(repo.Path())
+	index, err := conflictIndex(repo)
 	if err != nil {
 		return nil, err
 	}
@@ -375,13 +376,13 @@ func conflictDocument(repo *git.Repository, path string) (*ConflictDocument, err
 	if err != nil {
 		return nil, err
 	}
-	doc := &ConflictDocument{MarkerSize: conflictMarkerSize(repo.Path(), path), RepoPath: repo.Path(), Path: path, Exists: exists, Editable: editableConflict(current)}
+	doc := &ConflictDocument{MarkerSize: conflictMarkerSize(repo, path), RepoPath: repo.Path(), Path: path, Exists: exists, Editable: editableConflict(current)}
 	parts := [][]byte{[]byte(w.Token), current, []byte(fmt.Sprint(mode, exists)), []byte(strconv.Itoa(doc.MarkerSize))}
 	for _, e := range entries {
 		if e.mode != "100644" && e.mode != "100755" {
 			return nil, fmt.Errorf("resolve symlink or submodule conflicts with an external tool")
 		}
-		data, err := conflictBlob(repo.Path(), e)
+		data, err := conflictBlob(repo, e)
 		if err != nil {
 			return nil, err
 		}
@@ -410,8 +411,8 @@ func conflictDocument(repo *git.Repository, path string) (*ConflictDocument, err
 	doc.Token = conflictHash(parts...)
 	return doc, nil
 }
-func (s *ConflictService) LoadConflict(repoPath, path string) (*ConflictDocument, error) {
-	repo, err := s.state.Repo()
+func (s *ConflictService) LoadConflict(ctx context.Context, repoPath, path string) (*ConflictDocument, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -421,8 +422,8 @@ func (s *ConflictService) LoadConflict(repoPath, path string) (*ConflictDocument
 	return conflictDocument(repo, path)
 }
 
-func conflictMarkerSize(root, path string) int {
-	out, err := conflictRead(root, "check-attr", "-z", "conflict-marker-size", "--", path)
+func conflictMarkerSize(repo *git.Repository, path string) int {
+	out, err := conflictRead(repo, "check-attr", "-z", "conflict-marker-size", "--", path)
 	if err == nil {
 		fields := bytes.Split(out, []byte{0})
 		if len(fields) >= 3 {
@@ -448,10 +449,10 @@ func unresolvedMarkers(content string, size int) bool {
 
 // ResolveConflict verifies the worktree and index snapshot before saving and staging
 // exactly one path. Whole-version choices also support binary blobs and deletions.
-func (s *ConflictService) ResolveConflict(repoPath, path, token, choice, content string) error {
+func (s *ConflictService) ResolveConflict(ctx context.Context, repoPath, path, token, choice, content string) error {
 	s.state.conflictMu.Lock()
 	defer s.state.conflictMu.Unlock()
-	repo, err := s.state.Repo()
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -492,7 +493,7 @@ func (s *ConflictService) ResolveConflict(repoPath, path, token, choice, content
 		if choice == "incoming" {
 			stage = 3
 		}
-		index, err := conflictIndex(repoPath)
+		index, err := conflictIndex(repo)
 		if err != nil {
 			return err
 		}
@@ -500,7 +501,7 @@ func (s *ConflictService) ResolveConflict(repoPath, path, token, choice, content
 		for _, e := range index[path] {
 			if e.stage == stage {
 				remove = false
-				data, err = conflictBlob(repoPath, e)
+				data, err = conflictBlob(repo, e)
 				if err != nil {
 					return err
 				}
@@ -535,37 +536,25 @@ func (s *ConflictService) ResolveConflict(repoPath, path, token, choice, content
 			err = nil
 		}
 	} else if !bytes.Equal(previous, data) || !existed || choice == "current" || choice == "incoming" {
-		f, e := os.CreateTemp(filepath.Dir(absolute), ".ichi-resolution-*")
-		if e != nil {
-			return e
-		}
-		name := f.Name()
-		defer os.Remove(name)
-		_, err = f.Write(data)
-		if err == nil {
-			err = f.Chmod(mode)
-		}
-		if closeErr := f.Close(); err == nil {
-			err = closeErr
-		}
-		if err == nil {
-			err = os.Rename(name, absolute)
-		}
+		err = atomicReplaceFile(absolute, mode, func(f *os.File) error {
+			_, err := f.Write(data)
+			return err
+		})
 	}
 	if err != nil {
 		return err
 	}
 	defer s.state.emitStatusChanged()
-	if _, err := conflictRead(repoPath, "add", "-A", "--", path); err != nil {
+	if _, err := conflictRead(repo, "add", "-A", "--", path); err != nil {
 		return fmt.Errorf("resolution saved, but staging failed: %w. Reload to retry", err)
 	}
 	return nil
 }
 
-func (s *ConflictService) ControlConflict(repoPath, token, action string) error {
+func (s *ConflictService) ControlConflict(ctx context.Context, repoPath, token, action string) error {
 	s.state.conflictMu.Lock()
 	defer s.state.conflictMu.Unlock()
-	repo, err := s.state.Repo()
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -593,27 +582,7 @@ func (s *ConflictService) ControlConflict(repoPath, token, action string) error 
 	if action == "skip" && w.Kind == "merge" {
 		return fmt.Errorf("merge does not support skipping a commit")
 	}
-	args := []string{"-C", repoPath, "-c", "core.editor=true", w.Kind, "--" + action}
-	s.state.mu.RLock()
-	profile := s.state.profiles[repoPath]
-	s.state.mu.RUnlock()
-	if profile != "" {
-		values, e := profileValues(profile)
-		if e != nil {
-			return e
-		}
-		keys := make([]string, 0, len(values))
-		for key := range values {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		prefix := []string{"-C", repoPath}
-		for _, key := range keys {
-			prefix = append(prefix, "-c", key+"="+values[key])
-		}
-		args = append(prefix, args[2:]...)
-	}
-	cmd := exec.Command("git", args...)
+	cmd := repo.Command("-c", "core.editor=true", w.Kind, "--"+action)
 	for _, value := range os.Environ() {
 		if !strings.HasPrefix(value, "GIT_EDITOR=") && !strings.HasPrefix(value, "GIT_SEQUENCE_EDITOR=") && !strings.HasPrefix(value, "GIT_TERMINAL_PROMPT=") {
 			cmd.Env = append(cmd.Env, value)
@@ -622,6 +591,9 @@ func (s *ConflictService) ControlConflict(repoPath, token, action string) error 
 	cmd.Env = append(cmd.Env, "GIT_EDITOR=true", "GIT_SEQUENCE_EDITOR=true", "GIT_TERMINAL_PROMPT=0")
 	out, err := cmd.CombinedOutput()
 	s.state.emitStatusChanged()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		return fmt.Errorf("%s %s: %s", w.Kind, action, strings.TrimSpace(string(out)))
 	}

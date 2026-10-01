@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,10 +34,10 @@ func TestSessionRestoresLastActiveRepository(t *testing.T) {
 		t.Fatalf("initial repository was not remembered: %v, %v", repo, err)
 	}
 	service := &RepoService{state: NewState(repo, nil)}
-	if _, err := service.Open(second); err != nil {
+	if _, err := service.Open(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Open(filepath.Join(home, "missing")); err == nil {
+	if _, err := service.Open(context.Background(), filepath.Join(home, "missing")); err == nil {
 		t.Fatal("invalid repository opened")
 	}
 	// A new process uses the saved path, even when launched in another repo.

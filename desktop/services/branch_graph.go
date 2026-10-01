@@ -1,8 +1,8 @@
 package services
 
 import (
+	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -11,26 +11,32 @@ import (
 )
 
 // LoadBranchGraph loads only commits reachable from the selected branch.
-func (s *GraphService) LoadBranchGraph(ref string, limit int) (*GraphLayout, error) {
-	repo, err := s.state.Repo()
+func (s *GraphService) LoadBranchGraph(ctx context.Context, ref string, limit int) (*GraphLayout, error) {
+	repo, err := s.state.repoContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return loadBranchGraph(repo.Path(), ref, limit)
+	return loadBranchGraph(ctx, repo, ref, limit)
 }
 
-func loadBranchGraph(root, ref string, limit int) (*GraphLayout, error) {
+func loadBranchGraph(ctx context.Context, repo *git.Repository, ref string, limit int) (*GraphLayout, error) {
 	if limit < 1 || limit > 500 {
 		limit = 80
 	}
 	// Resolve first so option-like input cannot alter the log command.
-	resolved, err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--end-of-options", ref+"^{commit}").Output()
+	resolved, err := repo.CommandContext(ctx, "rev-parse", "--verify", "--end-of-options", ref+"^{commit}").Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("resolve branch: %w", err)
 	}
 	tip := strings.TrimSpace(string(resolved))
-	out, err := exec.Command("git", "-C", root, "log", "--topo-order", "--max-count="+strconv.Itoa(limit), "--format=%H%x00%h%x00%s%x00%an%x00%at%x00%P", tip, "--").Output()
+	out, err := repo.CommandContext(ctx, "log", "--topo-order", "--max-count="+strconv.Itoa(limit), "--format=%H%x00%h%x00%s%x00%an%x00%at%x00%P", tip, "--").Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("load branch history: %w", err)
 	}
 	graph := &git.Graph{CurrentBranch: ref, CommitMap: make(map[string]*git.Commit)}
@@ -52,5 +58,5 @@ func loadBranchGraph(root, ref string, limit int) (*GraphLayout, error) {
 		graph.Commits = append(graph.Commits, commit)
 		graph.CommitMap[commit.Hash] = commit
 	}
-	return layoutGitGraph(graph, defaultGraphColumnCap), nil
+	return layoutGitGraphCompact(graph, defaultGraphColumnCapacity), nil
 }

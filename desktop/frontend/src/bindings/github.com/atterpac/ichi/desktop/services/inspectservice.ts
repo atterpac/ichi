@@ -31,8 +31,24 @@ export function FileLog(file: string, limit: number): $CancellablePromise<git$0.
     });
 }
 
+/**
+ * IndexFileContent reads the staged document, without falling back to disk.
+ */
+export function IndexFileContent(file: string): $CancellablePromise<string> {
+    return $Call.ByID(4014584898, file);
+}
+
 export function WorkingFileContent(file: string): $CancellablePromise<string> {
     return $Call.ByID(3432377663, file);
+}
+
+/**
+ * WorkingFilePreview is bounded to 64 KiB and 400 lines before the bridge.
+ */
+export function WorkingFilePreview(file: string): $CancellablePromise<git$0.FilePreview | null> {
+    return $Call.ByID(2074909298, file).then(($result: any) => {
+        return $$createType5($result);
+    });
 }
 
 // Private type creation functions
@@ -40,3 +56,5 @@ const $$createType0 = git$0.BlameLine.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = git$0.FileLogEntry.createFrom;
 const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = git$0.FilePreview.createFrom;
+const $$createType5 = $Create.Nullable($$createType4);

@@ -13,34 +13,35 @@ export function ApplyHunkEdit(path: string, hunk: git$0.DiffHunk | null, replace
     return $Call.ByID(2609341442, path, hunk, replacement);
 }
 
-export function CommitDiff(hash: string): $CancellablePromise<string> {
-    return $Call.ByID(4241559888, hash);
+export function DiffBetween($from: string, to: string): $CancellablePromise<(git$0.FileDiff | null)[]> {
+    return $Call.ByID(1091634255, $from, to).then(($result: any) => {
+        return $$createType2($result);
+    });
 }
 
-export function DiffBetween($from: string, to: string): $CancellablePromise<string> {
-    return $Call.ByID(1091634255, $from, to);
-}
-
-export function DiffStats($from: string, to: string): $CancellablePromise<string> {
-    return $Call.ByID(1288001228, $from, to);
+/**
+ * DiffBetweenFile returns only the selected file. An empty oldPath lets Git
+ * discover the rename source from the comparison's summary, without reading
+ * unrelated patches into the desktop process or bridge payload.
+ */
+export function DiffBetweenFile($from: string, to: string, path: string, oldPath: string): $CancellablePromise<git$0.FileDiff | null> {
+    return $Call.ByID(511821633, $from, to, path, oldPath).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
 export function DiscardHunk(path: string, hunk: git$0.DiffHunk | null): $CancellablePromise<void> {
     return $Call.ByID(2380773616, path, hunk);
 }
 
-export function FileDiff(hash: string, path: string): $CancellablePromise<string> {
-    return $Call.ByID(448168455, hash, path);
+export function FileDiff(hash: string, path: string): $CancellablePromise<(git$0.FileDiff | null)[]> {
+    return $Call.ByID(448168455, hash, path).then(($result: any) => {
+        return $$createType2($result);
+    });
 }
 
 export function LoadEditorFile(file: string): $CancellablePromise<string> {
     return $Call.ByID(3245092857, file);
-}
-
-export function ParseDiff(raw: string): $CancellablePromise<(git$0.FileDiff | null)[]> {
-    return $Call.ByID(2252851846, raw).then(($result: any) => {
-        return $$createType2($result);
-    });
 }
 
 export function SaveEditorFile(file: string, original: string, replacement: string): $CancellablePromise<void> {
@@ -55,14 +56,6 @@ export function StageLines(path: string, hunk: git$0.DiffHunk | null, lines: (gi
     return $Call.ByID(1993002379, path, hunk, lines);
 }
 
-export function StagedDiff(): $CancellablePromise<string> {
-    return $Call.ByID(1844281755);
-}
-
-export function StagedFileDiff(path: string): $CancellablePromise<string> {
-    return $Call.ByID(1014444737, path);
-}
-
 export function UnstageHunk(path: string, hunk: git$0.DiffHunk | null): $CancellablePromise<void> {
     return $Call.ByID(3058782017, path, hunk);
 }
@@ -71,12 +64,14 @@ export function UnstageLines(path: string, hunk: git$0.DiffHunk | null, lines: (
     return $Call.ByID(11077732, path, hunk, lines);
 }
 
-export function WorkingDiff(): $CancellablePromise<string> {
-    return $Call.ByID(3999577938);
-}
-
-export function WorkingFileDiff(path: string): $CancellablePromise<string> {
-    return $Call.ByID(1481350648, path);
+/**
+ * Diff reads return structured files. Patch text stays inside Go; all desktop
+ * consumers receive the same parsed representation in one bridge call.
+ */
+export function WorktreeFile(path: string, oldPath: string, staged: boolean): $CancellablePromise<git$0.FileDiff | null> {
+    return $Call.ByID(3953190521, path, oldPath, staged).then(($result: any) => {
+        return $$createType1($result);
+    });
 }
 
 // Private type creation functions

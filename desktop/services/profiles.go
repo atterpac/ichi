@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // GitProfile describes identity settings, never credentials or private key material.
@@ -46,8 +48,16 @@ func profilePath(path, base string) (string, error) {
 	}
 	return filepath.Abs(path)
 }
+
+// readProfileConfig deliberately reads raw source configuration: inherited
+// workspace overrides would hide the defaults/profile contents being edited.
 func readProfileConfig(args ...string) (map[string]string, []string, error) {
-	out, err := exec.Command("git", append([]string{"config", "--no-includes", "--null", "--list"}, args...)...).Output()
+	return readProfileConfigContext(context.Background(), args...)
+}
+func readProfileConfigContext(ctx context.Context, args ...string) (map[string]string, []string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", append([]string{"config", "--no-includes", "--null", "--list"}, args...)...).Output()
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot read Git identity config: %w", err)
 	}
@@ -81,9 +91,18 @@ func globalProfileConfig() (map[string]string, error) {
 	return values, nil
 }
 func profileValues(id string) (map[string]string, error) {
-	base, _ := globalProfileConfig()
+	return profileValuesContext(context.Background(), id)
+}
+func profileValuesContext(ctx context.Context, id string) (map[string]string, error) {
+	base, _, err := readProfileConfigContext(ctx, "--global")
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		base = map[string]string{}
+	}
 	if id != "global" {
-		own, _, err := readProfileConfig("--file", id)
+		own, _, err := readProfileConfigContext(ctx, "--file", id)
 		if err != nil {
 			return nil, fmt.Errorf("profile %s is unavailable: %w", id, err)
 		}
