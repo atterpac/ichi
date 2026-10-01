@@ -1,0 +1,26 @@
+# Retained Ichi palette; snapshot from dado 6bf6cd2c6db029f206bcb3926041ff0fe091de77.
+name: ayu-dark
+ident: AyuDark
+colors:
+  bg: "#0b0e14"
+  bg_light: "#131721"
+  bg_dark: "#07090d"
+  fg: "#bfbdb6"
+  fg_dim: "#565b66"
+  fg_muted: "#3d424d"
+  accent: "#e6b450"
+  accent_dim: "#d2a6ff"
+  highlight: "#1c3049"
+  success: "#7fd962"
+  warning: "#ffb454"
+  error: "#d95757"
+  info: "#59c2ff"
+  border: "#11151c"
+  border_focus: "#e6b450"
+  header: "#07090d"
+  menu: "#0b0e14"
+  table_header: "#e6b450"
+  key: "#d2a6ff"
+  crumb: "#e6b450"
+  panel_border: "#1e232d"
+  panel_title: "#e6b450"

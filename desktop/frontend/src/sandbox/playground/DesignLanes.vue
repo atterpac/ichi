@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FileStatusIcon from '../../components/common/FileStatusIcon.vue'
 /** Lanes — staging reads as a pipeline: working → next commit. */
 import { computed } from 'vue'
 import { PhArrowRight, PhArrowLeft, PhCaretRight, PhWarning } from '@phosphor-icons/vue'
@@ -29,7 +30,7 @@ const pipeline = computed(() => sections.value.filter((s) => s.id !== 'staged'))
           </button>
           <div v-show="!wt.collapsed.has(sec.id)" class="chips">
             <button v-for="f in sec.files" :key="f.path" type="button" class="chip" :title="f.path" @click="wt.selected = f.path">
-              <i>{{ f.status }}</i>{{ name(f.path) }}
+              <FileStatusIcon :status="f.status" />{{ name(f.path) }}
             </button>
           </div>
         </section>
@@ -43,7 +44,7 @@ const pipeline = computed(() => sections.value.filter((s) => s.id !== 'staged'))
           <div v-show="!wt.collapsed.has('staged')">
             <p class="draft">“{{ wt.message }}”</p>
             <div class="chips">
-              <button v-for="f in staged" :key="f.path" type="button" class="chip" @click="wt.selected = f.path"><i>{{ f.status }}</i>{{ name(f.path) }}</button>
+              <button v-for="f in staged" :key="f.path" type="button" class="chip" @click="wt.selected = f.path"><FileStatusIcon :status="f.status" />{{ name(f.path) }}</button>
             </div>
             <div class="stat"><b class="add">+{{ totals.stagedAdd }}</b> <b class="del">−{{ totals.stagedDel }}</b></div>
           </div>
@@ -63,7 +64,7 @@ const pipeline = computed(() => sections.value.filter((s) => s.id !== 'staged'))
         <header class="col-head"><span>Working</span><b>{{ working.length + conflicts.length }}</b></header>
         <div class="col-list">
           <div v-for="f in [...conflicts, ...working]" :key="f.path" class="card" :class="[f.section, { sel: wt.selected === f.path }]" @click="wt.selected = f.path">
-            <span class="card-st">{{ f.status }}</span>
+            <FileStatusIcon class="card-st" :status="f.status" />
             <span class="card-nm">{{ name(f.path) }}<small>{{ shortDir(f.path) }}</small></span>
             <button v-if="f.section !== 'conflicts'" type="button" class="move" title="Stage" @click.stop="toggleStage(f)"><PhArrowRight :size="12" /></button>
           </div>
@@ -79,7 +80,7 @@ const pipeline = computed(() => sections.value.filter((s) => s.id !== 'staged'))
           <div v-for="f in staged" :key="f.path" class="card staged" :class="{ sel: wt.selected === f.path }" @click="wt.selected = f.path">
             <button type="button" class="move" title="Unstage" @click.stop="toggleStage(f)"><PhArrowLeft :size="12" /></button>
             <span class="card-nm">{{ name(f.path) }}<small>{{ shortDir(f.path) }}</small></span>
-            <span class="card-st">{{ f.status }}</span>
+            <FileStatusIcon class="card-st" :status="f.status" />
           </div>
         </div>
         <footer class="col-foot">
@@ -198,7 +199,7 @@ const pipeline = computed(() => sections.value.filter((s) => s.id !== 'staged'))
 .chip:hover {
   border-color: var(--accent);
 }
-.chip i {
+.chip .file-status-icon {
   font-style: normal;
   width: 16px;
   height: 16px;

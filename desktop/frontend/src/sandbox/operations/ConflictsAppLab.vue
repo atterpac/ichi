@@ -4,7 +4,6 @@ import {
   PhGitBranch,
   PhGitCommit,
   PhCaretDown,
-  PhCaretRight,
   PhCheck,
   PhWarningCircle,
   PhFileCode,
@@ -21,32 +20,14 @@ import RefLabel from '../../components/common/RefLabel.vue'
 import OperationConfirmModal, {
   type OperationConfirmRequest,
 } from '../../components/overlays/OperationConfirmModal.vue'
-import { DEFAULT_THEME, THEMES, isThemeId } from '../../theme/themes'
+import { usePreferences } from '../../customization/usePreferences'
+import { THEMES } from '../../theme/themes'
 import { conflictFixtures, planFixtures } from './fixtures'
-function initialTheme() {
-  try {
-    const stored = JSON.parse(localStorage.getItem('ichi.desktop.settings') || '{}')
-    if (isThemeId(stored.theme)) return stored.theme
-  } catch {
-    /* Use the app default. */
-  }
-  return DEFAULT_THEME
-}
-const theme = ref(initialTheme())
-const previousThemes = [...document.documentElement.classList].filter((c) => c.startsWith('theme-'))
-watch(
-  theme,
-  (value) => {
-    for (const cls of [...document.documentElement.classList])
-      if (cls.startsWith('theme-')) document.documentElement.classList.remove(cls)
-    document.documentElement.classList.add(`theme-${value}`)
-  },
-  { immediate: true },
-)
-onBeforeUnmount(() => {
-  document.documentElement.classList.remove(`theme-${theme.value}`)
-  document.documentElement.classList.add(...previousThemes)
-})
+const preferences = usePreferences()
+const theme = ref(preferences.values.value['appearance.theme'])
+const themePreview = preferences.beginPreview()
+watch(theme, value => themePreview.set('appearance.theme', value))
+onBeforeUnmount(() => themePreview.cancel())
 const files = ref(conflictFixtures())
 const selected = ref(0)
 const file = computed(() => files.value[selected.value]!)

@@ -1,0 +1,26 @@
+# Retained Ichi palette; snapshot from dado 6bf6cd2c6db029f206bcb3926041ff0fe091de77.
+name: oxocarbon
+ident: Oxocarbon
+colors:
+  bg: "#161616"
+  bg_light: "#262626"
+  bg_dark: "#0b0b0b"
+  fg: "#f2f4f8"
+  fg_dim: "#8d8d8d"
+  fg_muted: "#525252"
+  accent: "#78a9ff"
+  accent_dim: "#be95ff"
+  highlight: "#393939"
+  success: "#42be65"
+  warning: "#f1c21b"
+  error: "#ee5396"
+  info: "#33b1ff"
+  border: "#262626"
+  border_focus: "#78a9ff"
+  header: "#0b0b0b"
+  menu: "#161616"
+  table_header: "#78a9ff"
+  key: "#be95ff"
+  crumb: "#78a9ff"
+  panel_border: "#393939"
+  panel_title: "#78a9ff"

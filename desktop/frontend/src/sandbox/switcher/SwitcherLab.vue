@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FileStatusIcon from '../../components/common/FileStatusIcon.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { placeholderSvg } from '../../components/common/avatarPlaceholder'
 
@@ -114,7 +115,7 @@ const newPath = ref('')
 const newProfile = ref('Personal')
 const pathError = ref('')
 function avatar(r: Repo) {
-  return `data:image/svg+xml,${encodeURIComponent(placeholderSvg(r.path, 'spore'))}`
+  return `data:image/svg+xml,${encodeURIComponent(placeholderSvg(r.path, 'face'))}`
 }
 async function focusSearch() {
   await nextTick()
@@ -391,8 +392,7 @@ onUnmounted(() => window.removeEventListener('keydown', keydown))
                 :class="{ selected: currentFile === file }"
                 @click="positions[activeId] = file"
               >
-                <span class="file-status">{{ active.changed ? (i === 1 ? 'A' : 'M') : '·' }}</span
-                >{{ file }}
+                <FileStatusIcon class="file-status" :status="active.changed ? (i === 1 ? 'A' : 'M') : '·'" />{{ file }}
               </button>
               <div class="saved-note">
                 <span class="save-dot"></span> Position saved per repository

@@ -20,10 +20,10 @@ import {
   ChangedFile,
   CommitStats,
 } from '../bindings/github.com/atterpac/ichi/internal/git'
-import { useShellSettings } from '../composables/useShellSettings'
+import { usePreferenceBindings } from '../customization/usePreferences'
 import { THEMES } from '../theme/themes'
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 const sizes = ['sm', 'md', 'lg'] as const
 const query = ref('')
 const sampleCommit = new Commit({
@@ -81,7 +81,7 @@ function showDialog() {
       <div class="gallery-tools">
         <label
           >Theme
-          <select v-model="settings.theme" class="ui-field" aria-label="Gallery theme">
+          <select v-model="settings['appearance.theme']" class="ui-field" aria-label="Gallery theme">
             <option v-for="theme in THEMES" :key="theme.id" :value="theme.id">
               {{ theme.label }}
             </option>

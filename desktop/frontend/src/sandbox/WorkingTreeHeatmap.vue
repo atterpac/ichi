@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import FileStatusIcon from '../components/common/FileStatusIcon.vue'
 import { computed, nextTick, ref } from 'vue'
 import { PhCaretRight, PhCheck, PhFolder, PhGitBranch } from '@phosphor-icons/vue'
 import { groupByDir, name, shortDir, STATUS_NAME, wt } from './playground/worktree'
 import type { WorkFile } from './playground/worktree'
-import { useShellSettings } from '../composables/useShellSettings'
+import { usePreferenceBindings } from '../customization/usePreferences'
 import DiffBar from '../components/common/DiffBar.vue'
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 const collapsed = ref(new Set<string>())
 const groups = computed(() => groupByDir(wt.files).sort((a, b) => a.dir.localeCompare(b.dir)))
 const files = computed(() => groups.value.flatMap((group) => group.files))
@@ -69,7 +70,7 @@ function mapKey(event: KeyboardEvent, index: number) {
         <h1>A quieter change map</h1>
         <p>Select a file in the map or the list. Both stay in sync.</p>
       </div>
-      <select v-model="settings.theme" class="ui-field" aria-label="Preview theme">
+      <select v-model="settings['appearance.theme']" class="ui-field" aria-label="Preview theme">
         <option value="atterpac">Atterpac</option>
         <option value="tokyonight-night">Tokyo Night</option>
         <option value="ayu-light">Light</option>
@@ -179,13 +180,8 @@ function mapKey(event: KeyboardEvent, index: number) {
                     class="file-mark staged"
                     :size="12"
                     aria-label="Staged"
-                  /><span
-                    v-else
-                    class="file-mark"
-                    :class="{ conflict: file.section === 'conflicts' }"
-                    :aria-label="statusName(file)"
-                    >{{ file.section === 'conflicts' ? '!' : file.status }}</span
-                  >
+                  />
+                  <FileStatusIcon v-else class="file-mark" :class="{ conflict: file.section === 'conflicts' }" :status="file.section === 'conflicts' ? '!' : file.status" />
                   <span class="heat-name"
                     >{{ name(file.path)
                     }}<small v-if="file.oldPath">from {{ name(file.oldPath) }}</small></span
@@ -198,8 +194,8 @@ function mapKey(event: KeyboardEvent, index: number) {
             </section>
           </div>
           <footer class="pane-footer">
-            <span><PhCheck :size="12" /> staged</span><span>M modified</span><span>? untracked</span
-            ><span v-if="conflicts" class="conflict">! conflict</span>
+            <span><PhCheck :size="12" /> staged</span><span><FileStatusIcon status="M" /> modified</span><span><FileStatusIcon status="?" /> untracked</span
+            ><span v-if="conflicts" class="conflict"><FileStatusIcon status="!" /> conflict</span>
           </footer>
         </aside>
       </div>

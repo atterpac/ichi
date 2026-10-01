@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FileStatusIcon from '../../components/common/FileStatusIcon.vue'
 /** Composer — the next commit is the hero; files are a checklist beneath it. */
 import { PhCaretRight, PhCheck, PhMinus } from '@phosphor-icons/vue'
 import DiffPane from './DiffPane.vue'
@@ -36,7 +37,7 @@ function open(f: WorkFile) {
               <PhCheck v-if="sec.id === 'staged'" :size="10" weight="bold" />
             </button>
             <span class="fn">{{ name(f.path) }}</span>
-            <span class="st">{{ f.status }}</span>
+            <FileStatusIcon class="st" :status="f.status" />
           </li>
         </ul>
       </section>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import FileStatusIcon from '../components/common/FileStatusIcon.vue'
 import { computed, ref } from 'vue'
 import UiButton from '../components/common/UiButton.vue'
 import UiInput from '../components/common/UiInput.vue'
 import DiffBar from '../components/common/DiffBar.vue'
-import { useShellSettings } from '../composables/useShellSettings'
-const settings = useShellSettings()
+import { usePreferenceBindings } from '../customization/usePreferences'
+const settings = usePreferenceBindings()
 const options = [
   {
     id: 'desk',
@@ -92,7 +93,7 @@ const diff = computed(() =>
         </p>
       </div>
       <div class="design-tools">
-        <select v-model="settings.theme" class="ui-field" aria-label="Preview theme">
+        <select v-model="settings['appearance.theme']" class="ui-field" aria-label="Preview theme">
           <option value="tokyonight-night">Tokyo Night</option>
           <option value="atterpac">Atterpac</option>
           <option value="ayu-light">Light</option></select
@@ -144,8 +145,7 @@ const diff = computed(() =>
               :class="{ selected: selected === entry.path }"
               @click="selected = entry.path"
             >
-              <span :class="`status-${entry.status}`">{{ entry.status }}</span
-              ><span class="sample-file-name"
+              <FileStatusIcon :class="`status-${entry.status}`" :status="entry.status" /><span class="sample-file-name"
                 >{{ entry.path.split('/').pop()
                 }}<small>{{ entry.path.substring(0, entry.path.lastIndexOf('/')) }}</small></span
               ><DiffBar :additions="entry.added" :deletions="entry.removed" />

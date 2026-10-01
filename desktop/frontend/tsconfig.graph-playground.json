@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "env.d.ts",
+    "src/sandbox/graph-main.ts",
+    "src/sandbox/graph/**/*.ts",
+    "src/sandbox/graph/**/*.vue"
+  ],
+  "exclude": [],
+  "compilerOptions": {
+    "noEmit": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.graph-playground.tsbuildinfo"
+  }
+}

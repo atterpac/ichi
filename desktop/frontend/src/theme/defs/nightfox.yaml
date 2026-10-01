@@ -1,0 +1,26 @@
+# Retained Ichi palette; snapshot from dado 6bf6cd2c6db029f206bcb3926041ff0fe091de77.
+name: nightfox
+ident: Nightfox
+colors:
+  bg: "#192330"
+  bg_light: "#212e3f"
+  bg_dark: "#131a24"
+  fg: "#cdcecf"
+  fg_dim: "#738091"
+  fg_muted: "#526176"
+  accent: "#719cd6"
+  accent_dim: "#9d79d6"
+  highlight: "#2b3b51"
+  success: "#81b29a"
+  warning: "#dbc074"
+  error: "#c94f6d"
+  info: "#63cdcf"
+  border: "#131a24"
+  border_focus: "#719cd6"
+  header: "#131a24"
+  menu: "#192330"
+  table_header: "#719cd6"
+  key: "#9d79d6"
+  crumb: "#719cd6"
+  panel_border: "#29394f"
+  panel_title: "#719cd6"

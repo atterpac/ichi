@@ -1,18 +1,36 @@
 # Sandbox
 
+All preview pages remain available with `pnpm dev`. Build them with
+`pnpm build:labs` and serve the separate `dist-labs/` output with
+`pnpm preview:labs`. This includes the app preview, component gallery, sandbox,
+and all named lab pages below. The normal desktop build includes only the
+application entry; lab assets are never copied into the embedded desktop output.
+
+## SVG graph playground
+
+Run `pnpm dev` from `frontend/` and open `/graph-playground.html`.
+The standalone page shows nine connector shapes, five node kinds, and composed
+branch/merge examples. Adjust bends, crossings, node shape, stroke width, row
+height, node connection ports, magnification, and light/dark surfaces.
+Examples are hand-authored intended geometry, not output from the Go router.
+The app and playground share SVG primitives in `src/components/graph/svg/`.
+The production graph uses `GraphSvg.vue`; fixtures and playground controls live
+in `src/sandbox/graph/`. The continuing-branch example demonstrates a full
+vertical rail with a curved merge arm.
+See `../../../llm/graph-routing-audit.md` for the routing audit.
+
 ## Deterministic avatar lab
 
-Open `/avatar-lab.html` on the Vite server. The Pixel creatures tab now keeps
-Relay (robots), Spore (mushrooms, default), Lumen (moths), and the refined Alley
-(cat). The same generators power production author placeholders, selectable
-under Settings → Appearance → Avatar placeholders. Existing author photos take
-precedence; the chosen creature replaces the old initials fallback, including
-optional graph author nodes. The Original collection tab
+Open `/avatar-lab.html` on the Vite server. The App designs tab holds the five
+production placeholders: Pixel, Truchet, Bauhaus, Topo, and Blob (default), all
+generated in `components/common/avatarDesigns.ts`. They are selectable under
+Settings → Appearance → Avatar placeholders. Existing author photos take
+precedence, including on optional graph author nodes. The Original collection tab
 still contains the six original SVG styles:
 Loom, Star chart, Terrain, Prism, Herbarium, and Bitkin. Change the input to
-regenerate all six, select a style for the commit-list preview, check small
-sizes and grayscale, or export the selected SVG. Identical NFC-normalized
-inputs produce identical output; case and whitespace remain significant.
+regenerate them, select a style for the commit-list preview, check small
+sizes and grayscale, or export the selected SVG. Identical inputs produce
+identical output; case and whitespace remain significant.
 Everything is local, with no avatar service or new dependencies. These are
 visual identifiers, not guaranteed-unique IDs or security fingerprints.
 
@@ -165,3 +183,15 @@ combine sample versions, edit and stage results, then continue the rebase.
 The inspector can be collapsed. Skip/abort use the production confirmation
 component. Application navigation labels are static preview context. All data
 is in memory; no Git services are used. The earlier operations lab links here.
+
+The graph playground also includes **Actual router output**: Go-generated
+regression fixtures rendered through `GraphSvg.vue`, including two-sided merges,
+long crossings, shared parents, and many-parent merges. Local appearance overrides
+keep the playground controls from changing saved app preferences.
+
+To regenerate the router fixture data, run from the desktop directory:
+
+```bash
+ICHI_GRAPH_LAYOUT_FIXTURE_OUTPUT="$PWD/frontend/src/sandbox/graph/routed-fixtures.json" \
+  go test ./services -run '^TestGraphRoutingFixtures$' -count=1
+```

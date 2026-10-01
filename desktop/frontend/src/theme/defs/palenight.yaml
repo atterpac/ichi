@@ -1,0 +1,26 @@
+# Retained Ichi palette; snapshot from dado 6bf6cd2c6db029f206bcb3926041ff0fe091de77.
+name: palenight
+ident: Palenight
+colors:
+  bg: "#292d3e"
+  bg_light: "#32374c"
+  bg_dark: "#202331"
+  fg: "#a6accd"
+  fg_dim: "#676e95"
+  fg_muted: "#4e5579"
+  accent: "#82aaff"
+  accent_dim: "#c792ea"
+  highlight: "#3c435e"
+  success: "#c3e88d"
+  warning: "#ffcb6b"
+  error: "#f07178"
+  info: "#89ddff"
+  border: "#202331"
+  border_focus: "#82aaff"
+  header: "#202331"
+  menu: "#292d3e"
+  table_header: "#82aaff"
+  key: "#c792ea"
+  crumb: "#82aaff"
+  panel_border: "#3c435e"
+  panel_title: "#82aaff"

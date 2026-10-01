@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FileStatusIcon from '../../components/common/FileStatusIcon.vue'
 /** Ledger — dense, keyboard-first. Tightened version of today's layout. */
 import { PhCaretRight } from '@phosphor-icons/vue'
 import DiffPane from './DiffPane.vue'
@@ -43,7 +44,7 @@ const segs = [
         </h4>
         <div v-show="!wt.collapsed.has(sec.id)">
           <button v-for="f in sec.files" :key="f.path" type="button" class="row" :class="{ sel: wt.selected === f.path }" @click="wt.selected = f.path">
-            <span class="st" :class="`st-${sec.id}`">{{ f.status }}</span>
+            <FileStatusIcon class="st" :class="`st-${sec.id}`" :status="f.status" />
             <span class="nm">{{ name(f.path) }}<small>{{ shortDir(f.path) }}</small></span>
             <span class="churn">
               <i class="a" :style="{ width: `${(f.add / maxChurn) * 36}px` }" /><i class="d" :style="{ width: `${(f.del / maxChurn) * 36}px` }" />
@@ -72,7 +73,7 @@ const segs = [
             <div v-for="f in sec.files" :key="f.path" class="row" :class="{ sel: wt.selected === f.path }" @click="wt.selected = f.path">
               <input type="checkbox" :checked="sec.id === 'staged'" :disabled="sec.id === 'conflicts'" @click.stop="toggleStage(f)" />
               <span class="nm">{{ name(f.path) }}<small>{{ shortDir(f.path) }}</small></span>
-              <span class="st" :class="`st-${sec.id}`">{{ f.status }}</span>
+              <FileStatusIcon class="st" :class="`st-${sec.id}`" :status="f.status" />
             </div>
           </div>
         </section>

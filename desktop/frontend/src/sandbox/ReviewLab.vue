@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FileStatusIcon from '../components/common/FileStatusIcon.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { editorLine, reviewSamples, type ReviewLine } from './review-samples'
 
@@ -380,8 +381,7 @@ function onKey(event: KeyboardEvent) {
             :disabled="editing"
             @click="selectFile(index)"
           >
-            <span class="file-status">{{ index === 2 ? 'D' : 'M' }}</span
-            ><span
+            <FileStatusIcon class="file-status" :status="index === 2 ? 'D' : 'M'" /><span
               >{{ entry.path.split('/').pop()
               }}<small>{{ entry.path.slice(0, entry.path.lastIndexOf('/')) }}</small></span
             ><span class="file-count"

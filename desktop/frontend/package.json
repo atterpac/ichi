@@ -6,18 +6,23 @@
   "scripts": {
     "dev": "vite",
     "gen:themes": "node scripts/generate-themes.mjs",
+    "check:themes": "node scripts/generate-themes.mjs --check",
     "sandbox": "vite --open /sandbox.html",
-    "build": "run-p type-check \"build-only {@}\" --",
+    "build": "pnpm type-check && pnpm build-only",
+    "build:labs": "vite build --config vite.labs.config.ts",
+    "preview:labs": "vite preview --config vite.labs.config.ts",
     "preview": "vite preview",
     "test:unit": "vitest",
+    "test:tooling": "node --test scripts/*.test.mjs",
+    "test": "pnpm test:unit run && pnpm test:tooling",
+    "check": "pnpm type-check && pnpm lint:check && pnpm check:themes && pnpm test",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
-    "lint": "run-s \"lint:*\"",
+    "lint": "run-s lint:oxlint lint:eslint",
+    "lint:check": "oxlint . && eslint .",
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
-    "format": "oxfmt src/",
-    "avatars:serve": "node server/aurora.mjs",
-    "test:aurora": "node --test server/aurora.test.mjs"
+    "format": "oxfmt src/"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

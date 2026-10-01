@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'DesignSandbox' })
 import { onMounted } from 'vue'
 import { applyTheme, sandbox } from './store'
 import { defaultTheme } from './themes'

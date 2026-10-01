@@ -77,19 +77,20 @@ const visible = computed(() =>
     ),
 )
 const openedFile = computed(() => changes.value.find((f) => f.path === file.value))
-const diffLines = computed(() => {
-  const f = openedFile.value
+function buildDiffLines(f: ReturnType<typeof fileChanges>[number] | undefined) {
   if (!f) return []
   let start = 0
-  while (start < f.before.length && start < f.after.length && f.before[start] === f.after[start])
+  while (start < f.before.length && start < f.after.length && f.before[start] === f.after[start]) {
     start++
+  }
   let end = 0
   while (
     end < f.before.length - start &&
     end < f.after.length - start &&
     f.before[f.before.length - 1 - end] === f.after[f.after.length - 1 - end]
-  )
+  ) {
     end++
+  }
   return [
     ...f.before
       .slice(0, start)
@@ -107,7 +108,9 @@ const diffLines = computed(() => {
       next: f.after.length - end + i + 1,
     })),
   ]
-})
+}
+const diffLines = computed(() => buildDiffLines(openedFile.value))
+
 const actionText = computed(() =>
   operation.value === 'Checkout'
     ? `Switch from ${currentName.value} to ${selectedName.value}`

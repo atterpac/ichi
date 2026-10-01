@@ -1,0 +1,26 @@
+# Retained Ichi palette; snapshot from dado 6bf6cd2c6db029f206bcb3926041ff0fe091de77.
+name: flexoki-dark
+ident: FlexokiDark
+colors:
+  bg: "#1c1b1a"
+  bg_light: "#282726"
+  bg_dark: "#100f0f"
+  fg: "#cecdc3"
+  fg_dim: "#878580"
+  fg_muted: "#575653"
+  accent: "#4385be"
+  accent_dim: "#8b7ec8"
+  highlight: "#343331"
+  success: "#879a39"
+  warning: "#d0a215"
+  error: "#d14d41"
+  info: "#3aa99f"
+  border: "#282726"
+  border_focus: "#4385be"
+  header: "#100f0f"
+  menu: "#1c1b1a"
+  table_header: "#4385be"
+  key: "#8b7ec8"
+  crumb: "#4385be"
+  panel_border: "#403e3c"
+  panel_title: "#4385be"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'WorkingTreePlayground' })
 /**
  * PLAYGROUND - working-tree flow: graph inspector (working node selected) and
  * the Changes page, in four design directions sharing one sample store.

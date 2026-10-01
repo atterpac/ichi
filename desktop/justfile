@@ -14,7 +14,7 @@ default:
 # build the Vue frontend into frontend/dist and copy it to 
 build-frontend:
     just bindings
-    cd frontend && if [ ! -d node_modules ]; then pnpm install --frozen-lockfile; fi && pnpm build-only
+    cd frontend && if [ ! -d node_modules ]; then pnpm install --frozen-lockfile; fi && pnpm build
     rm -rf ./dist
     cp -r frontend/dist ./dist
 
@@ -157,8 +157,12 @@ tidy:
     go mod tidy
     go mod verify
 
-# fmt + vet + test — pre-commit gate
-ci: fmt-check vet test
+# Read-only frontend validation; each test suite uses its own runner.
+check-frontend:
+    cd frontend && pnpm check
+
+# Full desktop gate. Native Go checks require the host Wails prerequisites.
+ci: check-frontend fmt-check vet test
 
 # remove build artifacts
 clean:

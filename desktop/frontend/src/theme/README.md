@@ -30,6 +30,14 @@ removals, and ochre warnings separate Git states from navigation. Both Ichi
 palettes lead the theme picker; the charcoal variant remains the default.
 
 Run `pnpm gen:themes` after editing the palette and commit both generated files.
+Imported definitions come from the versioned dado module selected by the
+desktop Go module, with its checksum in `go.sum`. Download it with
+`go mod download github.com/atterpac/dado` from the desktop directory if needed.
+`pnpm check:themes` verifies byte-identical generation without writing output.
+`DADO_DIR=/path/to/dado` explicitly overrides these inputs; sibling checkouts
+and Go workspaces do not affect normal generation. Local snapshots retain
+Ayu Dark/Light, Flexoki Dark, Nightfox, Oxocarbon and Palenight, which are absent
+from the pinned dado release, so existing saved theme IDs remain valid.
 Local definitions take precedence over imported dado definitions; Ichi appears
 first in the theme picker. Fresh or invalid settings use Ichi, while saved theme
 choices (including legacy aliases) remain intact.

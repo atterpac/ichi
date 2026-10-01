@@ -1,17 +1,35 @@
 #!/usr/bin/env node
-// Generates src/theme/themes.css and src/theme/themes.ts from local and dado defs.
-// Ichi source: src/theme/defs/*.yaml; imported themes: <dado>/theme/themes/defs/*.yaml.
-// Override the dado location with DADO_DIR.
+// Generates src/theme/themes.css and src/theme/themes.ts from local and pinned dado defs.
+// DADO_DIR explicitly opts into a local override of the Go module dependency.
 // Run: pnpm gen:themes — commit the generated output.
 
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 
 const frontendDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const defsDir = process.env.DADO_DIR
-  ? join(process.env.DADO_DIR, 'theme/themes/defs')
-  : resolve(frontendDir, '../../../dado/theme/themes/defs')
+if (process.argv.slice(2).some(arg => arg !== '--check')) {
+  throw new Error('Usage: node scripts/generate-themes.mjs [--check]')
+}
+const check = process.argv.includes('--check')
+
+async function dadoDirectory() {
+  if (process.env.DADO_DIR) return resolve(process.env.DADO_DIR)
+  const { stdout } = await promisify(execFile)('go', ['list', '-m', '-json', 'github.com/atterpac/dado'], {
+    cwd: resolve(frontendDir, '..'),
+    // A workspace/local replacement must not silently change generated palettes.
+    env: { ...process.env, GOWORK: 'off' },
+  })
+  const module = JSON.parse(stdout)
+  if (module.Replace || !module.Version || !module.Dir) {
+    throw new Error('Theme inputs require a downloaded, versioned dado module. Run go mod download github.com/atterpac/dado, or explicitly set DADO_DIR for a local override.')
+  }
+  return module.Dir
+}
+
+const defsDir = join(await dadoDirectory(), 'theme/themes/defs')
 
 const DEFAULT_THEME = 'ichi'
 
@@ -98,6 +116,7 @@ function label(id) {
 function readDefs(dir) {
   return readdirSync(dir)
   .filter((file) => file.endsWith('.yaml'))
+  .sort()
   .map((file) => parseDef(readFileSync(join(dir, file), 'utf8')))
   .filter((def) => def.name && def.colors.bg)
 }
@@ -107,7 +126,7 @@ const themes = [...new Map([
   ...readDefs(defsDir),
   ...readDefs(join(frontendDir, 'src/theme/defs')),
 ].map((def) => [def.name, def])).values()]
-  .sort((a, b) => a.name.localeCompare(b.name))
+  .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 
 if (!themes.some((t) => t.name === DEFAULT_THEME)) {
   throw new Error(`default theme "${DEFAULT_THEME}" not found in ${defsDir}`)
@@ -168,7 +187,7 @@ const ordered = [
   ...featured.map((name) => themes.find((t) => t.name === name)).filter(Boolean),
   ...themes.filter((t) => !featured.includes(t.name)),
 ]
-writeFileSync(join(frontendDir, 'src/theme/themes.css'), `${cssHeader}\n\n${ordered.map(cssBlock).join('\n\n')}\n`)
+const css = `${cssHeader}\n\n${ordered.map(cssBlock).join('\n\n')}\n`
 
 const tsEntries = ordered
   .map(({ name, colors }) => `  { id: '${name}', label: '${label(name)}', light: ${isLight(colors.bg)} },`)
@@ -191,6 +210,16 @@ export function isLightTheme(id: string): boolean {
   return THEMES.find((theme) => theme.id === id)?.light ?? false
 }
 `
-writeFileSync(join(frontendDir, 'src/theme/themes.ts'), ts)
+// Compute both outputs before checking or writing either one.
+for (const [file, content] of [['themes.css', css], ['themes.ts', ts]]) {
+  const path = join(frontendDir, 'src/theme', file)
+  if (check) {
+    if (readFileSync(path, 'utf8') !== content) {
+      throw new Error(`${file} is out of date; run pnpm gen:themes`)
+    }
+  } else {
+    writeFileSync(path, content)
+  }
+}
 
-console.log(`generated ${themes.length} themes from ${defsDir}`)
+console.log(`${check ? 'checked' : 'generated'} ${themes.length} themes from ${defsDir}`)

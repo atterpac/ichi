@@ -169,7 +169,7 @@ function recover() {
   const name = branchName.value.trim()
   if (
     !name ||
-    /[\s~^:?*\[\\]/.test(name) ||
+    /[\s~^:?*[\\]/.test(name) ||
     name.startsWith('-') ||
     name.includes('..') ||
     name.includes('//') ||
