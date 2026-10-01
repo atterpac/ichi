@@ -1,25 +1,30 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { invalidateNavigationSnapshots, peekNavigationSnapshot } from '../composables/navigationSnapshots'
 import BranchesView from '../components/refs/BranchesView.vue'
-import { useShellSettings } from '../composables/useShellSettings'
+import { usePreferenceBindings } from '../customization/usePreferences'
+import { FileDiff } from '../bindings/github.com/atterpac/ichi/internal/git'
+import { useToasts } from '../composables/useToasts'
 
 const checkoutBranch = vi.fn<(name: string, create: boolean) => Promise<void>>(() => Promise.resolve())
 const deleteBranch = vi.fn<(name: string, force: boolean) => Promise<void>>(() => Promise.resolve())
 const fetchAll = vi.fn<() => Promise<void>>(() => Promise.resolve())
-const logRef = vi.fn((ref: string, limit: number) =>
+const logRef = vi.fn<(ref: string, limit: number) => Promise<{ Hash: string; Subject: string; When: string }[]>>((_ref: string, _limit: number) =>
   Promise.resolve([
     { Hash: 'abc1234', Subject: 'tip subject', When: '2 hours ago' },
     { Hash: 'bbb2222', Subject: 'older commit', When: '3 days ago' },
   ]),
 )
-const diffFiles = vi.fn((a: string, b: string) =>
+const diffFiles = vi.fn<(a: string, b: string) => Promise<{ Path: string; OldPath: string; Added: number; Deleted: number }[]>>((_a: string, _b: string) =>
   Promise.resolve([
-    { Path: 'src/components/diff/DiffView.vue', Added: 400, Deleted: 60 },
-    { Path: 'src/theme/shell.css', Added: 120, Deleted: 40 },
+    { Path: 'src/components/diff/DiffView.vue', OldPath: '', Added: 400, Deleted: 60 },
+    { Path: 'src/theme/shell.css', OldPath: '', Added: 120, Deleted: 40 },
   ]),
 )
 
-const branchDivergence = vi.fn((a: string, b: string) =>
+const diffBetweenFile = vi.fn<(from: string, to: string, path: string, oldPath: string) => Promise<FileDiff | null>>((_from, _to, path) => Promise.resolve(new FileDiff({ Path: path })))
+
+const branchDivergence = vi.fn<(a: string, b: string) => Promise<{ Base: string; BaseMsg: string; AheadA: number; AheadB: number }>>((_a: string, _b: string) =>
   Promise.resolve({ Base: 'aaa1111', BaseMsg: 'base subject', AheadA: 2, AheadB: 5 }),
 )
 
@@ -36,15 +41,17 @@ const branch = (over: Record<string, unknown>) => ({
   ...over,
 })
 
-vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
-  RefService: {
-    ListBranches: () =>
+const listBranches = vi.fn<() => Promise<ReturnType<typeof branch>[]>>(() =>
       Promise.resolve([
         branch({ Name: 'main', IsCurrent: true, IsTracking: true, Upstream: 'origin/main', Ahead: 2 }),
         branch({ Name: 'feature/diff-view', Behind: 3 }),
         branch({ Name: 'feature/graph-styles' }),
         branch({ Name: 'origin/main', IsRemote: true }),
-      ]),
+      ]))
+
+vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
+  RefService: {
+    ListBranches: () => listBranches(),
     CheckoutBranch: (name: string, create: boolean) => checkoutBranch(name, create),
     DeleteBranch: (name: string, force: boolean) => deleteBranch(name, force),
     DeleteRemoteBranch: () => Promise.resolve(),
@@ -64,8 +71,8 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     ] }),
   },
   DiffService: {
-    DiffBetween: () => Promise.resolve(''),
-    ParseDiff: () => Promise.resolve([]),
+    DiffBetween: () => { throw new Error('A branch file must use a selected-file read') },
+    DiffBetweenFile: (from: string, to: string, path: string, oldPath: string) => diffBetweenFile(from, to, path, oldPath),
   },
   RemoteService: {
     FetchAll: () => fetchAll(),
@@ -82,17 +89,35 @@ async function mountView() {
 }
 
 describe('BranchesView', () => {
+  it('uses origin/main as the review base and the current feature as head when main is selected', async () => {
+    listBranches.mockResolvedValueOnce([
+      branch({ Name: 'main' }),
+      branch({ Name: 'feature/current', IsCurrent: true }),
+      branch({ Name: 'origin/main', IsRemote: true }),
+    ])
+    const wrapper = await mountView()
+    await wrapper.findAll('button').find(button => button.text() === 'Guided review')!.trigger('click')
+    await flushPromises()
+    const review = wrapper.findComponent({ name: 'BranchReview' })
+    expect(review.props('defaultBase')).toBe('origin/main')
+    expect(review.props('defaultHead')).toBe('feature/current')
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
+    invalidateNavigationSnapshots()
+    listBranches.mockClear()
     checkoutBranch.mockClear()
     deleteBranch.mockClear()
     fetchAll.mockClear()
     logRef.mockClear()
     diffFiles.mockClear()
+    diffBetweenFile.mockClear()
   })
 
   afterEach(() => {
-    useShellSettings().branchesGrouped = false
-    useShellSettings().branchesDetailVisible = true
+    usePreferenceBindings()['branches.grouped'] = false
+    usePreferenceBindings()['branches.detailVisible'] = true
   })
 
   it('renders local and remote sections with sync chips', async () => {
@@ -122,6 +147,32 @@ describe('BranchesView', () => {
     await wrapper.find('[aria-label="Compare against"]').setValue('feature/graph-styles')
     await flushPromises()
     expect(diffFiles).toHaveBeenCalledWith('feature/graph-styles', 'main')
+    wrapper.unmount()
+  })
+
+  it('loads only the opened file from a multi-file comparison, including rename source', async () => {
+    diffFiles.mockResolvedValueOnce([
+      { Path: 'new/name.ts', OldPath: 'old/name.ts', Added: 4, Deleted: 2 },
+      { Path: 'unrelated.ts', OldPath: '', Added: 8, Deleted: 0 },
+    ])
+    const wrapper = await mountView()
+    await wrapper.find('.branches-list').trigger('keydown', { key: 'j' })
+    await flushPromises()
+    await wrapper.findAll('.bd-churn-row').find(row => row.text().includes('name.ts'))!.trigger('click')
+    await flushPromises()
+    expect(diffBetweenFile).toHaveBeenCalledExactlyOnceWith('main', 'feature/diff-view', 'new/name.ts', 'old/name.ts')
+    wrapper.unmount()
+  })
+
+  it('refreshes after failed checkout while retaining its failure feedback', async () => {
+    const wrapper = await mountView()
+    listBranches.mockClear()
+    checkoutBranch.mockRejectedValueOnce(new Error('checkout failed after state change'))
+    await wrapper.find('.branches-list').trigger('keydown', { key: 'j' })
+    await wrapper.find('.branches-list').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(listBranches).toHaveBeenCalledOnce()
+    expect(useToasts().toasts[0]).toMatchObject({ tone: 'danger', title: 'Checkout failed', message: 'checkout failed after state change' })
     wrapper.unmount()
   })
 
@@ -278,9 +329,49 @@ describe('BranchesView', () => {
     expect(wrapper.find('.branch-detail').exists()).toBe(true)
     await list.trigger('keydown', { key: 'i' })
     expect(wrapper.find('.branch-detail').exists()).toBe(false)
-    expect(useShellSettings().branchesDetailVisible).toBe(false)
+    expect(usePreferenceBindings()['branches.detailVisible']).toBe(false)
     await list.trigger('keydown', { key: 'i' })
     expect(wrapper.find('.branch-detail').exists()).toBe(true)
     wrapper.unmount()
   })
+})
+
+
+it('shows a read-only cached branch list until fresh branches arrive', async () => {
+  invalidateNavigationSnapshots()
+  const options = { props: { repositoryPath: '/repo' }, attachTo: document.body, global: { stubs: { Teleport: true } } }
+  const first = mount(BranchesView, options)
+  await flushPromises()
+  first.unmount()
+  let finish!: (value: ReturnType<typeof branch>[]) => void
+  listBranches.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+  const second = mount(BranchesView, options)
+  await flushPromises()
+  expect(second.findAll('.branch-row')).toHaveLength(4)
+  expect(second.get('.branches-body').attributes()).toHaveProperty('inert')
+  finish([branch({ Name: 'fresh', IsCurrent: true })])
+  await flushPromises()
+  expect(second.findAll('.branch-row')).toHaveLength(1)
+  expect(second.get('.branches-body').attributes()).not.toHaveProperty('inert')
+  expect(second.text()).toContain('fresh')
+  second.unmount()
+})
+
+it('retries a branch read invalidated while pending and does not cache an unfinished visit', async () => {
+  invalidateNavigationSnapshots()
+  let finish!: (value: ReturnType<typeof branch>[]) => void
+  listBranches.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+  const wrapper = mount(BranchesView, { props: { repositoryPath: '/repo' }, global: { stubs: { Teleport: true } } })
+  await flushPromises()
+  invalidateNavigationSnapshots()
+  finish([branch({ Name: 'stale' })])
+  await flushPromises()
+  expect(wrapper.text()).not.toContain('stale')
+  expect(wrapper.findAll('.branch-row')).toHaveLength(4)
+  wrapper.unmount()
+  listBranches.mockReturnValueOnce(new Promise(() => {}))
+  const unfinished = mount(BranchesView, { props: { repositoryPath: '/repo' }, global: { stubs: { Teleport: true } } })
+  await flushPromises()
+  unfinished.unmount()
+  expect(peekNavigationSnapshot('branches', '/repo')).toBeNull()
 })

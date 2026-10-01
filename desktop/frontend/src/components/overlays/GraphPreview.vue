@@ -1,14 +1,26 @@
 <script setup lang="ts">
-import GraphCanvas from '../graph/GraphCanvas.vue'
-import type { GraphGlyph, GraphLane, GraphLayoutRow } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import { Commit } from '../../bindings/github.com/atterpac/ichi/internal/git'
+import GraphSvg from '../graph/GraphSvg.vue'
+import type {
+  GraphGlyph,
+  GraphLane,
+  GraphLayoutRow,
+} from '../../bindings/github.com/atterpac/ichi/desktop/services'
 
-// fixed compact rows — the preview demos canvas styling, not table density
-const rowHeight = 26
+import { computed } from 'vue'
+import { usePreferenceBindings } from '../../customization/usePreferences'
+import { GRAPH_ROW_HEIGHTS } from '../graph/rowDensity'
+const settings = usePreferenceBindings()
+const rowHeight = computed(() => GRAPH_ROW_HEIGHTS[settings['graph.rowDensity']])
 
 const E = 'empty'
 const isNode = (kind: string) => kind.endsWith('node')
 
-function lane(color: number, cells: [string, string, string], connect: 'top' | 'bottom' | 'both' = 'both'): GraphLane {
+function lane(
+  color: number,
+  cells: [string, string, string],
+  connect: 'top' | 'bottom' | 'both' = 'both',
+): GraphLane {
   return {
     ColorID: color,
     Glyphs: cells.map((kind) => ({
@@ -25,7 +37,11 @@ function lane(color: number, cells: [string, string, string], connect: 'top' | '
 // bends (top/bot corners), one crossing row, node shapes, head dot.
 // Lanes run past the viewport edges so nothing reads as a closed box.
 const sample = [
-  { subject: 'wip: polish settings preview', hash: '9f31c2e', lanes: [lane(0, [E, 'head-node', E], 'bottom')] },
+  {
+    subject: 'wip: polish settings preview',
+    hash: '9f31c2e',
+    lanes: [lane(0, [E, 'head-node', E], 'bottom')],
+  },
   {
     subject: "Merge branch 'feature/finder'",
     hash: 'a4d81b7',
@@ -39,7 +55,11 @@ const sample = [
   {
     subject: 'fix: keep rail alignment on resize',
     hash: 'e5a2f48',
-    lanes: [lane(0, [E, 'node', 'horizontal']), lane(1, ['horizontal', 'cross', 'horizontal']), lane(2, ['horizontal', 'top-right', E])],
+    lanes: [
+      lane(0, [E, 'node', 'horizontal']),
+      lane(1, ['horizontal', 'cross', 'horizontal']),
+      lane(2, ['horizontal', 'top-right', E]),
+    ],
   },
   {
     subject: 'chore: bump dado themes',
@@ -49,18 +69,37 @@ const sample = [
   {
     subject: 'feat: settings graph preview',
     hash: 'd3384aa',
-    lanes: [lane(0, [E, 'node', 'horizontal']), lane(1, ['horizontal', 'bot-right', E]), lane(2, [E, 'vertical', E])],
+    lanes: [
+      lane(0, [E, 'node', 'horizontal']),
+      lane(1, ['horizontal', 'bot-right', E]),
+      lane(2, [E, 'vertical', E]),
+    ],
   },
 ]
 
-const rows = sample.map((row) => ({ Commit: null, Lanes: row.lanes }) as GraphLayoutRow)
+const rows = sample.map(
+  (row, index) =>
+    ({
+      Commit: new Commit({
+        Hash: row.hash,
+        Message: row.subject,
+        Author: ['Alex Chen', 'Sam Rivera', 'Jordan Lee'][index % 3],
+      }),
+      Lanes: row.lanes,
+    }) as GraphLayoutRow,
+)
 </script>
 
 <template>
   <div class="graph-preview-frame" aria-hidden="true">
-    <GraphCanvas :rows="rows" :lane-count="3" :row-height="rowHeight" />
+    <GraphSvg :rows="rows" :lane-count="3" :row-height="rowHeight" />
     <div class="graph-preview-rows">
-      <div v-for="row in sample" :key="row.hash" class="graph-preview-row" :style="{ height: `${rowHeight}px` }">
+      <div
+        v-for="row in sample"
+        :key="row.hash"
+        class="graph-preview-row"
+        :style="{ height: `${rowHeight}px` }"
+      >
         <span class="gp-subject">{{ row.subject }}</span>
         <span class="gp-hash">{{ row.hash }}</span>
       </div>

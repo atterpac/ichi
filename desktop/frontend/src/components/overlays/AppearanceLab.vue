@@ -1,27 +1,23 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { THEMES } from '../../theme/themes'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings, usePreferences } from '../../customization/usePreferences'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
-const settings = useShellSettings()
-const storageKey = 'ichi.desktop.appearance-lab.v1'
-const defaults = { uiFont: '', monoFont: '', scale: 100, radius: 5, accent: '', background: '', surface: '', text: '' }
-type Tweaks = typeof defaults
+const settings = usePreferenceBindings()
+const preferences = usePreferences()
 type ColorKey = 'accent' | 'background' | 'surface' | 'text'
-function load(): Tweaks {
-  try {
-    const source = JSON.parse(localStorage.getItem(storageKey) || '{}')
-    const result = { ...defaults }
-    for (const key of ['uiFont', 'monoFont'] as const) if (typeof source[key] === 'string') result[key] = source[key].slice(0, 100)
-    for (const key of ['accent', 'background', 'surface', 'text'] as const) if (/^#[\da-f]{6}$/i.test(source[key])) result[key] = source[key]
-    if (Number.isFinite(source.scale)) result.scale = Math.min(125, Math.max(85, source.scale))
-    if (Number.isFinite(source.radius)) result.radius = Math.min(14, Math.max(0, source.radius))
-    return result
-  } catch { return { ...defaults } }
-}
-const tweaks = reactive(load())
+const tweaks = reactive({
+  uiFont: preferences.bind('appearance.uiFont'),
+  monoFont: preferences.bind('appearance.codeFont'),
+  scale: preferences.bind('appearance.textScale'),
+  radius: preferences.bind('appearance.radius'),
+  accent: preferences.bind('appearance.accent'),
+  background: preferences.bind('appearance.background'),
+  surface: preferences.bind('appearance.surface'),
+  text: preferences.bind('appearance.text'),
+})
 const panel = ref<HTMLElement>()
 const minimized = ref(false)
 const position = reactive({ x: Math.max(8, window.innerWidth - 340), y: 94 })
@@ -29,48 +25,6 @@ const colors = [{ key: 'accent', label: 'Accent', token: '--accent' }, { key: 'b
 const resolvedColors = reactive<Record<ColorKey, string>>({ accent: '#888888', background: '#17191b', surface: '#202326', text: '#e6e2da' })
 const uiFonts = ['Inter Variable', 'system-ui', 'Segoe UI', 'Arial', 'Georgia', 'JetBrains Mono']
 const monoFonts = ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'Courier New']
-function fontStack(font: string, fallback: string) {
-  return ['system-ui', 'ui-monospace'].includes(font) ? font : `${JSON.stringify(font)}, ${fallback}`
-}
-const tokens = computed(() => {
-  const values: Record<string, string> = {}
-  if (tweaks.uiFont) values['--font-ui'] = fontStack(tweaks.uiFont, 'system-ui, sans-serif')
-  if (tweaks.monoFont) {
-    values['--font-mono'] = fontStack(tweaks.monoFont, 'ui-monospace, monospace')
-    values['--font-code'] = 'var(--font-mono)'
-  }
-  if (tweaks.scale !== 100) {
-    for (const [name, size] of Object.entries({ '2xs': 10, xs: 11, sm: 12, md: 13, 'body-lg': 14, lg: 16, xl: 20 })) values[`--fs-${name}`] = `${(size * tweaks.scale / 100).toFixed(2)}px`
-  }
-  if (tweaks.radius !== 5) {
-    values['--control-radius'] = `${tweaks.radius}px`
-    for (const [key, offset] of Object.entries({ xs: -1, sm: 0, md: 1, lg: 3, xl: 5 })) values[`--radius-${key}`] = `${Math.max(0, tweaks.radius + offset)}px`
-  }
-  for (const color of colors) if (tweaks[color.key]) values[color.token] = tweaks[color.key]
-  if (tweaks.accent) { values['--accent-text'] = tweaks.accent; values['--lane-0'] = tweaks.accent }
-  if (tweaks.text) values['--head'] = tweaks.text
-  if (tweaks.surface) {
-    values['--surface-2'] = 'color-mix(in oklab, var(--surface) 92%, var(--text))'
-    values['--surface-raised-gen'] = 'color-mix(in oklab, var(--surface) 96%, var(--text))'
-    values['--surface-overlay-gen'] = 'color-mix(in oklab, var(--surface) 90%, var(--text))'
-  }
-  return values
-})
-const originalTokens = new Map<string, string>()
-let appliedTokens = new Set<string>()
-function apply() {
-  const root = document.documentElement
-  for (const key of appliedTokens) if (!(key in tokens.value)) {
-    const value = originalTokens.get(key)
-    if (value) root.style.setProperty(key, value)
-    else root.style.removeProperty(key)
-  }
-  for (const [key, value] of Object.entries(tokens.value)) {
-    if (!originalTokens.has(key)) originalTokens.set(key, root.style.getPropertyValue(key))
-    root.style.setProperty(key, value)
-  }
-  appliedTokens = new Set(Object.keys(tokens.value))
-}
 async function readColors() {
   await nextTick()
   const styles = getComputedStyle(document.documentElement)
@@ -79,13 +33,13 @@ async function readColors() {
     if (/^#[\da-f]{6}$/i.test(value)) resolvedColors[color.key] = value
   }
 }
-watch(tokens, () => { apply(); void readColors() }, { immediate: true })
-watch(tweaks, () => { try { localStorage.setItem(storageKey, JSON.stringify(tweaks)) } catch { /* session preview still works */ } }, { deep: true })
-watch(() => settings.theme, readColors)
-function reset() { Object.assign(tweaks, defaults) }
+watch(tweaks, () => { void readColors() }, { deep: true })
+watch(() => settings['appearance.theme'], readColors)
+function reset() {
+  for (const id of ['appearance.uiFont', 'appearance.codeFont', 'appearance.textScale', 'appearance.radius', 'appearance.accent', 'appearance.background', 'appearance.surface', 'appearance.text'] as const) preferences.reset(id)
+}
 function exportPreset() {
-  const preset = { theme: settings.theme, ...tweaks, graphRowDensity: settings.graphRowDensity, diffDensity: settings.diffDensity, css: `:root {\n${Object.entries(tokens.value).map(([key, value]) => `  ${key}: ${value};`).join('\n')}\n}` }
-  const url = URL.createObjectURL(new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' }))
+  const url = URL.createObjectURL(new Blob([preferences.exportUser('appearance')], { type: 'application/json' }))
   const link = document.createElement('a')
   link.href = url
   link.download = 'ichi-appearance.json'
@@ -128,11 +82,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   observer?.disconnect()
   window.removeEventListener('resize', clampPosition)
-  for (const key of appliedTokens) {
-    const original = originalTokens.get(key)
-    if (original) document.documentElement.style.setProperty(key, original)
-    else document.documentElement.style.removeProperty(key)
-  }
+
 })
 </script>
 <template>
@@ -143,7 +93,7 @@ onBeforeUnmount(() => {
       <button aria-label="Close appearance inspector" @click="emit('close')">×</button>
     </header>
     <div v-if="!minimized" class="lab-controls">
-      <label>Palette<select v-model="settings.theme"><option v-for="theme in THEMES" :key="theme.id" :value="theme.id">{{ theme.label }} · {{ theme.light ? 'light' : 'dark' }}</option></select></label>
+      <label>Palette<select v-model="settings['appearance.theme']"><option v-for="theme in THEMES" :key="theme.id" :value="theme.id">{{ theme.label }} · {{ theme.light ? 'light' : 'dark' }}</option></select></label>
       <div class="lab-colors"><label v-for="color in colors" :key="color.key">{{ color.label }}<span><input type="color" :aria-label="`${color.label} override`" :value="tweaks[color.key] || resolvedColors[color.key]" @input="tweaks[color.key] = ($event.target as HTMLInputElement).value" /><button v-if="tweaks[color.key]" :aria-label="`Reset ${color.label.toLowerCase()} override`" @click="tweaks[color.key] = ''">↺</button></span></label></div>
       <p v-if="colors.some(color => tweaks[color.key])" class="lab-note">Color overrides stay active when switching palettes.</p>
       <label>UI font<input v-model="tweaks.uiFont" list="lab-ui-fonts" placeholder="Default · Inter" /><datalist id="lab-ui-fonts"><option v-for="font in uiFonts" :key="font" :value="font" /></datalist></label>
@@ -151,9 +101,9 @@ onBeforeUnmount(() => {
       <p class="lab-note">Inter and JetBrains Mono are bundled. Other names use locally installed fonts, with system fallbacks.</p>
       <label>Text size <output>{{ tweaks.scale }}%</output><input v-model.number="tweaks.scale" type="range" min="85" max="125" step="5" /></label>
       <label>Corner radius <output>{{ tweaks.radius }}px</output><input v-model.number="tweaks.radius" type="range" min="0" max="14" step="1" /></label>
-      <div class="lab-columns"><label>Graph rows<select v-model="settings.graphRowDensity"><option>compact</option><option>comfortable</option><option>spacious</option></select></label><label>Diff rows<select v-model="settings.diffDensity"><option>compact</option><option>comfortable</option><option>relaxed</option></select></label></div>
+      <div class="lab-columns"><label>Graph rows<select v-model="settings['graph.rowDensity']"><option>compact</option><option>comfortable</option><option>spacious</option></select></label><label>Diff rows<select v-model="settings['diff.density']"><option>compact</option><option>comfortable</option><option>relaxed</option></select></label></div>
       <footer><button @click="reset">Reset tweaks</button><button @click="exportPreset">Export preset</button></footer>
-      <p class="lab-note">Saved locally · closing keeps your changes.<br />Ctrl/Cmd + Alt + D to toggle.</p>
+      <p class="lab-note">{{ preferences.status.persistent ? 'Saved to preferences file' : 'Session preview only' }} · closing keeps your changes.<br />Ctrl/Cmd + Alt + D to toggle.</p>
     </div>
   </aside>
 </template>

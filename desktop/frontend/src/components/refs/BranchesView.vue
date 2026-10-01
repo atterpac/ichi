@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { navigationGeneration, invalidateNavigationSnapshots, peekNavigationSnapshot, saveNavigationSnapshot, forgetNavigationSnapshot } from '../../composables/navigationSnapshots'
+
 import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 import { isEditable, isModified, returnFromPane } from '../../composables/keyboard'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -6,20 +8,22 @@ import { PhCaretRight, PhArrowsClockwise, PhGitBranch, PhMagnifyingGlass, PhFile
 import OperationConfirmModal, { type OperationConfirmRequest } from '../overlays/OperationConfirmModal.vue'
 import BranchAncestryMap from './BranchAncestryMap.vue'
 import DiffView from '../diff/DiffView.vue'
+import BranchReview from '../review/BranchReview.vue'
 import SurfaceState from '../common/SurfaceState.vue'
 import DiffBar from '../common/DiffBar.vue'
 import UiButton from '../common/UiButton.vue'
 import { setModeline, resetModeline } from '../../composables/useModeline'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings } from '../../customization/usePreferences'
 import { notify } from '../../composables/useToasts'
+import { useGitOperation } from '../../composables/useGitOperation'
 import { useVimList } from '../../composables/useVimList'
 import { RefService, RemoteService, StashService, DiffService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import type { Branch, FileChurn, FileDiff } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
-const props = defineProps<{ focusBranch?: string }>()
+const props = defineProps<{ focusBranch?: string; repositoryPath?: string }>()
 const emit = defineEmits<{ (e: 'navigate', view: string, focus?: string): void }>()
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 
 function splitPath(path: string) {
   const cut = path.lastIndexOf('/') + 1
@@ -27,8 +31,18 @@ function splitPath(path: string) {
 }
 
 const loading = ref(true)
+const refreshing = ref(false)
+let disposed = false
+let listRequest = 0
+let listRead: { cancel?: () => void } | undefined
+let previewRead: { cancel?: () => void } | undefined
+let listGeneration = navigationGeneration()
 const error = ref('')
-const busy = ref(false)
+const { busy, run: runOperation } = useGitOperation({
+  refresh,
+  blocked: () => refreshing.value,
+  invalidate: invalidateNavigationSnapshots,
+})
 useRepoSwitchGuard(() => busy.value ? 'Wait for the Git operation to finish.' : '')
 const locals = ref<Branch[]>([])
 const remotes = ref<Branch[]>([])
@@ -40,6 +54,7 @@ const detailChurn = ref<FileChurn[]>([])
 const query = ref('')
 const scope = ref('all')
 const baseline = ref('')
+const reviewOpen = ref(false)
 const detailError = ref('')
 const detailLoading = ref(false)
 const preview = ref<FileDiff | null>(null)
@@ -65,20 +80,21 @@ watch([() => props.focusBranch, allBranches], ([name, branches]) => {
   if (branch) void selectMapBranch(branch)
 }, { immediate: true })
 function clickGroup(index: number, id: string) { vim.moveTo(index); toggleFold(id) }
-function closePreview() { previewReq++; preview.value = null; listEl.value?.focus() }
-async function openFile(path: string) {
+function closePreview() { previewRead?.cancel?.(); previewReq++; preview.value = null; listEl.value?.focus() }
+async function openFile(file: FileChurn) {
   const selected = detailBranch.value
   if (!selected || !comparison.value) return
+  previewRead?.cancel?.()
   const req = ++previewReq
   preview.value = null
   previewError.value = ''
   previewLoading.value = true
   try {
-    const raw = await DiffService.DiffBetween(comparison.value, selected.Name)
-    if (req !== previewReq) return
-    const files = await DiffService.ParseDiff(raw)
+    const pending = DiffService.DiffBetweenFile(comparison.value, selected.Name, file.Path, file.OldPath)
+    previewRead = pending
+    const diff = await pending
     if (req === previewReq) {
-      preview.value = files.find(f => f?.Path === path || f?.OldPath === path) ?? null
+      preview.value = diff
       if (!preview.value) previewError.value = 'No textual diff available for this file.'
       await nextTick()
       if (req === previewReq) diffViewer.value?.focus()
@@ -104,7 +120,7 @@ function branchRow(b: Branch, over: Partial<Extract<DisplayRow, { kind: 'branch'
 }
 
 const displayRows = computed<DisplayRow[]>(() => {
-  if (!settings.branchesGrouped) {
+  if (!settings['branches.grouped']) {
     return [
       ...filteredLocals.value.map((b, i) => branchRow(b, i === 0 ? { sectBefore: `Local — ${filteredLocals.value.length}` } : {})),
       ...filteredRemotes.value.map((b, i) => branchRow(b, i === 0 ? { sectBefore: `Remote — ${filteredRemotes.value.length}` } : {})),
@@ -155,31 +171,36 @@ const displayRows = computed<DisplayRow[]>(() => {
 })
 
 async function refresh() {
+  listRead?.cancel?.()
+  const request = ++listRequest
+  const version = navigationGeneration()
+  const selected = detailBranch.value?.Name
+  refreshing.value = true
+  forgetNavigationSnapshot('branches', props.repositoryPath ?? '')
   try {
-    const all = await RefService.ListBranches()
+    const pending = RefService.ListBranches()
+    listRead = pending
+    const all = await pending
+    if (request !== listRequest || disposed) return
+    if (version !== navigationGeneration()) { await refresh(); return }
+    listGeneration = version
     locals.value = all.filter((b) => !b.IsRemote)
     remotes.value = all.filter((b) => b.IsRemote)
     error.value = ''
+    if (selected && !props.focusBranch) {
+      const index = displayRows.value.findIndex(row => row.kind === 'branch' && row.b.Name === selected)
+      if (index >= 0) vim.moveTo(index)
+    }
     if (baseline.value && !all.some(b => b.Name === baseline.value)) baseline.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    if (request === listRequest && !disposed) error.value = err instanceof Error ? err.message : String(err)
   } finally {
-    loading.value = false
+    if (request === listRequest && !disposed) { loading.value = false; refreshing.value = false }
   }
 }
 
 async function run(label: string, op: () => Promise<void>) {
-  if (busy.value) return
-  busy.value = true
-  try {
-    await op()
-    await refresh()
-    notify({ tone: 'success', title: label })
-  } catch (err) {
-    notify({ tone: 'danger', title: `${label} failed`, message: err instanceof Error ? err.message : String(err) })
-  } finally {
-    busy.value = false
-  }
+  await runOperation(op, { success: label, failure: `${label} failed` })
 }
 
 // git refuses checkout when the switch would clobber uncommitted work.
@@ -188,23 +209,17 @@ function isDirtyTreeError(err: unknown) {
   return msg.includes('would be overwritten') || msg.includes('stash them') || msg.includes('local changes')
 }
 
-async function doCheckout(name: string) {
-  await RefService.CheckoutBranch(name, false)
-  await refresh()
-  notify({ tone: 'success', title: `Checked out ${name}` })
-}
-
 function checkout(row: Branch) {
-  if (row.IsCurrent || busy.value) return
+  if (row.IsCurrent) return
   // Remote rows check out the short name: git DWIMs a local tracking branch.
   const name = row.IsRemote ? splitRemote(row.Name).short : row.Name
-  busy.value = true
-  doCheckout(name)
-    .catch((err) => {
-      if (isDirtyTreeError(err)) offerStashAndSwitch(name)
-      else notify({ tone: 'danger', title: 'Checkout failed', message: err instanceof Error ? err.message : String(err) })
-    })
-    .finally(() => { busy.value = false })
+  void runOperation(() => RefService.CheckoutBranch(name, false), {
+    success: `Checked out ${name}`,
+    onError(error) {
+      if (isDirtyTreeError(error)) offerStashAndSwitch(name)
+      else notify({ tone: 'danger', title: 'Checkout failed', message: error instanceof Error ? error.message : String(error) })
+    },
+  })
 }
 
 // Dirty-tree checkout recovery: stash the worktree (incl. untracked), switch, done.
@@ -317,7 +332,7 @@ function toggleFold(id: string) {
 }
 
 function toggleGrouping() {
-  settings.branchesGrouped = !settings.branchesGrouped
+  settings['branches.grouped'] = !settings['branches.grouped']
   vim.moveTo(0)
 }
 
@@ -338,6 +353,14 @@ const vim = useVimList(displayRows, {
 
 const cursorRow = computed<DisplayRow | null>(() => displayRows.value[vim.cursor.value] ?? null)
 const detailBranch = computed<Branch | null>(() => (cursorRow.value?.kind === 'branch' ? cursorRow.value.b : null))
+const reviewBase = computed(() => baseline.value || ['origin/main', 'main', 'origin/master', 'master'].find(name => allBranches.value.some(branch => branch.Name === name)) || comparison.value)
+const reviewHead = computed(() => {
+  const selected = detailBranch.value?.Name
+  // The ordinary branch inspector compares against the checkout. Reviews use
+  // the mainline as base and the selected/current feature branch as head.
+  return selected && !['main', 'origin/main', 'master', 'origin/master', reviewBase.value].includes(selected)
+    ? selected : current.value?.Name
+})
 
 // Divergence bars: ahead (green, from the left) vs behind (red, from the
 // right), proportional but clamped so a 1-commit side stays visible.
@@ -363,20 +386,23 @@ const upstreamRemote = computed(() => {
 // Refresh the file comparison when the selection or baseline changes.
 let detailReq = 0
 watch(
-  [() => settings.branchesDetailVisible, () => detailBranch.value?.Name, () => comparison.value, () => locals.value],
-  async ([open, selected, head]) => {
+  [() => settings['branches.detailVisible'], () => detailBranch.value?.Name, () => comparison.value, () => locals.value, () => refreshing.value],
+  async ([open, selected, head], _, onCleanup) => {
     const req = ++detailReq
     previewReq++
+    previewRead?.cancel?.()
     preview.value = null
     previewLoading.value = false
     previewError.value = ''
     detailError.value = ''
     detailChurn.value = []
     detailLoading.value = false
-    if (!open || !selected || !head || selected === head) return
+    if (refreshing.value || !open || !selected || !head || selected === head) return
     detailLoading.value = true
     const failed = (err: unknown) => { if (req === detailReq) detailError.value = String(err); return null }
-    const churn = await RefService.DiffFiles(head, selected).catch(failed)
+    const pending = RefService.DiffFiles(head, selected)
+    onCleanup(() => { detailReq++; pending.cancel?.() })
+    const churn = await pending.catch(failed)
     if (req !== detailReq) return
     detailLoading.value = false
     detailChurn.value = (churn ?? []).filter(Boolean)
@@ -433,7 +459,7 @@ function onListKey(event: KeyboardEvent) {
   const branch = row?.kind === 'branch' ? row.b : null
   switch (event.key) {
     case 'i':
-      settings.branchesDetailVisible = !settings.branchesDetailVisible
+      settings['branches.detailVisible'] = !settings['branches.detailVisible']
       event.preventDefault()
       return
     case 't':
@@ -452,7 +478,7 @@ function onListKey(event: KeyboardEvent) {
     case 'l':
       if (row?.kind === 'group' && row.folded) toggleFold(row.id)
       else {
-        settings.branchesDetailVisible = true
+        settings['branches.detailVisible'] = true
         void nextTick(() => document.querySelector<HTMLElement>('[aria-label="Branch details"]')?.focus())
       }
       event.preventDefault()
@@ -500,12 +526,25 @@ onMounted(async () => {
     mode: 'NORMAL',
     hints: '⏎ checkout · o graph · n new · r rename · d delete · m merge · R rebase · t group · i inspector · F6 pane · / filter',
   })
+  const cached = peekNavigationSnapshot('branches', props.repositoryPath ?? '')
+  if (cached) {
+    locals.value = cached.branches.filter(branch => !branch.IsRemote)
+    remotes.value = cached.branches.filter(branch => branch.IsRemote)
+    loading.value = false
+    const index = displayRows.value.findIndex(row => row.kind === 'branch' && row.b.Name === cached.selection)
+    if (index >= 0) vim.moveTo(index)
+  }
   await refresh()
+  if (disposed) return
   await nextTick()
   listEl.value?.focus()
 })
 watch([query, scope], () => vim.moveTo(0))
-onUnmounted(() => { detailReq++; previewReq++; resetModeline() })
+onUnmounted(() => {
+  listRead?.cancel?.(); previewRead?.cancel?.()
+  if (!refreshing.value && !error.value && !busy.value) saveNavigationSnapshot('branches', props.repositoryPath ?? '', { branches: allBranches.value, selection: detailBranch.value?.Name ?? '' }, listGeneration)
+  disposed = true; listRequest++; detailReq++; previewReq++; resetModeline()
+})
 </script>
 
 <template>
@@ -516,23 +555,34 @@ onUnmounted(() => { detailReq++; previewReq++; resetModeline() })
       <UiButton
         size="sm"
         icon-only
-        :active="settings.branchesGrouped"
-        :title="settings.branchesGrouped ? 'Flat list (t)' : 'Group by prefix (t)'"
-        :aria-pressed="settings.branchesGrouped"
+        :active="settings['branches.grouped']"
+        :title="settings['branches.grouped'] ? 'Flat list (t)' : 'Group by prefix (t)'"
+        :aria-pressed="settings['branches.grouped']"
         @click="toggleGrouping"
       >
         <PhGitBranch :size="16" weight="bold" />
       </UiButton>
-      <UiButton size="sm" title="Fetch all remotes (f)" :disabled="busy" @click="fetch">
+      <UiButton size="sm" title="Fetch all remotes (f)" :disabled="busy || refreshing" @click="fetch">
         <PhArrowsClockwise :size="16" weight="bold" />
         Fetch
       </UiButton>
+      <UiButton size="sm" :disabled="loading || busy || refreshing || allBranches.length < 2" @click="reviewOpen = true">Guided review</UiButton>
     </Teleport>
+
+    <BranchReview
+      v-if="reviewOpen"
+      :key="repositoryPath"
+      :branches="allBranches"
+      :default-base="reviewBase"
+      :default-head="reviewHead"
+      :repository-path="repositoryPath"
+      @close="reviewOpen = false"
+    />
 
     <SurfaceState v-if="loading" tone="loading" title="Loading branches" message="Reading local and remote refs." />
     <SurfaceState v-else-if="error" tone="error" title="Unable to load branches" :message="error" action-label="Retry" @action="refresh" />
 
-    <div v-else class="branches-body" :class="{ 'detail-open': settings.branchesDetailVisible }">
+    <div v-else :inert="refreshing || undefined" :aria-busy="refreshing" class="branches-body" :class="{ 'detail-open': settings['branches.detailVisible'] }">
       <section
         ref="listEl"
         class="branches-list"
@@ -586,8 +636,9 @@ onUnmounted(() => { detailReq++; previewReq++; resetModeline() })
       </section>
 
       <div class="branch-workspace">
-      <BranchAncestryMap :branches="allBranches" :selected="detailBranch" @open="emit('navigate', 'graph', $event)" />
-      <aside v-if="settings.branchesDetailVisible" class="branch-detail" aria-label="Branch details" tabindex="0" data-keyboard-pane @keydown="returnFromPane($event, listEl)">
+      <span v-if="refreshing" role="status">Checking latest branches…</span>
+      <BranchAncestryMap v-else :branches="allBranches" :selected="detailBranch" @open="emit('navigate', 'graph', $event)" />
+      <aside v-if="settings['branches.detailVisible']" class="branch-detail" aria-label="Branch details" tabindex="0" data-keyboard-pane @keydown="returnFromPane($event, listEl)">
         <template v-if="detailBranch">
           <h3 class="bd-name">
             {{ detailBranch.Name }}
@@ -627,7 +678,7 @@ onUnmounted(() => { detailReq++; previewReq++; resetModeline() })
           <h4 class="branch-files-heading">Changed files <span>{{ changedFiles.total.files }}</span></h4>
           <div v-if="changedFiles.total.files && comparison" class="bd-churn">
             <span class="bd-subhead">Diff · vs {{ comparison }}</span>
-            <div v-for="f in changedFiles.files" :key="f.Path" class="bd-churn-row" role="button" tabindex="0" @click="openFile(f.Path)" @keydown.enter.prevent="openFile(f.Path)" @keydown.space.prevent="openFile(f.Path)">
+            <div v-for="f in changedFiles.files" :key="f.Path" class="bd-churn-row" role="button" tabindex="0" @click="openFile(f)" @keydown.enter.prevent="openFile(f)" @keydown.space.prevent="openFile(f)">
               <PhFile class="bd-churn-icon" :size="14" aria-hidden="true" />
               <span class="bd-churn-path" :title="f.Path"><span class="bd-churn-base">{{ splitPath(f.Path).base }}</span><span class="bd-churn-dir">{{ splitPath(f.Path).dir || 'Repository root' }}</span></span>
               <span class="bd-churn-delta">

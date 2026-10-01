@@ -212,6 +212,7 @@ defineExpose({ open, close })
                 <template v-for="(part, pi) in item.labelParts" :key="pi">
                   <RefLabel
                     v-if="typeof part === 'object'"
+                    expanded
                     class="ctx-ref"
                     :name="part.chip"
                     :kind="part.kind"

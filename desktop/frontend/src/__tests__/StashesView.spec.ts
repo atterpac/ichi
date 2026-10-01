@@ -1,15 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import StashesView from '../components/refs/StashesView.vue'
-import { useShellSettings } from '../composables/useShellSettings'
+import { usePreferenceBindings } from '../customization/usePreferences'
+import { useToasts } from '../composables/useToasts'
 
 const applyIndex = vi.fn<(i: number) => Promise<void>>(() => Promise.resolve())
 const popIndex = vi.fn<(i: number) => Promise<void>>(() => Promise.resolve())
 const dropIndex = vi.fn<(i: number) => Promise<void>>(() => Promise.resolve())
 const checkoutFiles = vi.fn<(i: number, paths: string[]) => Promise<void>>(() => Promise.resolve())
+const listStashes = vi.fn<() => Promise<{ Index: number; Branch: string; Message: string }[]>>(() => Promise.resolve([
+  { Index: 0, Branch: 'main', Message: 'WIP layout tweak' },
+  { Index: 1, Branch: 'feature/x', Message: 'half-done refactor' },
+]))
 const stashFiles = vi.fn<
   (i: number) => Promise<{ Path: string; Added: number; Deleted: number }[]>
->((i) =>
+>((_i) =>
   Promise.resolve([
     { Path: 'src/a.ts', Added: 10, Deleted: 2 },
     { Path: 'src/b.ts', Added: 3, Deleted: 3 },
@@ -19,11 +24,7 @@ const stashFiles = vi.fn<
 
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   StashService: {
-    ListStashes: () =>
-      Promise.resolve([
-        { Index: 0, Branch: 'main', Message: 'WIP layout tweak' },
-        { Index: 1, Branch: 'feature/x', Message: 'half-done refactor' },
-      ]),
+    ListStashes: () => listStashes(),
     StashApplyIndex: (i: number) => applyIndex(i),
     StashPopIndex: (i: number) => popIndex(i),
     StashDropIndex: (i: number) => dropIndex(i),
@@ -46,16 +47,18 @@ async function mountView() {
 
 describe('StashesView', () => {
   beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn<() => void>() })
     applyIndex.mockClear()
     popIndex.mockClear()
     dropIndex.mockClear()
     checkoutFiles.mockClear()
     stashFiles.mockClear()
+    listStashes.mockClear()
+    useToasts().toasts.forEach(toast => useToasts().dismissToast(toast.id))
   })
 
   afterEach(() => {
-    useShellSettings().stashesDetailVisible = true
+    usePreferenceBindings()['stashes.detailVisible'] = true
   })
 
   it('routes keys from the focused details pane and returns to the list', async () => {
@@ -70,7 +73,6 @@ describe('StashesView', () => {
     const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
     list.element.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(false)
-    await wrapper.find('.map-segment').trigger('keydown', { key: 'Enter' })
     expect(checkoutFiles).not.toHaveBeenCalled()
     expect(applyIndex).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -126,8 +128,22 @@ describe('StashesView', () => {
     wrapper.unmount()
   })
 
-  it('moves the file cursor from the heatmap without selecting or restoring files', async () => {
+  it('shows no heatmap for a short stash', async () => {
     const wrapper = await mountView()
+    expect(wrapper.find('.file-heatmap').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('moves the file cursor from the heatmap without selecting or restoring files', async () => {
+    stashFiles.mockResolvedValueOnce([
+      { Path: 'src/a.ts', Added: 10, Deleted: 2 },
+      { Path: 'src/b.ts', Added: 3, Deleted: 3 },
+      { Path: 'README.md', Added: 1, Deleted: 0 },
+      ...Array.from({ length: 18 }, (_, i) => ({ Path: `lib/f${i}.ts`, Added: 1, Deleted: 1 })),
+    ])
+    const wrapper = await mountView()
+    await wrapper.find('.map-segment').trigger('keydown', { key: 'Enter' })
+    expect(checkoutFiles).not.toHaveBeenCalled()
     await wrapper.findAll('.map-segment')[1]!.trigger('click')
     expect(wrapper.find('.st-file.cursor').text()).toContain('src/b.ts')
     expect(wrapper.findAll('.st-file.on')).toHaveLength(0)
@@ -161,6 +177,31 @@ describe('StashesView', () => {
     await list.trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(checkoutFiles).toHaveBeenCalledWith(0, ['src/b.ts'])
+    wrapper.unmount()
+  })
+  it('shows a detail error with retry instead of reporting an empty stash', async () => {
+    stashFiles.mockRejectedValueOnce(new Error('stash read unavailable'))
+    const wrapper = await mountView()
+    expect(wrapper.text()).toContain('Unable to load stash files')
+    expect(wrapper.text()).toContain('stash read unavailable')
+    expect(wrapper.findAll('.bd-empty').map(item => item.text())).not.toContain('No files')
+    expect(wrapper.find('.map-segment').exists()).toBe(false)
+    const retry = wrapper.findAll('button').find(button => button.text() === 'Retry')!
+    await retry.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.st-file')).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('stash read unavailable')
+    wrapper.unmount()
+  })
+  it('refreshes after a failed pop and keeps its error feedback visible', async () => {
+    const wrapper = await mountView()
+    listStashes.mockClear()
+    popIndex.mockRejectedValueOnce(new Error('conflicts after partial apply'))
+    await wrapper.find('.branches-list').trigger('keydown', { key: 'p' })
+    await flushPromises()
+    expect(listStashes).toHaveBeenCalledOnce()
+    expect(useToasts().toasts[0]).toMatchObject({ tone: 'danger', message: 'conflicts after partial apply' })
+    expect(wrapper.findAll('button').find(button => button.text().includes('Stash'))?.attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
 })

@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { Browser, System } from '@wailsio/runtime'
 import IchiMenu from '../components/shell/IchiMenu.vue'
 
-vi.mock('@wailsio/runtime', () => ({ Browser: { OpenURL: vi.fn() }, System: { IsDesktop: vi.fn(() => true) } }))
+vi.mock('@wailsio/runtime', () => ({ Browser: { OpenURL: vi.fn<(url: string) => Promise<void>>() }, System: { IsDesktop: vi.fn<() => boolean>(() => true) } }))
 afterEach(() => { vi.clearAllMocks(); document.body.innerHTML = '' })
 
 describe('Ichi resources', () => {

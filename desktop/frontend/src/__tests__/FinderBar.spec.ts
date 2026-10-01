@@ -5,14 +5,14 @@ import { useWorkspaces } from '../composables/useWorkspaces'
 import { useGitProfiles } from '../composables/useGitProfiles'
 import { finderHistory } from '../components/shell/finderHistory'
 
-vi.mock('@wailsio/runtime', () => ({ Events: { On: vi.fn() } }))
+vi.mock('@wailsio/runtime', () => ({ Events: { On: vi.fn<(...args: unknown[]) => () => void>(() => () => {}) } }))
 vi.mock('../composables/useGitProfiles', () => { const state = { profiles: [], error: '' }; return { useGitProfiles: () => ({ state, ready: async () => {}, effective: async () => {} }) } })
-const openRepo = vi.fn(async (path: string) => ({ Path: path, Name: path.split('/').pop() }))
+const openRepo = vi.fn<(path: string) => Promise<{ Path: string; Name: string | undefined }>>(async (path: string) => ({ Path: path, Name: path.split('/').pop() }))
 const checkoutBranch = vi.fn<(name: string, create: boolean) => Promise<void>>(() => Promise.resolve())
-const searchCommits = vi.fn(() =>
+const searchCommits = vi.fn<() => Promise<{ Hash: string; ShortHash: string; Message: string }[]>>(() =>
   Promise.resolve([{ Hash: '0ba44b3aaaa', ShortHash: '0ba44b3', Message: 'first iteration of the diff view' }]),
 )
-const listFiles = vi.fn(() => Promise.resolve(['src/components/diff/DiffView.vue', 'src/theme/shell.css']))
+const listFiles = vi.fn<() => Promise<string[]>>(() => Promise.resolve(['src/components/diff/DiffView.vue', 'src/theme/shell.css']))
 
 const branch = (over: Record<string, unknown>) => ({
   Name: '',
@@ -41,9 +41,11 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   GraphService: {
     SearchCommits: () => searchCommits(),
   },
-  InspectService: { WorkingFileContent: async () => 'export const preview = true' },
-  CompletionService: {
-    ListFiles: () => listFiles(),
+  InspectService: { WorkingFilePreview: async () => ({ Content: 'export const preview = true', Binary: false, Truncated: false }) },
+  SearchService: {
+    Capabilities: async () => ({ ContentAvailable: true }),
+    Files: async (query: string) => ({ Matches: (await listFiles()).filter(path => path.toLowerCase().includes(query.toLowerCase())).map(Path => ({ Path, Score: 0 })), Total: 2 }),
+    Content: async () => ({ Matches: [{ Path: 'src/theme/shell.css', Line: 7, Column: 1, Text: 'preview content match' }], Truncated: false }),
   },
 }))
 
@@ -58,6 +60,25 @@ async function mountBar(initialQuery = '') {
 }
 
 describe('FinderBar', () => {
+  it('finds and opens the Diff page without a search prefix', async () => {
+    const wrapper = await mountBar('diff')
+    try {
+      const result = wrapper.get('[aria-label="view: Diff"]')
+      await result.trigger('click')
+      expect(wrapper.emitted('navigate')?.[0]).toEqual(['diff'])
+    } finally { wrapper.unmount() }
+  })
+  it('searches contents through g: and opens the matching file', async () => {
+    vi.useFakeTimers()
+    const wrapper = await mountBar('g:preview')
+    try {
+      await vi.advanceTimersByTimeAsync(200)
+      expect(wrapper.text()).toContain('preview content match')
+      expect(wrapper.text()).toContain('src/theme/shell.css:7')
+      await wrapper.get('.fb-row').trigger('click')
+      expect(wrapper.emitted('navigate')?.[0]).toEqual(['blame', 'src/theme/shell.css'])
+    } finally { wrapper.unmount() }
+  })
   beforeEach(() => {
     useWorkspaces().state.repos = []
     useWorkspaces().state.workspaces = [{ id: 'personal', name: 'Personal', color: '#aabbcc' }]
@@ -112,6 +133,7 @@ describe('FinderBar', () => {
     try {
       expect(wrapper.get('.fb-prefixes').text()).toContain('f:')
       await wrapper.get('.fb-prefixes button').trigger('click')
+      await flushPromises()
       expect(wrapper.get('.fb-scope-chip').text()).toContain('f:')
       expect(wrapper.find('.fb-preview').exists()).toBe(false)
       await wrapper.get('.fb-preview-toggle').trigger('click')
@@ -162,7 +184,7 @@ describe('FinderBar', () => {
   })
   it('keeps native editing shortcuts and IME while blocking shell key handlers', async () => {
     const wrapper = await mountBar()
-    const shellKey = vi.fn()
+    const shellKey = vi.fn<(event: KeyboardEvent) => void>()
     window.addEventListener('keydown', shellKey)
     try {
       const input = wrapper.get('input').element

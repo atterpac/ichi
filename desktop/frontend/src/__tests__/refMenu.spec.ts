@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commitRefActions } from '../components/graph/refMenu'
 import type { OperationConfirmRequest } from '../components/overlays/OperationConfirmModal.vue'
+import { flushPromises } from '@vue/test-utils'
+import { Commit } from '../bindings/github.com/atterpac/ichi/internal/git'
 
 const revert = vi.fn<(value: string) => Promise<void>>(() => Promise.resolve())
 const resetSoft = vi.fn<(value: string) => Promise<void>>(() => Promise.resolve())
@@ -29,14 +31,14 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
 }))
 
 function commit(over: Record<string, unknown> = {}) {
-  return {
+  return new Commit({
     Hash: 'a1b2c3d0000',
     ShortHash: 'a1b2c3d',
     Message: 'wire up ref decorations',
     Refs: [],
     Decorations: [],
     ...over,
-  } as any
+  })
 }
 
 let confirmed: OperationConfirmRequest | null
@@ -61,6 +63,16 @@ describe('commitRefActions', () => {
     deleteBranch.mockClear()
     checkoutBranch.mockClear()
     confirmed = null
+  })
+
+  it('consumes a reported direct-action failure while confirmation failures reach their dialog', async () => {
+    const failure = new Error('partial Git operation failed')
+    const run = vi.fn<() => Promise<void>>().mockRejectedValue(failure)
+    const items = commitRefActions(commit(), { ...deps, run })
+    expect(byId(items, 'checkout-detached')?.action?.()).toBeUndefined()
+    await flushPromises()
+    byId(items, 'cherry-pick')?.action?.()
+    await expect(confirmed!.onConfirm({})).rejects.toThrow(failure)
   })
 
   it('offers commit-scoped verbs on a ref-less commit, no ref verbs', () => {

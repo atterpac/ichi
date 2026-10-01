@@ -10,21 +10,27 @@ import { PhArchive, PhStack } from '@phosphor-icons/vue'
 import OperationConfirmModal, {
   type OperationConfirmRequest,
 } from '../overlays/OperationConfirmModal.vue'
+import WindowedList from '../common/WindowedList.vue'
 import SurfaceState from '../common/SurfaceState.vue'
 import UiButton from '../common/UiButton.vue'
 import FileHeatmap from '../common/FileHeatmap.vue'
+import { showsHeatmap } from '../common/heatmapThreshold'
 import { setModeline, resetModeline } from '../../composables/useModeline'
-import { useShellSettings } from '../../composables/useShellSettings'
-import { notify } from '../../composables/useToasts'
+import { usePreferenceBindings } from '../../customization/usePreferences'
+import { useGitOperation } from '../../composables/useGitOperation'
 import { useVimList } from '../../composables/useVimList'
 import { StashService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import type { FileChurn, Stash } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 
 const loading = ref(true)
 const error = ref('')
-const busy = ref(false)
+const { busy, run: runOperation } = useGitOperation({ refresh })
+let disposed = false
+let listRequest = 0
+let listRead: { cancel?: () => void } | undefined
+let detailRead: { cancel?: () => void } | undefined
 useRepoSwitchGuard(() => busy.value ? 'Wait for the Git operation to finish.' : '')
 const stashes = ref<Stash[]>([])
 const pendingOperation = ref<OperationConfirmRequest | null>(null)
@@ -34,37 +40,30 @@ const listEl = ref<HTMLElement | null>(null)
 // the list element (so it keeps receiving keys); `focusPane` just routes them.
 const files = ref<FileChurn[]>([])
 const filesLoading = ref(false)
+const filesError = ref('')
 const fileCursor = ref(0)
 const selected = ref(new Set<string>())
 const focusPane = ref<'stashes' | 'files'>('stashes')
 
 async function refresh() {
+  listRead?.cancel?.()
+  const request = ++listRequest
   try {
-    stashes.value = (await StashService.ListStashes()) ?? []
+    const pending = StashService.ListStashes()
+    listRead = pending
+    const result = await pending
+    if (disposed || request !== listRequest) return
+    stashes.value = result ?? []
     error.value = ''
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    if (!disposed && request === listRequest) error.value = err instanceof Error ? err.message : String(err)
   } finally {
-    loading.value = false
+    if (!disposed && request === listRequest) loading.value = false
   }
 }
 
 async function run(label: string, op: () => Promise<void>) {
-  if (busy.value) return
-  busy.value = true
-  try {
-    await op()
-    await refresh()
-    notify({ tone: 'success', title: label })
-  } catch (err) {
-    notify({
-      tone: 'danger',
-      title: `${label} failed`,
-      message: err instanceof Error ? err.message : String(err),
-    })
-  } finally {
-    busy.value = false
-  }
+  await runOperation(op, { success: label, failure: `${label} failed` })
 }
 
 function apply(s: Stash) {
@@ -189,7 +188,7 @@ function clickFile(index: number, path: string) {
 }
 function enterFiles() {
   if (!current.value) return
-  settings.stashesDetailVisible = true
+  settings['stashes.detailVisible'] = true
   focusPane.value = 'files'
   void nextTick(() => document.querySelector<HTMLElement>('[aria-label="Stash details"]')?.focus())
 }
@@ -198,29 +197,32 @@ function leaveFiles() {
   listEl.value?.focus()
 }
 
-// One request id guards the numstat fetch so a fast cursor never renders stale files.
+// Keep a detail failure separate from a successful empty stash.
 let detailReq = 0
-watch(
-  [() => settings.stashesDetailVisible, () => current.value?.Index],
-  async ([open, index]) => {
-    const req = ++detailReq
-    filesLoading.value = false
-    files.value = []
-    focusPane.value = 'stashes'
-    fileCursor.value = 0
-    selected.value = new Set()
-    if (!open || index == null) {
-      files.value = []
-      return
-    }
-    filesLoading.value = true
-    const churn = await StashService.StashFiles(index).catch(() => [])
-    if (req !== detailReq) return
-    files.value = (churn ?? []).filter(Boolean)
-    filesLoading.value = false
-  },
-  { immediate: true },
-)
+async function loadFiles() {
+  detailRead?.cancel?.()
+  const req = ++detailReq
+  const index = current.value?.Index
+  filesLoading.value = false
+  filesError.value = ''
+  files.value = []
+  focusPane.value = 'stashes'
+  fileCursor.value = 0
+  selected.value = new Set()
+  if (!settings['stashes.detailVisible'] || index == null || disposed) return
+  filesLoading.value = true
+  try {
+    const pending = StashService.StashFiles(index)
+    detailRead = pending
+    const churn = await pending
+    if (req === detailReq && !disposed) files.value = (churn ?? []).filter(Boolean)
+  } catch (error) {
+    if (req === detailReq && !disposed) filesError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    if (req === detailReq && !disposed) filesLoading.value = false
+  }
+}
+watch([() => settings['stashes.detailVisible'], () => current.value?.Index, stashes], loadFiles, { immediate: true })
 
 watch(fileCursor, () => void nextTick(() => document.getElementById(`stash-heat-file-${fileCursor.value}`)?.scrollIntoView?.({ block: 'nearest' })))
 function onFileKey(event: KeyboardEvent): boolean {
@@ -286,7 +288,7 @@ function onListKey(event: KeyboardEvent) {
   const s = current.value
   switch (event.key) {
     case 'i':
-      settings.stashesDetailVisible = !settings.stashesDetailVisible
+      settings['stashes.detailVisible'] = !settings['stashes.detailVisible']
       event.preventDefault()
       return
     case 'l':
@@ -329,10 +331,13 @@ watch(focusPane, (pane) => {
   })
 })
 
-function scrollToCursor() {
-  const items = listEl.value?.querySelectorAll<HTMLElement>('.branch-row')
-  items?.[vim.cursor.value]?.scrollIntoView?.({ block: 'nearest' })
+let stashWindow: { scrollToIndex: (index: number) => void } | null = null
+function setStashWindow(instance: unknown) {
+  const list = instance as ({ $el: HTMLElement; scrollToIndex: (index: number) => void } | null)
+  stashWindow = list
+  listEl.value = list?.$el ?? null
 }
+function scrollToCursor() { stashWindow?.scrollToIndex(vim.cursor.value) }
 watch(vim.cursor, () => nextTick(scrollToCursor))
 
 const churnTotal = computed(() => {
@@ -353,7 +358,7 @@ onMounted(async () => {
   await nextTick()
   listEl.value?.focus()
 })
-onUnmounted(resetModeline)
+onUnmounted(() => { listRead?.cancel?.(); detailRead?.cancel?.(); disposed = true; listRequest++; detailReq++; resetModeline() })
 </script>
 
 <template>
@@ -390,9 +395,9 @@ onUnmounted(resetModeline)
       @action="stashWorktree"
     />
 
-    <div v-else class="branches-body" :class="{ 'detail-open': settings.stashesDetailVisible }">
-      <section
-        ref="listEl"
+    <div v-else class="branches-body" :class="{ 'detail-open': settings['stashes.detailVisible'] }">
+      <WindowedList
+        :ref="setStashWindow" :items="stashes" :row-height="32" :key-of="stash => stash.Index"
         class="branches-list"
         :class="{ dimmed: focusPane === 'files' }"
         tabindex="0"
@@ -400,13 +405,12 @@ onUnmounted(resetModeline)
         @keydown="onListKey" data-keyboard-pane @focusin="focusPane = 'stashes'"
       >
 
-        <p v-if="!stashes.length" class="bd-empty">
+        <template #empty><p class="bd-empty">
           No stashes — press n to save the current worktree.
-        </p>
+        </p></template>
 
+        <template #default="{ item: s, index: i }">
         <button
-          v-for="(s, i) in stashes"
-          :key="s.Index"
           type="button"
           class="branch-row"
           :class="{ selected: vim.cursor.value === i }" :tabindex="vim.cursor.value === i ? 0 : -1"
@@ -418,10 +422,11 @@ onUnmounted(resetModeline)
           <span class="branch-fill"></span>
           <span v-if="s.Branch" class="stash-branch">on {{ s.Branch }}</span>
         </button>
-      </section>
+        </template>
+      </WindowedList>
 
       <aside
-        v-if="settings.stashesDetailVisible"
+        v-if="settings['stashes.detailVisible']"
         class="branch-detail"
         :class="{ 'pane-active': focusPane === 'files' }"
         aria-label="Stash details" tabindex="0" data-keyboard-pane @keydown="onDetailsKey" @focusin="focusPane = 'files'"
@@ -440,7 +445,7 @@ onUnmounted(resetModeline)
           </dl>
 
           <FileHeatmap
-            v-if="!filesLoading"
+            v-if="!filesLoading && !filesError && showsHeatmap(heatFiles.length)"
             :files="heatFiles"
             :selected-path="cursorFile?.Path"
             @select="selectHeatFile"
@@ -451,6 +456,7 @@ onUnmounted(resetModeline)
           </div>
 
           <p v-if="filesLoading" class="bd-empty">Loading files…</p>
+          <SurfaceState v-else-if="filesError" tone="error" title="Unable to load stash files" :message="filesError" action-label="Retry" @action="loadFiles" />
           <p v-else-if="!files.length" class="bd-empty">No files</p>
           <div v-else class="st-files" @click="enterFiles">
             <button

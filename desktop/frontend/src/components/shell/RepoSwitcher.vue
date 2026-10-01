@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RepoService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import { useWorkspaces, type WorkspaceRepo } from '../../composables/useWorkspaces'
 import { useRepoStatus, switchRepository } from '../../composables/useRepoStatus'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings } from '../../customization/usePreferences'
 import { placeholderSvg } from '../common/avatarPlaceholder'
 import { useGitProfiles } from '../../composables/useGitProfiles'
 import { repoSwitchBlocker } from '../../composables/useRepoSwitchGuard'
@@ -13,7 +13,7 @@ const emit = defineEmits<{ settings: []; opened: [] }>()
 const profiles = useGitProfiles()
 const ws = useWorkspaces()
 const status = useRepoStatus()
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
 const open = ref(false)
 const query = ref('')
 const filter = ref('')
@@ -41,7 +41,7 @@ const currentWorkspace = computed(() =>
   ws.state.workspaces.find((w) => w.id === active.value?.workspace),
 )
 function image(path: string) {
-  return `data:image/svg+xml,${encodeURIComponent(placeholderSvg(path, settings.avatarPlaceholder))}`
+  return `data:image/svg+xml,${encodeURIComponent(placeholderSvg(path, settings['appearance.avatarPlaceholder']))}`
 }
 function close() {
   if (status.switching) return

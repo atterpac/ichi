@@ -19,7 +19,7 @@ export interface RefMenuDeps {
   currentBranch: string
   laneColorForRef?: (name: string) => string | undefined
   /** wraps a git call: run it, reload the graph, toast (GraphView.runRef). */
-  run: (fn: () => Promise<void>) => void
+  run: (fn: () => Promise<void>) => void | Promise<void>
   /** opens the shared confirm modal (GraphView.openOperation). */
   confirm: (req: OperationConfirmRequest) => void
 }
@@ -45,6 +45,10 @@ function branchColorVar(name: string): string {
  * (merge, rebase, delete) are appended for each local branch sitting on it.
  */
 export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenuItem[] {
+  function runAction(fn: () => Promise<void>) {
+    // The runner reports failures; direct actions have no dialog to retain them.
+    void Promise.resolve(deps.run(fn)).catch(() => {})
+  }
   const cur = deps.currentBranch || 'HEAD'
   // Prefer the visible graph lane; refs outside that window retain a stable fallback.
   const chip = (d: RefDecoration, text = d.Name): MenuChip => ({
@@ -77,7 +81,7 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
       label: 'Checkout commit (detached)',
       shortcut: 'o',
       icon: PhCheck,
-      action: () => deps.run(() => RefService.Checkout(commit.Hash)),
+      action: () => runAction(() => RefService.Checkout(commit.Hash)),
     },
     {
       id: 'branch-here',
@@ -170,7 +174,7 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
       labelParts: ['Reset ', curChip, ' here · soft'],
       shortcut: 's',
       icon: PhClockCounterClockwise,
-      action: () => deps.run(() => RefService.ResetSoft(commit.Hash)),
+      action: () => runAction(() => RefService.ResetSoft(commit.Hash)),
     },
     {
       id: 'reset-mixed',
@@ -178,7 +182,7 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
       labelParts: ['Reset ', curChip, ' here · mixed'],
       shortcut: 'i',
       icon: PhClockCounterClockwise,
-      action: () => deps.run(() => RefService.ResetMixed(commit.Hash)),
+      action: () => runAction(() => RefService.ResetMixed(commit.Hash)),
     },
     {
       id: 'reset-hard',
@@ -210,7 +214,7 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
           label: `Checkout ${name}`,
           labelParts: ['Checkout ', chip(d, name)],
           icon: PhCheck,
-          action: () => deps.run(() => RefService.CheckoutBranch(name, false)),
+          action: () => runAction(() => RefService.CheckoutBranch(name, false)),
         },
       )
       continue
@@ -223,7 +227,7 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
         label: `Checkout ${d.Name}`,
         labelParts: ['Checkout ', chip(d)],
         icon: PhCheck,
-        action: () => deps.run(() => RefService.CheckoutBranch(d.Name, false)),
+        action: () => runAction(() => RefService.CheckoutBranch(d.Name, false)),
       },
       {
         id: `merge:${d.Name}`,

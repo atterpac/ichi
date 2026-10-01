@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { NAV_GROUPS } from './nav'
 const props = defineProps<{ activeView: string; showCommit: boolean }>()
 defineEmits<{ select: [id: string]; close: [] }>()
-const views = NAV_GROUPS.flatMap(group => group.items).filter(item => ['graph', 'status', 'branches', 'stashes'].includes(item.id))
+const views = NAV_GROUPS.flatMap(group => group.items).filter(item => ['graph', 'status', 'branches', 'stashes', 'diff'].includes(item.id))
 const current = computed(() => props.activeView === 'commit' ? 'status' : props.activeView)
 </script>
 

@@ -9,6 +9,7 @@ import UiIconButton from '../common/UiIconButton.vue'
 import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import GraphView from '../graph/GraphView.vue'
 import ChangesView from '../status/ChangesView.vue'
+import CommitDiffView from '../diff/CommitDiffView.vue'
 import BranchesView from '../refs/BranchesView.vue'
 import StashesView from '../refs/StashesView.vue'
 import FileInspectView from '../inspect/FileInspectView.vue'
@@ -21,8 +22,9 @@ import IchiMenu from './IchiMenu.vue'
 import { useGitProfiles } from '../../composables/useGitProfiles'
 import { NAV_GROUPS, NAV_KEY_MAP } from './nav'
 import { useModeline } from '../../composables/useModeline'
+import { useWorkspaces } from '../../composables/useWorkspaces'
 import { useRepoStatus } from '../../composables/useRepoStatus'
-import { useShellSettings } from '../../composables/useShellSettings'
+import { usePreferenceBindings, usePreferences } from '../../customization/usePreferences'
 import { PhGitBranch, PhGearSix, PhMagnifyingGlass, PhSidebarSimple, PhCaretUp, PhGitDiff, PhCheckCircle, PhArrowsDownUp, PhArchive, PhKeyboard } from '@phosphor-icons/vue'
 
 const { reserveTrafficLights } = useWindowChrome()
@@ -30,17 +32,19 @@ const profiles = useGitProfiles()
 const settingsProfile = ref('')
 const profilePage = ref<InstanceType<typeof GitProfilesPage>>()
 function openProfileSettings(id = '') { settingsProfile.value = id; settingsOpen.value = false; finderOpen.value = false; setView('profiles') }
-const settings = useShellSettings()
+const settings = usePreferenceBindings()
+const preferences = usePreferences()
 const primaryViews = computed(() => NAV_GROUPS.flatMap(group => group.items).filter(item =>
   ['graph', 'status', 'branches', 'stashes'].includes(item.id) ||
+  (item.id === 'diff' && activeView.value === 'diff') ||
   (item.id === 'conflicts' && (activeView.value === 'conflicts' || conflictWorkspace.active.value)),
 ))
-const previousDetailPosition = ref<'right' | 'bottom'>(settings.graphDetailPosition === 'bottom' ? 'bottom' : 'right')
+const previousDetailPosition = ref<'right' | 'bottom'>(settings['graph.detailPosition'] === 'bottom' ? 'bottom' : 'right')
 function toggleInspector() {
-  if (settings.graphDetailPosition === 'hidden') settings.graphDetailPosition = previousDetailPosition.value
+  if (settings['graph.detailPosition'] === 'hidden') settings['graph.detailPosition'] = previousDetailPosition.value
   else {
-    previousDetailPosition.value = settings.graphDetailPosition
-    settings.graphDetailPosition = 'hidden'
+    previousDetailPosition.value = settings['graph.detailPosition']
+    settings['graph.detailPosition'] = 'hidden'
   }
 }
 const modeline = useModeline()
@@ -71,6 +75,10 @@ onUnmounted(() => {
   window.removeEventListener('blur', dismissShortcutHelp)
 })
 const repo = useRepoStatus()
+const workspaces = useWorkspaces()
+watch([() => repo.info?.Path, () => workspaces.state.repos.find(item => item.path === repo.info?.Path)?.workspace], ([repository, workspace]) => {
+  preferences.setContext({ repository, workspace })
+}, { immediate: true })
 const conflictWorkspace = useConflictWorkspace()
 const conflictsPage = ref<InstanceType<typeof ConflictsView>>()
 const activeView = ref('graph')
@@ -84,17 +92,18 @@ function openIchiMenu() {
   leaderOpen.value = false
   ichiMenuOpen.value = true
 }
-const settingsCategory = ref<'appearance' | 'workspaces'>('appearance')
+const settingsCategory = ref<'appearance' | 'workspaces' | 'preferences'>('appearance')
 function openWorkspaceSettings(profile = '') { settingsProfile.value = profile; settingsCategory.value = 'workspaces'; settingsOpen.value = true; finderOpen.value = false }
 function openSettings() { settingsProfile.value = ''; settingsCategory.value = 'appearance'; settingsOpen.value = true; finderOpen.value = false }
 function switcherOpened() { finderOpen.value = false; leaderOpen.value = false }
 watch(() => repo.info?.Path, (path, previous) => {
-  if (previous && path !== previous) { focusRef.value = ''; viewHistory.length = 0; finderOpen.value = false; leaderOpen.value = false }
+  if (previous && path !== previous) { focusRef.value = ''; focusFile.value = ''; viewHistory.length = 0; finderOpen.value = false; leaderOpen.value = false }
 })
 // Commit/ref to land on when the next view mounts (finder commit-enter, branches
 // `o`). Read once by the target view, then cleared so a plain re-nav doesn't jump.
 const focusRef = ref('')
-const viewHistory: { view: string; focus: string }[] = []
+const focusFile = ref('')
+const viewHistory: { view: string; focus: string; file: string }[] = []
 
 
 type ViewMeta = {
@@ -163,7 +172,7 @@ const views: Record<string, ViewMeta> = {
   diff: {
     title: 'Diff',
     group: 'Inspect',
-    description: 'Unified diffs for commits, files, staged work, unstaged work, and ref comparisons.',
+    description: 'Review a commit’s changed files and their diffs against its first parent.',
   },
   blame: {
     title: 'Blame',
@@ -273,7 +282,7 @@ function searchFromHeader() {
 
 }
 
-function setView(view: string, focus = '') {
+function setView(view: string, focus = '', file = '') {
   if (view !== activeView.value && view !== 'finder' && ['conflicts', 'conflict-demo'].includes(activeView.value) && conflictsPage.value && !conflictsPage.value.canLeave()) return
   if (view !== activeView.value && view !== 'finder' && activeView.value === 'profiles' && profilePage.value && !profilePage.value.canLeave()) return
 
@@ -285,13 +294,26 @@ function setView(view: string, focus = '') {
     finderOpen.value = true
     return
   }
+  const selected = document.querySelector<HTMLElement>('.commit-row.selected')
   if (view !== activeView.value) {
-    const selected = document.querySelector<HTMLElement>('.commit-row.selected')
-    viewHistory.push({ view: activeView.value, focus: activeView.value === 'graph' ? selected?.dataset.commitHash || focusRef.value : focusRef.value })
+    viewHistory.push({ view: activeView.value, focus: activeView.value === 'graph' ? selected?.dataset.commitHash || focusRef.value : focusRef.value, file: focusFile.value })
     if (viewHistory.length > 30) viewHistory.shift()
   }
-  focusRef.value = focus
+  focusRef.value = focus || (view === 'diff' && activeView.value === 'graph' && selected?.dataset.commitHash !== '__ichi_working_changes__' ? selected?.dataset.commitHash || '' : '')
+  focusFile.value = file
   activeView.value = view
+}
+
+function goBack() {
+  const previous = viewHistory.pop()
+  if (previous) {
+    focusRef.value = previous.focus
+    focusFile.value = previous.file
+    activeView.value = previous.view
+  } else {
+    activeView.value = 'graph'
+    focusFile.value = ''
+  }
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -312,11 +334,9 @@ function handleShellKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     if (['conflicts', 'conflict-demo'].includes(activeView.value) && conflictsPage.value && !conflictsPage.value.canLeave()) return
     if (activeView.value === 'profiles' && profilePage.value && !profilePage.value.canLeave()) return
-    const previous = viewHistory.pop()
-    if (previous) {
+    if (viewHistory.length) {
       event.preventDefault()
-      focusRef.value = previous.focus
-      activeView.value = previous.view
+      goBack()
     }
     return
   }
@@ -408,7 +428,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
 <template>
   <main class="ichi-shell" :class="{ 'has-traffic-lights': reserveTrafficLights }">
     <header class="topbar">
-      <div class="repo-context" :title="repoPath">
+      <div class="repo-context" :title="repoPath" :inert="settingsOpen || undefined">
         <RepoSwitcher :disabled="settingsOpen" @settings="openWorkspaceSettings" @opened="switcherOpened" />
         <span class="repo-divider" aria-hidden="true">/</span>
         <span class="repo-branch" :title="branchLabel"><PhGitBranch :size="16" weight="bold" /><span>{{ branchLabel }}</span></span>
@@ -417,7 +437,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
         </span>
         <div id="view-header-context" class="header-context" aria-label="Repository actions" :inert="repo.switching || profiles.state.syncing || !!profiles.state.syncError || undefined" />
       </div>
-      <nav class="primary-nav" aria-label="Repository views" :inert="repo.switching || profiles.state.syncing || undefined">
+      <nav class="primary-nav" aria-label="Repository views" :inert="settingsOpen || repo.switching || profiles.state.syncing || undefined">
         <button
           v-for="item in primaryViews"
           :key="item.id"
@@ -428,7 +448,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
         >{{ item.label }}<span aria-hidden="true">{{ item.key }}</span></button>
         <span v-if="!primaryViews.some(item => item.id === activeView) && activeView !== 'commit'" class="secondary-view-title">{{ viewTitle }}</span>
       </nav>
-      <div class="header-tools">
+      <div class="header-tools" :inert="settingsOpen || undefined">
         <form class="titlebar-search ui-control size-lg" role="search" @submit.prevent="searchFromHeader">
           <PhMagnifyingGlass weight="bold" :size="16" aria-hidden="true" />
           <UiInput
@@ -444,7 +464,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
           <button type="submit" aria-label="Search" title="Search (Enter)"><kbd>↵</kbd></button>
         </form>
         <div class="topbar-actions">
-          <UiIconButton v-if="activeView === 'graph'" size="sm" label="Toggle inspector" :aria-expanded="settings.graphDetailPosition !== 'hidden'" aria-controls="commit-inspector" @click="toggleInspector">
+          <UiIconButton v-if="activeView === 'graph'" size="sm" label="Toggle inspector" :aria-expanded="settings['graph.detailPosition'] !== 'hidden'" aria-controls="commit-inspector" @click="toggleInspector">
             <PhSidebarSimple weight="bold" :size="16" />
           </UiIconButton>
 
@@ -456,7 +476,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
     </header>
 
     <div v-if="profiles.state.syncError" class="profile-sync-error" role="alert">Could not apply workspace identity: {{ profiles.state.syncError }} <button @click="openProfileSettings()">Manage profiles</button><button @click="profiles.sync().catch(() => {})">Retry</button></div>
-    <div class="body-shell">
+    <div class="body-shell" :inert="settingsOpen || undefined">
 
       <section class="main-island" aria-live="polite" :inert="repo.switching || profiles.state.syncing || (!!profiles.state.syncError && activeView !== 'profiles' && activeView !== 'conflict-demo') || undefined" :aria-busy="repo.switching">
         <h1 class="sr-only">{{ viewTitle }}</h1>
@@ -469,16 +489,18 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
 
         <GitProfilesPage ref="profilePage" v-else-if="activeView === 'profiles'" :initial-profile="settingsProfile" />
 
-        <GraphView :key="repo.revision" v-else-if="activeView === 'graph'" :focus-hash="focusRef" @navigate="setView" />
+        <GraphView :repository-path="repo.info?.Path" :key="repo.revision" v-else-if="activeView === 'graph'" :focus-hash="focusRef" :focus-blocked="repo.switching || profiles.state.syncing || !!profiles.state.syncError" @navigate="setView" />
 
-        <ChangesView :key="repo.revision"
+        <CommitDiffView :key="repo.revision" v-else-if="activeView === 'diff'" :repository-path="repo.info?.Path" :focus-hash="focusRef" :focus-file="focusFile" @back="goBack" />
+
+        <ChangesView :key="repo.revision" :repository-path="repo.info?.Path"
           v-else-if="activeView === 'status' || activeView === 'commit'"
           :focus-commit="activeView === 'commit'"
           :focus-key="focusRef"
           @navigate="setView"
         />
 
-        <BranchesView :focus-branch="focusRef" :key="repo.revision" v-else-if="activeView === 'branches'" @navigate="setView" />
+        <BranchesView :repository-path="repo.info?.Path" :focus-branch="focusRef" :key="repo.revision" v-else-if="activeView === 'branches'" @navigate="setView" />
 
         <StashesView :key="repo.revision" v-else-if="activeView === 'stashes'" />
 
@@ -512,6 +534,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
       <div class="status-shortcuts-heading"><span>Keyboard shortcuts</span><span>{{ helpHeld ? 'Release ? to hide' : 'Esc to close' }}</span></div>
       <div class="status-shortcuts-list"><span v-for="hint in shortcutHints" :key="hint">{{ hint }}</span></div>
     </aside>
+    <div v-if="preferences.status.error" class="preference-notice" role="status">Preferences could not be saved or loaded. <button @click="settingsCategory = 'preferences'; settingsOpen = true">Review settings</button></div>
     <footer class="modeline">
       <span v-if="interactionMode" class="ml-mode" :class="{ 'is-editing': interactionMode === 'Edit' }">{{ interactionMode }}</span>
       <button class="ml-help" type="button" aria-label="Keyboard shortcuts (hold ?)" :aria-expanded="shortcutsVisible" aria-controls="status-shortcuts" title="Hold ? for shortcuts" @click="helpPinned = !helpPinned"><PhKeyboard :size="14" aria-hidden="true" /><span>Shortcuts</span><kbd aria-hidden="true">?</kbd></button>
@@ -550,6 +573,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
 </template>
 
 <style scoped>
+.preference-notice { position: fixed; bottom: 36px; right: 12px; z-index: 90; padding: 10px; background: var(--surface-overlay); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: var(--fs-xs); }
 .profile-sync-error { position:absolute; top:var(--topbar-height); left:0; right:0; z-index:12; padding:10px; background:var(--surface-overlay); color:var(--text); border-bottom:1px solid var(--border); font-size:12px; }
 .profile-sync-error button { margin-left:10px; }
 </style>

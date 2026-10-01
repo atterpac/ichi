@@ -1,7 +1,7 @@
-import type { ShellSettings } from '../../composables/useShellSettings'
+import type { PreferenceValues } from '../../customization/usePreferences'
 
-export const GRAPH_ROW_HEIGHTS: Record<ShellSettings['graphRowDensity'], number> = {
-  compact: 34,
-  comfortable: 42,
-  spacious: 48,
+export const GRAPH_ROW_HEIGHTS: Record<PreferenceValues['graph.rowDensity'], number> = {
+  compact: 24,
+  comfortable: 28,
+  spacious: 32,
 }

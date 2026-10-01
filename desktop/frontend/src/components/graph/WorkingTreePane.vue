@@ -3,7 +3,9 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { PhCaretRight, PhCheck, PhFolder } from '@phosphor-icons/vue'
 import type { StatusEntry } from '../../bindings/github.com/atterpac/ichi/internal/git'
 import type { RepoInfo } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import FileStatusIcon from '../common/FileStatusIcon.vue'
 import UiButton from '../common/UiButton.vue'
+import { showsHeatmap } from '../common/heatmapThreshold'
 import { worktreeFiles, type WorktreeDeltas } from './worktreeHeat'
 const props = defineProps<{
   entries: StatusEntry[]
@@ -12,6 +14,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ retry: []; navigate: [view: string, focus?: string] }>()
 const files = computed(() => worktreeFiles(props.entries, props.deltas))
+const showMap = computed(() => showsHeatmap(files.value.length))
 type WorkFile = ReturnType<typeof worktreeFiles>[number]
 const selectedPath = ref('')
 const selected = computed(
@@ -87,7 +90,13 @@ function mapKey(event: KeyboardEvent, index: number) {
   }
 }
 function rowKey(event: KeyboardEvent, index: number) {
-  if (['Enter', 'l', 'ArrowRight'].includes(event.key)) {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.defaultPrevented) return
+  if (['l', 'ArrowRight'].includes(event.key)) {
+    event.preventDefault()
+    event.stopPropagation()
+    return
+  }
+  if (event.key === 'Enter') {
     event.preventDefault()
     event.stopPropagation()
     emit('navigate', 'status', files.value[index]?.key)
@@ -109,6 +118,12 @@ function rowKey(event: KeyboardEvent, index: number) {
 }
 const description = (file: WorkFile) =>
   `${file.path}: ${file.state}, ${file.known ? `${file.added} additions, ${file.removed} deletions` : file.binary ? 'binary' : 'line counts unavailable'}`
+async function focusFiles() {
+  if (!selected.value) return
+  await select(selected.value, true)
+  document.getElementById(`working-heat-file-${indexOf(selected.value)}`)?.focus()
+}
+defineExpose({ focusFiles })
 </script>
 
 <template>
@@ -127,7 +142,7 @@ const description = (file: WorkFile) =>
       </div>
     </header>
     <template v-if="selected">
-      <section class="map-section" aria-label="Changes by file">
+      <section v-if="showMap" class="map-section" aria-label="Changes by file">
         <div class="map-caption">
           <span>Changes by file</span
           ><span v-if="selected.known"
@@ -194,13 +209,8 @@ const description = (file: WorkFile) =>
                 class="file-mark staged"
                 :size="14"
                 aria-label="Staged"
-              /><span
-                v-else
-                class="file-mark"
-                :class="{ conflict: file.conflict }"
-                :aria-label="file.state"
-                >{{ file.label }}</span
-              >
+              />
+              <FileStatusIcon v-else class="file-mark" :class="{ conflict: file.conflict }" :status="file.label" />
               <span class="heat-name"
                 >{{ file.name }}<small v-if="file.oldPath">from {{ file.oldPath }}</small
                 ><small v-if="file.staged && file.pending">Partially staged</small></span

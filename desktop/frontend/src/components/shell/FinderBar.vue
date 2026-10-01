@@ -10,7 +10,7 @@ import { useGitProfiles } from '../../composables/useGitProfiles'
 import { switchRepository } from '../../composables/useRepoStatus'
 import { repoSwitchBlocker } from '../../composables/useRepoSwitchGuard'
 import { finderHistory, rememberFind } from './finderHistory'
-import { CompletionService, GraphService, RefService, InspectService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import { SearchService, GraphService, RefService, InspectService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import type { Branch, Commit } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
 const props = withDefaults(defineProps<{ initialQuery?: string }>(), { initialQuery: '' })
@@ -21,10 +21,11 @@ const workspaces = useWorkspaces()
 const profiles = useGitProfiles()
 const workspaceFilter = ref('')
 const openingRepo = ref(false)
-type Mode = 'root' | 'branch' | 'commit' | 'file' | 'view' | 'repo' | 'workspace' | 'profile'
+type Mode = 'root' | 'branch' | 'commit' | 'file' | 'content' | 'view' | 'repo' | 'workspace' | 'profile'
 const MODES: { key: string; mode: Mode; label: string }[] = [
   { key: '', mode: 'root', label: 'All' },
   { key: 'f:', mode: 'file', label: 'Files' },
+  { key: 'g:', mode: 'content', label: 'Contents' },
   { key: 'c:', mode: 'commit', label: 'Commits' },
   { key: 'b:', mode: 'branch', label: 'Branches' },
   { key: 'v:', mode: 'view', label: 'Views' },
@@ -35,7 +36,7 @@ const MODES: { key: string; mode: Mode; label: string }[] = [
 const input = ref<HTMLInputElement>()
 const list = ref<HTMLElement>()
 const finderId = useId()
-const icons = { repo: PhArchive, workspace: PhSquaresFour, profile: PhUserList, branch: PhGitBranch, commit: PhGitCommit, file: PhFileText, view: PhSquaresFour, search: PhClockCounterClockwise }
+const icons = { repo: PhArchive, workspace: PhSquaresFour, profile: PhUserList, branch: PhGitBranch, commit: PhGitCommit, file: PhFileText, content: PhMagnifyingGlass, view: PhSquaresFour, search: PhClockCounterClockwise }
 const viewIcons: Record<string, Component> = {
   graph: PhGraph,
   status: PhGitDiff,
@@ -61,7 +62,11 @@ const cursor = ref(0)
 const branches = ref<Branch[]>([])
 const files = ref<string[]>([])
 const commits = ref<Commit[]>([])
-const filesLoaded = ref(false)
+const contentMatches = ref<{ Path: string; Line: number; Column: number; Text: string }[]>([])
+const searchLoading = ref(false)
+const searchError = ref('')
+const contentAvailable = ref(false)
+const contentTruncated = ref(false)
 
 type Seg = { t: string; hit: boolean }
 type Row = {
@@ -69,7 +74,7 @@ type Row = {
   label: string
   segs: Seg[]
   sub?: string
-  kind: 'branch' | 'commit' | 'file' | 'view' | 'search' | 'repo' | 'workspace' | 'profile'
+  kind: 'branch' | 'commit' | 'file' | 'content' | 'view' | 'search' | 'repo' | 'workspace' | 'profile'
   detail?: string
   author?: string
   commit?: string
@@ -113,7 +118,7 @@ const LIMIT = 8
 const UNIFIED_GROUP_LIMIT = 8
 
 function viewEntries() {
-  const order = ['graph', 'status', 'branches', 'stashes', 'commit']
+  const order = ['graph', 'status', 'branches', 'stashes', 'diff', 'commit']
   return NAV_GROUPS.flatMap((g) => g.items.filter((i) => order.includes(i.id)).map((i) => ({ ...i, group: g.title }))).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 }
 
@@ -137,12 +142,18 @@ function viewRows(cap: number): Row[] {
 }
 
 function fileRows(cap: number, source = files.value): Row[] {
-  return match(source, (f) => f)
-    .slice(0, cap)
-    .map(({ item, hits }) => {
-      const split = item.lastIndexOf('/') + 1
-      return { id: item, label: item.slice(split), segs: toSegs(item.slice(split), hits.filter(hit => hit >= split).map(hit => hit - split)), detail: item.slice(0, split) || 'Repository root', kind: 'file' as const, data: item }
-    })
+  return source.slice(0, cap).map(item => {
+    const hits = subseqHits(item, query.value) ?? []
+    const split = item.lastIndexOf('/') + 1
+    return { id: item, label: item.slice(split), segs: toSegs(item.slice(split), hits.filter(hit => hit >= split).map(hit => hit - split)), detail: item.slice(0, split) || 'Repository root', kind: 'file' as const, data: item }
+  })
+}
+function contentRows(): Row[] {
+  return contentMatches.value.map(item => ({
+    id: `${item.Path}:${item.Line}:${item.Column}`, label: item.Text,
+    segs: toSegs(item.Text, subseqHits(item.Text, query.value) ?? []),
+    detail: `${item.Path}:${item.Line}`, sub: 'Text match', kind: 'content', data: item.Path,
+  }))
 }
 
 function commitRows(cap: number): Row[] {
@@ -217,6 +228,7 @@ const results = computed<Row[]>(() => {
   if (mode.value === 'workspace') return workspaceRows(LIMIT)
   if (mode.value === 'profile') return profileRows(LIMIT)
   if (mode.value === 'file') return fileRows(LIMIT)
+  if (mode.value === 'content') return contentRows()
   if (mode.value === 'commit') return commitRows(LIMIT)
   return viewRows(LIMIT)
 })
@@ -229,10 +241,10 @@ watch(results, (rows, previous) => {
 })
 
 // unified root: `b:` / `c:` / `f:` / `v:` prefixes lock a mode mid-typing
-const PREFIX_MODES: Record<string, Mode> = { b: 'branch', c: 'commit', f: 'file', v: 'view', r: 'repo', w: 'workspace', p: 'profile' }
+const PREFIX_MODES: Record<string, Mode> = { g: 'content', b: 'branch', c: 'commit', f: 'file', v: 'view', r: 'repo', w: 'workspace', p: 'profile' }
 watch(query, (q) => {
   if (mode.value !== 'root') return
-  const prefixed = /^([bcfvrwp]):(.*)$/i.exec(q)
+  const prefixed = /^([bcfgvrwp]):(.*)$/i.exec(q)
   if (prefixed) {
     const rest = prefixed[2]!
     enterMode(PREFIX_MODES[prefixed[1]!.toLowerCase()]!)
@@ -240,11 +252,12 @@ watch(query, (q) => {
   }
 }, { immediate: true })
 
-// commit search is the only async source: debounce against the backend
+// Cancel obsolete backend searches as the query or scope changes.
 let commitTimer: ReturnType<typeof setTimeout> | undefined
 watch([query, mode], ([q, m], _, onCleanup) => {
   let cancelled = false
-  onCleanup(() => { cancelled = true; clearTimeout(commitTimer) })
+  let request: { cancel?: () => void } | undefined
+  onCleanup(() => { cancelled = true; clearTimeout(commitTimer); request?.cancel?.() })
   commits.value = []
   commitError.value = false
   loadingCommits.value = false
@@ -252,7 +265,9 @@ watch([query, mode], ([q, m], _, onCleanup) => {
   loadingCommits.value = true
   commitTimer = setTimeout(async () => {
     try {
-      const found = await GraphService.SearchCommits(q, 12)
+      const pending = GraphService.SearchCommits(q, 12)
+      request = pending
+      const found = await pending
       if (!cancelled) commits.value = (found ?? []).filter((c): c is Commit => Boolean(c))
     } catch {
       if (!cancelled) commitError.value = true
@@ -262,19 +277,44 @@ watch([query, mode], ([q, m], _, onCleanup) => {
   }, 160)
 }, { immediate: true })
 
-function loadFiles() {
-  if (filesLoaded.value) return
-  filesLoaded.value = true
-  CompletionService.ListFiles('')
-    .then((f) => { files.value = f ?? [] })
-    .catch(() => { files.value = [] })
-}
+watch([query, mode], async ([q, m], _, onCleanup) => {
+  let cancelled = false
+  let request: { cancel?: () => void } | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => { cancelled = true; clearTimeout(timer); request?.cancel?.() })
+  files.value = []
+  contentMatches.value = []
+  searchError.value = ''
+  searchLoading.value = false
+  contentTruncated.value = false
+  if (!['root', 'file', 'content'].includes(m)) return
+  if (m === 'content' && !q.trim()) return
+  searchLoading.value = true
+  const search = async () => {
+    try {
+      if (m === 'content') {
+        const pending = SearchService.Content(q, LIMIT)
+        request = pending
+        const found = await pending
+        if (!cancelled) { contentMatches.value = found?.Matches ?? []; contentTruncated.value = found?.Truncated ?? false }
+      } else {
+        const pending = SearchService.Files(q, LIMIT, finderHistory.files)
+        request = pending
+        const found = await pending
+        if (!cancelled) files.value = (found?.Matches ?? []).map(item => item.Path)
+      }
+    } catch (error) {
+      if (!cancelled) searchError.value = error instanceof Error ? error.message : String(error)
+    } finally { if (!cancelled) searchLoading.value = false }
+  }
+  if (m === 'content') timer = setTimeout(() => { void search() }, 180)
+  else await search()
+}, { immediate: true })
 
 function enterMode(next: Mode) {
   mode.value = next
   cursor.value = 0
   void nextTick(() => input.value?.focus())
-  if (next === 'file') loadFiles()
 }
 
 function backToRoot() {
@@ -308,6 +348,10 @@ function activate(row: Row) {
       emit('navigate', 'graph', (row.data as Commit).Hash)
       emit('close')
       return
+    case 'content':
+      emit('navigate', 'blame', row.data as string)
+      emit('close')
+      return
     case 'file':
       emit('navigate', 'file-log', row.data as string)
       emit('close')
@@ -320,10 +364,10 @@ const selectedRow = computed(() => results.value[cursor.value])
 const actionHint = computed(() => {
   if (openingRepo.value) return 'Switching repository…'
   const kind = selectedRow.value?.kind
-  return ({ branch: 'Inspect branch', file: 'Open file history', commit: 'Open commit', repo: 'Switch repository', workspace: 'Browse repositories', profile: 'Configure profile', search: 'Repeat search', view: 'Open view' })[kind ?? 'view']
+  return ({ branch: 'Inspect branch', content: 'Open file blame', file: 'Open file history', commit: 'Open commit', repo: 'Switch repository', workspace: 'Browse repositories', profile: 'Configure profile', search: 'Repeat search', view: 'Open view' })[kind ?? 'view']
 })
 const activeScope = computed(() => MODES.find(item => item.mode === mode.value))
-const prefixSuggestions = computed(() => mode.value === 'root' && /^[fcbvrwp]$/i.test(query.value) ? MODES.filter(item => item.key.startsWith(query.value.toLowerCase())) : [])
+const prefixSuggestions = computed(() => mode.value === 'root' && /^[fcbgvrwp]$/i.test(query.value) ? MODES.filter(item => item.key.startsWith(query.value.toLowerCase()) && (item.mode !== 'content' || contentAvailable.value)) : [])
 function applyPrefix(next: Mode) { query.value = ''; enterMode(next) }
 const previewOpen = ref(false)
 const previewPane = ref<HTMLElement>()
@@ -340,7 +384,8 @@ async function openPreview() {
 function closePreview() { previewOpen.value = false; void nextTick(() => input.value?.focus()) }
 watch([previewOpen, selectedRow], async ([open, row], _, onCleanup) => {
   let cancelled = false
-  onCleanup(() => { cancelled = true })
+  let request: { cancel?: () => void } | undefined
+  onCleanup(() => { cancelled = true; request?.cancel?.() })
   previewText.value = ''
   previewError.value = ''
   previewLoading.value = false
@@ -349,16 +394,25 @@ watch([previewOpen, selectedRow], async ([open, row], _, onCleanup) => {
   try {
     let text = ''
     if (row.kind === 'file') {
-      const content = await InspectService.WorkingFileContent(row.id)
-      text = content.includes('\0') ? 'Binary file — no text preview.' : content.split('\n').slice(0, 100).join('\n').slice(0, 16000)
-      if (text.length < content.length && !content.includes('\0')) text += '\n… Preview truncated'
+      const pending = InspectService.WorkingFilePreview(row.id)
+      request = pending
+      const preview = await pending
+      if (!preview) throw new Error('Preview unavailable')
+      text = preview.Binary ? 'Binary file — no text preview.' : preview.Content.split('\n').slice(0, 100).join('\n').slice(0, 16000)
+      if (!preview.Binary && (preview.Truncated || text.length < preview.Content.length)) text += '\n… Preview truncated'
+    } else if (row.kind === 'content') {
+      text = `${row.detail}\n\n${row.label}`
     } else if (row.kind === 'commit') {
-      const detail = await GraphService.LoadCommit(row.id)
+      const pending = GraphService.LoadCommit(row.id)
+      request = pending
+      const detail = await pending
       text = detail ? [detail.Subject, detail.Body, detail.Author, detail.Stats ? `${detail.Stats.FilesChanged} files · +${detail.Stats.Insertions} −${detail.Stats.Deletions}` : ''].filter(Boolean).join('\n\n') : 'Commit details unavailable.'
     } else if (row.kind === 'branch') {
       const branch = row.data as Branch
       const current = branches.value.find(b => b.IsCurrent)
-      const comparison = current && current.Name !== branch.Name ? await RefService.BranchDivergence(current.Name, branch.Name) : null
+      const pending = current && current.Name !== branch.Name ? RefService.BranchDivergence(current.Name, branch.Name) : null
+      request = pending ?? undefined
+      const comparison = pending ? await pending : null
       text = [branch.Name, branch.IsCurrent ? 'Checked out' : branch.IsRemote ? 'Remote branch' : 'Local branch', branch.LastMsg, comparison ? `Compared with ${current!.Name}:\n${comparison.AheadB} commits ahead · ${comparison.AheadA} behind` : '', branch.Upstream ? `Upstream: ${branch.Upstream}` : ''].filter(Boolean).join('\n\n')
     } else if (row.kind === 'workspace') {
       text = workspaces.state.repos.filter(repo => repo.workspace === row.id).map(repo => `${repo.name}\n${repo.path}`).join('\n\n') || 'No repositories in this workspace.'
@@ -423,7 +477,7 @@ onMounted(async () => {
   const ml = useModeline()
   Object.assign(savedModeline, { mode: ml.mode, hints: ml.hints })
   setModeline({ mode: 'FIND', hints: '⏎ act · esc close' })
-  loadFiles()
+  void SearchService.Capabilities().then(value => { contentAvailable.value = value.ContentAvailable }).catch(() => {})
   try {
     const all = await RefService.ListBranches()
     branches.value = all ?? []
@@ -456,10 +510,10 @@ onBeforeUnmount(() => {
       <div v-if="profiles.state.error && mode === 'profile'" class="fb-summary" role="alert">{{ profiles.state.error }}</div>
       <div class="fb-summary" aria-live="polite">
         <span>{{ !query && mode === 'root' ? 'Recent & suggested' : `${results.length} results` }}</span>
-        <span>{{ loadingCommits ? 'Searching commits…' : commitError ? 'Commit search unavailable' : mode === 'root' && !query ? 'Files · commits · branches · workspaces' : activeScope?.label ?? '' }}</span>
+        <span>{{ searchLoading ? 'Searching…' : searchError ? searchError : contentTruncated ? 'More matches available; refine your search' : loadingCommits ? 'Searching commits…' : commitError ? 'Commit search unavailable' : mode === 'root' && !query ? 'Files · commits · branches · workspaces' : activeScope?.label ?? '' }}</span>
       </div>
       <div class="fb-body">
-      <div :id="`${finderId}-results`" ref="list" class="fb-rows" role="listbox" aria-label="Search results" :aria-busy="loadingCommits || openingRepo">
+      <div :id="`${finderId}-results`" ref="list" class="fb-rows" role="listbox" aria-label="Search results" :aria-busy="loadingCommits || searchLoading || openingRepo">
         <div v-for="(row, i) in results" :id="`${finderId}-result-${i}`" :key="`${row.kind}:${row.id}`"
           class="fb-row" :class="{ sel: cursor === i }"
           role="option" :aria-selected="cursor === i" :aria-label="`${row.kind}: ${row.label}${row.detail ? ', ' + row.detail : ''}`"
@@ -477,7 +531,7 @@ onBeforeUnmount(() => {
         </div>
         <div v-if="!results.length" class="fb-empty">
           <PhMagnifyingGlass :size="28" aria-hidden="true" />
-          <b>{{ loadingCommits ? 'Searching commits…' : mode === 'commit' && query.trim().length < 2 ? 'Find a commit' : 'No matches found' }}</b>
+          <b>{{ searchLoading ? 'Searching…' : searchError || (loadingCommits ? 'Searching commits…' : mode === 'commit' && query.trim().length < 2 ? 'Find a commit' : 'No matches found') }}</b>
           <span>{{ mode === 'commit' && query.trim().length < 2 ? 'Type at least two characters from a message or hash.' : 'Try a shorter search or a prefix such as f: or b:.' }}</span>
         </div>
       </div>
