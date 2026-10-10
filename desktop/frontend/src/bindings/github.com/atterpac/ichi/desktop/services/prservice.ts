@@ -7,6 +7,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as git$0 from "../../internal/git/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as remote$0 from "../../internal/remote/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -23,15 +26,47 @@ export function ClosePR(remoteName: string, id: number): $CancellablePromise<voi
     return $Call.ByID(4289372759, remoteName, id);
 }
 
+/**
+ * ContributorCommits reads GitHub-linked authorship on the remote default branch.
+ */
+export function ContributorCommits(remoteName: string, login: string, limit: number): $CancellablePromise<$models.ContributorCommit[]> {
+    return $Call.ByID(3240456990, remoteName, login, limit).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
+ * ContributorLogin resolves GitHub's author attribution for a specific commit.
+ */
+export function ContributorLogin(remoteName: string, hash: string): $CancellablePromise<string> {
+    return $Call.ByID(76062001, remoteName, hash);
+}
+
+/**
+ * ConversationAction also handles issue conversations using the selected remote.
+ */
+export function ConversationAction(remoteName: string, $number: number, kind: string, input: remote$0.ConversationAction): $CancellablePromise<void> {
+    return $Call.ByID(137494586, remoteName, $number, kind, input);
+}
+
 export function GetChecks(remoteName: string, id: number): $CancellablePromise<remote$0.Check[]> {
     return $Call.ByID(4179694200, remoteName, id).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
+    });
+}
+
+/**
+ * GetDiscussion returns the conversation and complete review threads without modifying GitHub.
+ */
+export function GetDiscussion(remoteName: string, id: number): $CancellablePromise<remote$0.Discussion | null> {
+    return $Call.ByID(2543840405, remoteName, id).then(($result: any) => {
+        return $$createType7($result);
     });
 }
 
 export function GetPR(remoteName: string, id: number): $CancellablePromise<remote$0.PullRequest | null> {
     return $Call.ByID(1561911499, remoteName, id).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType9($result);
     });
 }
 
@@ -41,25 +76,31 @@ export function GetPRDiff(remoteName: string, id: number): $CancellablePromise<s
 
 export function GetPRFiles(remoteName: string, id: number): $CancellablePromise<remote$0.ChangedFile[]> {
     return $Call.ByID(3392013378, remoteName, id).then(($result: any) => {
-        return $$createType7($result);
+        return $$createType11($result);
+    });
+}
+
+export function GetPRPatches(remoteName: string, id: number, expectedHead: string): $CancellablePromise<(git$0.FileDiff | null)[]> {
+    return $Call.ByID(2329148199, remoteName, id, expectedHead).then(($result: any) => {
+        return $$createType14($result);
     });
 }
 
 export function ListComments(remoteName: string, id: number): $CancellablePromise<remote$0.Comment[]> {
     return $Call.ByID(600683321, remoteName, id).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType15($result);
     });
 }
 
 export function ListPRs(remoteName: string, opts: remote$0.ListPRsOpts): $CancellablePromise<remote$0.PullRequest[]> {
     return $Call.ByID(639477490, remoteName, opts).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType16($result);
     });
 }
 
 export function ListReviews(remoteName: string, id: number): $CancellablePromise<remote$0.Review[]> {
     return $Call.ByID(4118394196, remoteName, id).then(($result: any) => {
-        return $$createType11($result);
+        return $$createType18($result);
     });
 }
 
@@ -69,8 +110,12 @@ export function MergePR(remoteName: string, id: number, opts: remote$0.MergeOpts
 
 export function ProviderStatus(remoteName: string): $CancellablePromise<$models.PRProviderStatus | null> {
     return $Call.ByID(3608740416, remoteName).then(($result: any) => {
-        return $$createType13($result);
+        return $$createType20($result);
     });
+}
+
+export function PublishReview(remoteName: string, $number: number, input: remote$0.ConversationReview): $CancellablePromise<void> {
+    return $Call.ByID(2993717822, remoteName, $number, input);
 }
 
 export function SubmitReview(remoteName: string, id: number, input: remote$0.SubmitReviewInput): $CancellablePromise<void> {
@@ -80,15 +125,22 @@ export function SubmitReview(remoteName: string, id: number, input: remote$0.Sub
 // Private type creation functions
 const $$createType0 = remote$0.Comment.createFrom;
 const $$createType1 = $Create.Nullable($$createType0);
-const $$createType2 = remote$0.Check.createFrom;
+const $$createType2 = $models.ContributorCommit.createFrom;
 const $$createType3 = $Create.Array($$createType2);
-const $$createType4 = remote$0.PullRequest.createFrom;
-const $$createType5 = $Create.Nullable($$createType4);
-const $$createType6 = remote$0.ChangedFile.createFrom;
-const $$createType7 = $Create.Array($$createType6);
-const $$createType8 = $Create.Array($$createType0);
-const $$createType9 = $Create.Array($$createType4);
-const $$createType10 = remote$0.Review.createFrom;
+const $$createType4 = remote$0.Check.createFrom;
+const $$createType5 = $Create.Array($$createType4);
+const $$createType6 = remote$0.Discussion.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = remote$0.PullRequest.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
+const $$createType10 = remote$0.ChangedFile.createFrom;
 const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = $models.PRProviderStatus.createFrom;
+const $$createType12 = git$0.FileDiff.createFrom;
 const $$createType13 = $Create.Nullable($$createType12);
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = $Create.Array($$createType0);
+const $$createType16 = $Create.Array($$createType8);
+const $$createType17 = remote$0.Review.createFrom;
+const $$createType18 = $Create.Array($$createType17);
+const $$createType19 = $models.PRProviderStatus.createFrom;
+const $$createType20 = $Create.Nullable($$createType19);

@@ -71,3 +71,23 @@ func TestSearchCommitsByAuthor(t *testing.T) {
 		t.Fatalf("expected both commits by author, got %+v", found)
 	}
 }
+
+func TestAuthorHistoryExactEmail(t *testing.T) {
+	repo := newSearchFixture(t)
+	found, err := repo.AuthorHistory("ALICE@example.com", 10)
+	if err != nil || len(found) != 2 {
+		t.Fatalf("history: %v %v", found, err)
+	}
+	found, err = repo.AuthorHistory("example.com", 10)
+	if err != nil || len(found) != 0 {
+		t.Fatalf("partial email matched: %v %v", found, err)
+	}
+	found, err = repo.AuthorHistory(".*@example.com", 10)
+	if err != nil || len(found) != 0 {
+		t.Fatalf("regex interpreted: %v %v", found, err)
+	}
+	found, err = repo.AuthorHistory("alice@example.com", 1)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("limit: %v %v", found, err)
+	}
+}

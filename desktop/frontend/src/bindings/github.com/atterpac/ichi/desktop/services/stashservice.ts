@@ -31,13 +31,22 @@ export function StashClear(): $CancellablePromise<void> {
     return $Call.ByID(2198339318);
 }
 
+/**
+ * StashDiff returns the saved patch, including untracked files, for read-only review.
+ */
+export function StashDiff(index: number): $CancellablePromise<(git$0.FileDiff | null)[]> {
+    return $Call.ByID(1124578078, index).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
 export function StashDropIndex(index: number): $CancellablePromise<void> {
     return $Call.ByID(3089403396, index);
 }
 
 export function StashFiles(index: number): $CancellablePromise<git$0.FileChurn[]> {
     return $Call.ByID(2469250652, index).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType6($result);
     });
 }
 
@@ -60,5 +69,8 @@ export function StashStaged(message: string): $CancellablePromise<void> {
 // Private type creation functions
 const $$createType0 = git$0.Stash.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = git$0.FileChurn.createFrom;
-const $$createType3 = $Create.Array($$createType2);
+const $$createType2 = git$0.FileDiff.createFrom;
+const $$createType3 = $Create.Nullable($$createType2);
+const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = git$0.FileChurn.createFrom;
+const $$createType6 = $Create.Array($$createType5);

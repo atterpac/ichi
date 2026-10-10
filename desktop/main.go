@@ -78,6 +78,7 @@ func buildApp() *application.App {
 		application.NewService(registry.Completion),
 		application.NewService(registry.Search),
 		application.NewService(registry.PR),
+		application.NewService(registry.Issue),
 		application.NewService(registry.Review),
 	} {
 		app.RegisterService(service)

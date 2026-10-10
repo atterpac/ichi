@@ -153,6 +153,7 @@ type Registry struct {
 	Inspect     *InspectService
 	Completion  *CompletionService
 	Search      *SearchService
+	Issue       *IssueService
 	PR          *PRService
 	Review      *ReviewService
 }
@@ -172,6 +173,7 @@ func NewRegistry(repo *git.Repository, emitter EventEmitter) *Registry {
 		Inspect:     &InspectService{state: state},
 		Completion:  &CompletionService{state: state},
 		Search:      &SearchService{state: state},
+		Issue:       &IssueService{state: state},
 		PR:          &PRService{state: state},
 		Review:      &ReviewService{state: state},
 	}

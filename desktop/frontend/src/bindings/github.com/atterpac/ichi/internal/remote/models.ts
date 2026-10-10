@@ -208,6 +208,76 @@ export class Comment {
     }
 }
 
+export class ConversationAction {
+    "Action": string;
+    "SubjectID": string;
+    "Body": string;
+    "Reaction": string;
+
+    /** Creates a new ConversationAction instance. */
+    constructor($$source: Partial<ConversationAction> = {}) {
+        if (!("Action" in $$source)) {
+            this["Action"] = "";
+        }
+        if (!("SubjectID" in $$source)) {
+            this["SubjectID"] = "";
+        }
+        if (!("Body" in $$source)) {
+            this["Body"] = "";
+        }
+        if (!("Reaction" in $$source)) {
+            this["Reaction"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConversationAction instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConversationAction {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ConversationAction($$parsedSource as Partial<ConversationAction>);
+    }
+}
+
+export class ConversationReview {
+    "CommitOID": string;
+    "Event": string;
+    "Body": string;
+    "Comments": ReviewDraftComment[];
+
+    /** Creates a new ConversationReview instance. */
+    constructor($$source: Partial<ConversationReview> = {}) {
+        if (!("CommitOID" in $$source)) {
+            this["CommitOID"] = "";
+        }
+        if (!("Event" in $$source)) {
+            this["Event"] = "";
+        }
+        if (!("Body" in $$source)) {
+            this["Body"] = "";
+        }
+        if (!("Comments" in $$source)) {
+            this["Comments"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ConversationReview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ConversationReview {
+        const $$createField3_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Comments" in $$parsedSource) {
+            $$parsedSource["Comments"] = $$createField3_0($$parsedSource["Comments"]);
+        }
+        return new ConversationReview($$parsedSource as Partial<ConversationReview>);
+    }
+}
+
 /**
  * DiffSide indicates which side of the diff
  */
@@ -220,6 +290,193 @@ export enum DiffSide {
     SideLeft = "LEFT",
     SideRight = "RIGHT",
 };
+
+export class Discussion {
+    "SubjectID": string;
+    "CanReact": boolean;
+    "Reactions": ReactionGroup[];
+    "Comments": DiscussionComment[];
+    "Reviews": DiscussionReview[];
+    "Threads": ReviewThread[];
+
+    /** Creates a new Discussion instance. */
+    constructor($$source: Partial<Discussion> = {}) {
+        if (!("SubjectID" in $$source)) {
+            this["SubjectID"] = "";
+        }
+        if (!("CanReact" in $$source)) {
+            this["CanReact"] = false;
+        }
+        if (!("Reactions" in $$source)) {
+            this["Reactions"] = [];
+        }
+        if (!("Comments" in $$source)) {
+            this["Comments"] = [];
+        }
+        if (!("Reviews" in $$source)) {
+            this["Reviews"] = [];
+        }
+        if (!("Threads" in $$source)) {
+            this["Threads"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Discussion instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Discussion {
+        const $$createField2_0 = $$createType4;
+        const $$createField3_0 = $$createType6;
+        const $$createField4_0 = $$createType8;
+        const $$createField5_0 = $$createType10;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Reactions" in $$parsedSource) {
+            $$parsedSource["Reactions"] = $$createField2_0($$parsedSource["Reactions"]);
+        }
+        if ("Comments" in $$parsedSource) {
+            $$parsedSource["Comments"] = $$createField3_0($$parsedSource["Comments"]);
+        }
+        if ("Reviews" in $$parsedSource) {
+            $$parsedSource["Reviews"] = $$createField4_0($$parsedSource["Reviews"]);
+        }
+        if ("Threads" in $$parsedSource) {
+            $$parsedSource["Threads"] = $$createField5_0($$parsedSource["Threads"]);
+        }
+        return new Discussion($$parsedSource as Partial<Discussion>);
+    }
+}
+
+export class DiscussionComment {
+    "CanUpdate": boolean;
+    "CanDelete": boolean;
+    "CanReact": boolean;
+    "Reactions": ReactionGroup[];
+    "ID": string;
+    "Author": string;
+    "AvatarURL": string;
+    "Body": string;
+    "URL": string;
+    "CreatedAt": string;
+    "DiffHunk": string;
+
+    /** Creates a new DiscussionComment instance. */
+    constructor($$source: Partial<DiscussionComment> = {}) {
+        if (!("CanUpdate" in $$source)) {
+            this["CanUpdate"] = false;
+        }
+        if (!("CanDelete" in $$source)) {
+            this["CanDelete"] = false;
+        }
+        if (!("CanReact" in $$source)) {
+            this["CanReact"] = false;
+        }
+        if (!("Reactions" in $$source)) {
+            this["Reactions"] = [];
+        }
+        if (!("ID" in $$source)) {
+            this["ID"] = "";
+        }
+        if (!("Author" in $$source)) {
+            this["Author"] = "";
+        }
+        if (!("AvatarURL" in $$source)) {
+            this["AvatarURL"] = "";
+        }
+        if (!("Body" in $$source)) {
+            this["Body"] = "";
+        }
+        if (!("URL" in $$source)) {
+            this["URL"] = "";
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = "0001-01-01T00:00:00.000Z";
+        }
+        if (!("DiffHunk" in $$source)) {
+            this["DiffHunk"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiscussionComment instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DiscussionComment {
+        const $$createField3_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Reactions" in $$parsedSource) {
+            $$parsedSource["Reactions"] = $$createField3_0($$parsedSource["Reactions"]);
+        }
+        return new DiscussionComment($$parsedSource as Partial<DiscussionComment>);
+    }
+}
+
+export class DiscussionReview {
+    "CanUpdate": boolean;
+    "CanDelete": boolean;
+    "CanReact": boolean;
+    "Reactions": ReactionGroup[];
+    "ID": string;
+    "Author": string;
+    "AvatarURL": string;
+    "Body": string;
+    "State": string;
+    "URL": string;
+    "CreatedAt": string;
+
+    /** Creates a new DiscussionReview instance. */
+    constructor($$source: Partial<DiscussionReview> = {}) {
+        if (!("CanUpdate" in $$source)) {
+            this["CanUpdate"] = false;
+        }
+        if (!("CanDelete" in $$source)) {
+            this["CanDelete"] = false;
+        }
+        if (!("CanReact" in $$source)) {
+            this["CanReact"] = false;
+        }
+        if (!("Reactions" in $$source)) {
+            this["Reactions"] = [];
+        }
+        if (!("ID" in $$source)) {
+            this["ID"] = "";
+        }
+        if (!("Author" in $$source)) {
+            this["Author"] = "";
+        }
+        if (!("AvatarURL" in $$source)) {
+            this["AvatarURL"] = "";
+        }
+        if (!("Body" in $$source)) {
+            this["Body"] = "";
+        }
+        if (!("State" in $$source)) {
+            this["State"] = "";
+        }
+        if (!("URL" in $$source)) {
+            this["URL"] = "";
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = "0001-01-01T00:00:00.000Z";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new DiscussionReview instance from a string or object.
+     */
+    static createFrom($$source: any = {}): DiscussionReview {
+        const $$createField3_0 = $$createType4;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Reactions" in $$parsedSource) {
+            $$parsedSource["Reactions"] = $$createField3_0($$parsedSource["Reactions"]);
+        }
+        return new DiscussionReview($$parsedSource as Partial<DiscussionReview>);
+    }
+}
 
 /**
  * FileStatus represents the status of a changed file
@@ -236,6 +493,51 @@ export enum FileStatus {
     FileRenamed = "renamed",
     FileCopied = "copied",
 };
+
+/**
+ * InboxActivity contains bounded preview data. Known distinguishes unavailable
+ * enrichment from a genuinely empty conversation.
+ */
+export class InboxActivity {
+    "Known": boolean;
+    "CommentCount": number;
+    "RecentComments": DiscussionComment[];
+    "UnresolvedThreads": number;
+    "ThreadsKnown": boolean;
+
+    /** Creates a new InboxActivity instance. */
+    constructor($$source: Partial<InboxActivity> = {}) {
+        if (!("Known" in $$source)) {
+            this["Known"] = false;
+        }
+        if (!("CommentCount" in $$source)) {
+            this["CommentCount"] = 0;
+        }
+        if (!("RecentComments" in $$source)) {
+            this["RecentComments"] = [];
+        }
+        if (!("UnresolvedThreads" in $$source)) {
+            this["UnresolvedThreads"] = 0;
+        }
+        if (!("ThreadsKnown" in $$source)) {
+            this["ThreadsKnown"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new InboxActivity instance from a string or object.
+     */
+    static createFrom($$source: any = {}): InboxActivity {
+        const $$createField2_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("RecentComments" in $$parsedSource) {
+            $$parsedSource["RecentComments"] = $$createField2_0($$parsedSource["RecentComments"]);
+        }
+        return new InboxActivity($$parsedSource as Partial<InboxActivity>);
+    }
+}
 
 /**
  * InlineCommentInput for adding an inline comment on a diff
@@ -277,10 +579,120 @@ export class InlineCommentInput {
     }
 }
 
+export class Issue {
+    "NodeID": string;
+    "CanReact": boolean;
+    "Reactions": ReactionGroup[];
+    "Triage": InboxActivity;
+    "Number": number;
+    "Title": string;
+    "Body": string;
+    "State": string;
+    "StateReason": string;
+    "Author": string;
+    "URL": string;
+    "CreatedAt": string;
+    "UpdatedAt": string;
+    "Labels": string[];
+    "Assignees": string[];
+    "Milestone": string;
+    "Comments": DiscussionComment[];
+
+    /** Creates a new Issue instance. */
+    constructor($$source: Partial<Issue> = {}) {
+        if (!("NodeID" in $$source)) {
+            this["NodeID"] = "";
+        }
+        if (!("CanReact" in $$source)) {
+            this["CanReact"] = false;
+        }
+        if (!("Reactions" in $$source)) {
+            this["Reactions"] = [];
+        }
+        if (!("Triage" in $$source)) {
+            this["Triage"] = (new InboxActivity());
+        }
+        if (!("Number" in $$source)) {
+            this["Number"] = 0;
+        }
+        if (!("Title" in $$source)) {
+            this["Title"] = "";
+        }
+        if (!("Body" in $$source)) {
+            this["Body"] = "";
+        }
+        if (!("State" in $$source)) {
+            this["State"] = "";
+        }
+        if (!("StateReason" in $$source)) {
+            this["StateReason"] = "";
+        }
+        if (!("Author" in $$source)) {
+            this["Author"] = "";
+        }
+        if (!("URL" in $$source)) {
+            this["URL"] = "";
+        }
+        if (!("CreatedAt" in $$source)) {
+            this["CreatedAt"] = "0001-01-01T00:00:00.000Z";
+        }
+        if (!("UpdatedAt" in $$source)) {
+            this["UpdatedAt"] = "0001-01-01T00:00:00.000Z";
+        }
+        if (!("Labels" in $$source)) {
+            this["Labels"] = [];
+        }
+        if (!("Assignees" in $$source)) {
+            this["Assignees"] = [];
+        }
+        if (!("Milestone" in $$source)) {
+            this["Milestone"] = "";
+        }
+        if (!("Comments" in $$source)) {
+            this["Comments"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Issue instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Issue {
+        const $$createField2_0 = $$createType4;
+        const $$createField3_0 = $$createType11;
+        const $$createField13_0 = $$createType12;
+        const $$createField14_0 = $$createType12;
+        const $$createField16_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Reactions" in $$parsedSource) {
+            $$parsedSource["Reactions"] = $$createField2_0($$parsedSource["Reactions"]);
+        }
+        if ("Triage" in $$parsedSource) {
+            $$parsedSource["Triage"] = $$createField3_0($$parsedSource["Triage"]);
+        }
+        if ("Labels" in $$parsedSource) {
+            $$parsedSource["Labels"] = $$createField13_0($$parsedSource["Labels"]);
+        }
+        if ("Assignees" in $$parsedSource) {
+            $$parsedSource["Assignees"] = $$createField14_0($$parsedSource["Assignees"]);
+        }
+        if ("Comments" in $$parsedSource) {
+            $$parsedSource["Comments"] = $$createField16_0($$parsedSource["Comments"]);
+        }
+        return new Issue($$parsedSource as Partial<Issue>);
+    }
+}
+
 /**
  * ListPRsOpts configures PR listing
  */
 export class ListPRsOpts {
+    /**
+     * GitHub search qualifiers, including repository-wide sorting
+     */
+    "Search": string;
+
     /**
      * Filter by state (empty = all open)
      */
@@ -298,6 +710,9 @@ export class ListPRsOpts {
 
     /** Creates a new ListPRsOpts instance. */
     constructor($$source: Partial<ListPRsOpts> = {}) {
+        if (!("Search" in $$source)) {
+            this["Search"] = "";
+        }
         if (!("State" in $$source)) {
             this["State"] = PRState.$zero;
         }
@@ -392,6 +807,8 @@ export enum PRState {
  * PullRequest represents a PR/MR
  */
 export class PullRequest {
+    "ReviewDecision": string;
+    "Triage": InboxActivity;
     "ID": number;
     "Number": number;
     "Title": string;
@@ -415,6 +832,12 @@ export class PullRequest {
 
     /** Creates a new PullRequest instance. */
     constructor($$source: Partial<PullRequest> = {}) {
+        if (!("ReviewDecision" in $$source)) {
+            this["ReviewDecision"] = "";
+        }
+        if (!("Triage" in $$source)) {
+            this["Triage"] = (new InboxActivity());
+        }
         if (!("ID" in $$source)) {
             this["ID"] = 0;
         }
@@ -483,24 +906,57 @@ export class PullRequest {
      * Creates a new PullRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): PullRequest {
-        const $$createField5_0 = $$createType0;
-        const $$createField13_0 = $$createType1;
-        const $$createField14_0 = $$createType2;
-        const $$createField15_0 = $$createType4;
+        const $$createField1_0 = $$createType11;
+        const $$createField7_0 = $$createType0;
+        const $$createField15_0 = $$createType12;
+        const $$createField16_0 = $$createType13;
+        const $$createField17_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Triage" in $$parsedSource) {
+            $$parsedSource["Triage"] = $$createField1_0($$parsedSource["Triage"]);
+        }
         if ("Author" in $$parsedSource) {
-            $$parsedSource["Author"] = $$createField5_0($$parsedSource["Author"]);
+            $$parsedSource["Author"] = $$createField7_0($$parsedSource["Author"]);
         }
         if ("Labels" in $$parsedSource) {
-            $$parsedSource["Labels"] = $$createField13_0($$parsedSource["Labels"]);
+            $$parsedSource["Labels"] = $$createField15_0($$parsedSource["Labels"]);
         }
         if ("Reviewers" in $$parsedSource) {
-            $$parsedSource["Reviewers"] = $$createField14_0($$parsedSource["Reviewers"]);
+            $$parsedSource["Reviewers"] = $$createField16_0($$parsedSource["Reviewers"]);
         }
         if ("Checks" in $$parsedSource) {
-            $$parsedSource["Checks"] = $$createField15_0($$parsedSource["Checks"]);
+            $$parsedSource["Checks"] = $$createField17_0($$parsedSource["Checks"]);
         }
         return new PullRequest($$parsedSource as Partial<PullRequest>);
+    }
+}
+
+export class ReactionGroup {
+    "Content": string;
+    "Count": number;
+    "ViewerHasReacted": boolean;
+
+    /** Creates a new ReactionGroup instance. */
+    constructor($$source: Partial<ReactionGroup> = {}) {
+        if (!("Content" in $$source)) {
+            this["Content"] = "";
+        }
+        if (!("Count" in $$source)) {
+            this["Count"] = 0;
+        }
+        if (!("ViewerHasReacted" in $$source)) {
+            this["ViewerHasReacted"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReactionGroup instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReactionGroup {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ReactionGroup($$parsedSource as Partial<ReactionGroup>);
     }
 }
 
@@ -548,6 +1004,39 @@ export class Review {
     }
 }
 
+export class ReviewDraftComment {
+    "Path": string;
+    "Line": number;
+    "Side": string;
+    "Body": string;
+
+    /** Creates a new ReviewDraftComment instance. */
+    constructor($$source: Partial<ReviewDraftComment> = {}) {
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Line" in $$source)) {
+            this["Line"] = 0;
+        }
+        if (!("Side" in $$source)) {
+            this["Side"] = "";
+        }
+        if (!("Body" in $$source)) {
+            this["Body"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReviewDraftComment instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReviewDraftComment {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ReviewDraftComment($$parsedSource as Partial<ReviewDraftComment>);
+    }
+}
+
 /**
  * ReviewState represents the state of a review
  */
@@ -563,6 +1052,75 @@ export enum ReviewState {
     ReviewPending = "PENDING",
     ReviewDismissed = "DISMISSED",
 };
+
+export class ReviewThread {
+    "CanReply": boolean;
+    "CanResolve": boolean;
+    "CanUnresolve": boolean;
+    "ID": string;
+    "Path": string;
+    "Line": number;
+    "OriginalLine": number;
+    "StartLine": number;
+    "Side": string;
+    "Resolved": boolean;
+    "Outdated": boolean;
+    "Comments": DiscussionComment[];
+
+    /** Creates a new ReviewThread instance. */
+    constructor($$source: Partial<ReviewThread> = {}) {
+        if (!("CanReply" in $$source)) {
+            this["CanReply"] = false;
+        }
+        if (!("CanResolve" in $$source)) {
+            this["CanResolve"] = false;
+        }
+        if (!("CanUnresolve" in $$source)) {
+            this["CanUnresolve"] = false;
+        }
+        if (!("ID" in $$source)) {
+            this["ID"] = "";
+        }
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Line" in $$source)) {
+            this["Line"] = 0;
+        }
+        if (!("OriginalLine" in $$source)) {
+            this["OriginalLine"] = 0;
+        }
+        if (!("StartLine" in $$source)) {
+            this["StartLine"] = 0;
+        }
+        if (!("Side" in $$source)) {
+            this["Side"] = "";
+        }
+        if (!("Resolved" in $$source)) {
+            this["Resolved"] = false;
+        }
+        if (!("Outdated" in $$source)) {
+            this["Outdated"] = false;
+        }
+        if (!("Comments" in $$source)) {
+            this["Comments"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ReviewThread instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ReviewThread {
+        const $$createField11_0 = $$createType6;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Comments" in $$parsedSource) {
+            $$parsedSource["Comments"] = $$createField11_0($$parsedSource["Comments"]);
+        }
+        return new ReviewThread($$parsedSource as Partial<ReviewThread>);
+    }
+}
 
 /**
  * SubmitReviewInput for submitting a review
@@ -595,7 +1153,7 @@ export class SubmitReviewInput {
      * Creates a new SubmitReviewInput instance from a string or object.
      */
     static createFrom($$source: any = {}): SubmitReviewInput {
-        const $$createField2_0 = $$createType6;
+        const $$createField2_0 = $$createType17;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Comments" in $$parsedSource) {
             $$parsedSource["Comments"] = $$createField2_0($$parsedSource["Comments"]);
@@ -646,9 +1204,20 @@ export class User {
 
 // Private type creation functions
 const $$createType0 = User.createFrom;
-const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $Create.Array($$createType0);
-const $$createType3 = Check.createFrom;
+const $$createType1 = ReviewDraftComment.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = ReactionGroup.createFrom;
 const $$createType4 = $Create.Array($$createType3);
-const $$createType5 = InlineCommentInput.createFrom;
+const $$createType5 = DiscussionComment.createFrom;
 const $$createType6 = $Create.Array($$createType5);
+const $$createType7 = DiscussionReview.createFrom;
+const $$createType8 = $Create.Array($$createType7);
+const $$createType9 = ReviewThread.createFrom;
+const $$createType10 = $Create.Array($$createType9);
+const $$createType11 = InboxActivity.createFrom;
+const $$createType12 = $Create.Array($Create.Any);
+const $$createType13 = $Create.Array($$createType0);
+const $$createType14 = Check.createFrom;
+const $$createType15 = $Create.Array($$createType14);
+const $$createType16 = InlineCommentInput.createFrom;
+const $$createType17 = $Create.Array($$createType16);

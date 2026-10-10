@@ -24,9 +24,18 @@ export function FormatRefLabels(requests: $models.RefFormatRequest[]): $Cancella
     });
 }
 
+/**
+ * ListSystemFonts discovers installed fonts; it never downloads or installs fonts.
+ */
+export function ListSystemFonts(): $CancellablePromise<$models.FontFamily[]> {
+    return $Call.ByID(2734436728).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
 export function Load(): $CancellablePromise<$models.PreferenceSnapshot | null> {
     return $Call.ByID(998544923).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType5($result);
     });
 }
 
@@ -35,14 +44,16 @@ export function Load(): $CancellablePromise<$models.PreferenceSnapshot | null> {
  */
 export function Save(expectedRevision: string, content: string): $CancellablePromise<$models.PreferenceSaveOutcome | null> {
     return $Call.ByID(3823687606, expectedRevision, content).then(($result: any) => {
-        return $$createType5($result);
+        return $$createType7($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = $models.RefFormatResult.createFrom;
 const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = $models.PreferenceSnapshot.createFrom;
-const $$createType3 = $Create.Nullable($$createType2);
-const $$createType4 = $models.PreferenceSaveOutcome.createFrom;
+const $$createType2 = $models.FontFamily.createFrom;
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $models.PreferenceSnapshot.createFrom;
 const $$createType5 = $Create.Nullable($$createType4);
+const $$createType6 = $models.PreferenceSaveOutcome.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);

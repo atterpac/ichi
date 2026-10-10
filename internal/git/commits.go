@@ -437,3 +437,27 @@ func parseRefs(refStr string) []string {
 	}
 	return refs
 }
+
+// AuthorHistory returns exact author-email matches across all local refs.
+func (r *Repository) AuthorHistory(email string, limit int) ([]*Commit, error) {
+	if limit < 1 || limit > 500 {
+		limit = 50
+	}
+	if strings.TrimSpace(email) == "" {
+		return []*Commit{}, nil
+	}
+	out, err := r.run("log", "--all", "--max-count="+strconv.Itoa(limit), "--extended-regexp", "--regexp-ignore-case", "--author=<"+regexp.QuoteMeta(email)+">$", "--format=%H%x00%h%x00%s%x00%an%x00%at%x00%P", "--")
+	if err != nil {
+		return nil, err
+	}
+	commits := []*Commit{}
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.Split(line, "\x00")
+		if len(parts) != 6 {
+			continue
+		}
+		timestamp, _ := strconv.ParseInt(parts[4], 10, 64)
+		commits = append(commits, &Commit{Hash: parts[0], ShortHash: parts[1], Message: parts[2], Author: parts[3], Date: time.Unix(timestamp, 0), Parents: strings.Fields(parts[5])})
+	}
+	return commits, nil
+}

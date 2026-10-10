@@ -55,7 +55,7 @@ func TestBuildAppServiceEvents(t *testing.T) {
 		&services.DiffService{}, &services.RefService{},
 		&services.RemoteService{}, &services.StashService{},
 		&services.ConflictService{}, &services.InspectService{},
-		&services.CompletionService{}, &services.SearchService{}, &services.PRService{}, &services.ReviewService{},
+		&services.CompletionService{}, &services.SearchService{}, &services.PRService{}, &services.IssueService{}, &services.ReviewService{},
 	} {
 		if !gotTypes[reflect.TypeOf(instance)] {
 			t.Fatalf("missing service registration: %T", instance)

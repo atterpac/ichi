@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -52,7 +55,7 @@ func (g *GitHub) Name() string {
 
 func (g *GitHub) Authenticate() error {
 	// Check if gh is authenticated
-	if _, err := g.gh("auth", "status"); err != nil {
+	if _, err := g.gh("auth", "status", "--active", "--hostname", "github.com"); err != nil {
 		return fmt.Errorf("gh CLI authentication check failed (run 'gh auth login' to authenticate): %w", err)
 	}
 	g.authenticated = true
@@ -92,10 +95,16 @@ func (g *GitHub) CurrentUser() (*remote.User, error) {
 
 func (g *GitHub) ListPRs(repo string, opts remote.ListPRsOpts) ([]remote.PullRequest, error) {
 	args := []string{"pr", "list", "-R", repo, "--json",
-		"number,title,state,author,headRefName,baseRefName,createdAt,updatedAt,labels,isDraft,url,additions,deletions,changedFiles,headRefOid"}
+		"id,body,reviewDecision,statusCheckRollup,number,title,state,author,headRefName,baseRefName,createdAt,updatedAt,labels,isDraft,url,additions,deletions,changedFiles,headRefOid"}
 
-	if opts.State != "" && opts.State != remote.PRAll {
+	if opts.State != "" {
 		args = append(args, "--state", string(opts.State))
+	}
+	if opts.Search != "" {
+		args = append(args, "--search", opts.Search)
+	}
+	if opts.Limit > 500 {
+		opts.Limit = 500
 	}
 	if opts.Author != "" {
 		args = append(args, "--author", opts.Author)
@@ -117,6 +126,14 @@ func (g *GitHub) ListPRs(repo string, opts remote.ListPRsOpts) ([]remote.PullReq
 	prs := make([]remote.PullRequest, len(resp))
 	for i, pr := range resp {
 		prs[i] = pr.toRemote()
+	}
+	ids := make([]string, len(resp))
+	for i := range resp {
+		ids[i] = resp[i].ID
+	}
+	activity := g.inboxActivity(ids)
+	for i := range prs {
+		prs[i].Triage = activity[ids[i]]
 	}
 	return prs, nil
 }
@@ -404,7 +421,23 @@ func (g *GitHub) gh(args ...string) ([]byte, error) {
 	if g.cli != nil {
 		return g.cli(args...)
 	}
-	cmd := exec.CommandContext(ctx, "gh", args...)
+	binary, err := exec.LookPath("gh")
+	if err != nil && runtime.GOOS == "darwin" {
+		// Finder-launched apps often omit Homebrew from PATH.
+		for _, candidate := range []string{"/opt/homebrew/bin/gh", "/usr/local/bin/gh"} {
+			if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+				binary = candidate
+				err = nil
+				break
+			}
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GitHub CLI was not found. Install gh, run 'gh auth login', then retry: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, filepath.Clean(binary), args...)
+	// This provider currently supports github.com only; do not inherit a different GH_HOST.
+	cmd.Env = append(os.Environ(), "GH_HOST=github.com", "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GH_PAGER=cat")
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if ctx.Err() != nil {
@@ -422,6 +455,9 @@ func (g *GitHub) gh(args ...string) ([]byte, error) {
 // GitHub API response types
 
 type ghPullRequest struct {
+	ID             string    `json:"id"`
+	ReviewDecision string    `json:"reviewDecision"`
+	Checks         []ghCheck `json:"statusCheckRollup"`
 	Number         int       `json:"number"`
 	Title          string    `json:"title"`
 	Body           string    `json:"body"`
@@ -466,7 +502,12 @@ func (pr *ghPullRequest) toRemote() remote.PullRequest {
 		state = remote.PRClosed
 	}
 
+	checks := make([]remote.Check, len(pr.Checks))
+	for i := range pr.Checks {
+		checks[i] = pr.Checks[i].toRemote()
+	}
 	return remote.PullRequest{
+		ReviewDecision: pr.ReviewDecision, Checks: checks,
 		Number:       pr.Number,
 		Title:        pr.Title,
 		Body:         pr.Body,

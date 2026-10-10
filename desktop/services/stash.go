@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/atterpac/ichi/internal/git"
 )
@@ -64,4 +65,20 @@ func (s *StashService) StashCheckoutFiles(ctx context.Context, index int, paths 
 
 func (s *StashService) StashBranch(ctx context.Context, branchName string, index int) error {
 	return s.state.mutate(ctx, "", func(repo *git.Repository) error { return repo.StashBranch(branchName, index) })
+}
+
+// StashDiff returns the saved patch, including untracked files, for read-only review.
+func (s *StashService) StashDiff(ctx context.Context, index int) ([]*git.FileDiff, error) {
+	if index < 0 {
+		return nil, fmt.Errorf("invalid stash index")
+	}
+	repo, err := s.state.repoContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := repo.WithReadLimit(4<<20, 20000).StashShow(index)
+	if err != nil {
+		return nil, err
+	}
+	return git.ParseDiff(raw)
 }

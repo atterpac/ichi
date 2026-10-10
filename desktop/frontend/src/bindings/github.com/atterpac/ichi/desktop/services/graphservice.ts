@@ -14,12 +14,30 @@ import * as git$0 from "../../internal/git/models.js";
 import * as $models from "./models.js";
 
 /**
- * AuthorAvatarHashes reads attribution only when author avatars are enabled.
- * The client receives Gravatar identifiers, not raw author email addresses.
+ * AuthorAvatarHashes retains the original Gravatar-only interface.
  */
 export function AuthorAvatarHashes(commits: string[]): $CancellablePromise<{ [_ in string]?: string }> {
     return $Call.ByID(37209763, commits).then(($result: any) => {
         return $$createType0($result);
+    });
+}
+
+/**
+ * AuthorAvatarURLs resolves private GitHub identities without exposing email
+ * addresses or requiring a GitHub API call for each commit.
+ */
+export function AuthorAvatarURLs(commits: string[]): $CancellablePromise<{ [_ in string]?: string }> {
+    return $Call.ByID(1782830677, commits).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * AuthorHistory finds exact author-email matches, independent of commit messages.
+ */
+export function AuthorHistory(email: string, limit: number): $CancellablePromise<(git$0.Commit | null)[]> {
+    return $Call.ByID(3011832514, email, limit).then(($result: any) => {
+        return $$createType3($result);
     });
 }
 
@@ -40,37 +58,37 @@ export function IsCommitPushed(hash: string): $CancellablePromise<boolean> {
  */
 export function LoadBranchGraph(ref: string, limit: number): $CancellablePromise<$models.GraphLayout | null> {
     return $Call.ByID(2146552743, ref, limit).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType5($result);
     });
 }
 
 export function LoadCommit(hash: string): $CancellablePromise<git$0.CommitDetail | null> {
     return $Call.ByID(538336828, hash).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType7($result);
     });
 }
 
 export function LoadCommitMetadata(hash: string): $CancellablePromise<git$0.CommitMetadata | null> {
     return $Call.ByID(1251198009, hash).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType9($result);
     });
 }
 
 export function LoadGraph(limit: number): $CancellablePromise<git$0.Graph | null> {
     return $Call.ByID(207611783, limit).then(($result: any) => {
-        return $$createType8($result);
+        return $$createType11($result);
     });
 }
 
 export function LoadGraphLayout(limit: number, includeStashes: boolean): $CancellablePromise<$models.GraphLayout | null> {
     return $Call.ByID(3171989245, limit, includeStashes).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType5($result);
     });
 }
 
 export function LoadGraphStashes(): $CancellablePromise<(git$0.Commit | null)[]> {
     return $Call.ByID(1387277908).then(($result: any) => {
-        return $$createType11($result);
+        return $$createType3($result);
     });
 }
 
@@ -80,20 +98,20 @@ export function RenameCommit(hash: string, message: string): $CancellablePromise
 
 export function SearchCommits(query: string, limit: number): $CancellablePromise<(git$0.Commit | null)[]> {
     return $Call.ByID(3800079149, query, limit).then(($result: any) => {
-        return $$createType11($result);
+        return $$createType3($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = $Create.Map($Create.Any, $Create.Any);
-const $$createType1 = $models.GraphLayout.createFrom;
+const $$createType1 = git$0.Commit.createFrom;
 const $$createType2 = $Create.Nullable($$createType1);
-const $$createType3 = git$0.CommitDetail.createFrom;
-const $$createType4 = $Create.Nullable($$createType3);
-const $$createType5 = git$0.CommitMetadata.createFrom;
-const $$createType6 = $Create.Nullable($$createType5);
-const $$createType7 = git$0.Graph.createFrom;
-const $$createType8 = $Create.Nullable($$createType7);
-const $$createType9 = git$0.Commit.createFrom;
-const $$createType10 = $Create.Nullable($$createType9);
-const $$createType11 = $Create.Array($$createType10);
+const $$createType3 = $Create.Array($$createType2);
+const $$createType4 = $models.GraphLayout.createFrom;
+const $$createType5 = $Create.Nullable($$createType4);
+const $$createType6 = git$0.CommitDetail.createFrom;
+const $$createType7 = $Create.Nullable($$createType6);
+const $$createType8 = git$0.CommitMetadata.createFrom;
+const $$createType9 = $Create.Nullable($$createType8);
+const $$createType10 = git$0.Graph.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);

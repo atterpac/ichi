@@ -361,6 +361,39 @@ export class ContentSearchResult {
     }
 }
 
+export class ContributorCommit {
+    "Hash": string;
+    "Message": string;
+    "Date": string;
+    "URL": string;
+
+    /** Creates a new ContributorCommit instance. */
+    constructor($$source: Partial<ContributorCommit> = {}) {
+        if (!("Hash" in $$source)) {
+            this["Hash"] = "";
+        }
+        if (!("Message" in $$source)) {
+            this["Message"] = "";
+        }
+        if (!("Date" in $$source)) {
+            this["Date"] = "";
+        }
+        if (!("URL" in $$source)) {
+            this["URL"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ContributorCommit instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ContributorCommit {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ContributorCommit($$parsedSource as Partial<ContributorCommit>);
+    }
+}
+
 /**
  * DiscardResult reports partial completion without losing it in a bridge error.
  * Processing stops on the first failure; Remaining paths were not attempted.
@@ -457,6 +490,31 @@ export class FileSearchResult {
             $$parsedSource["Matches"] = $$createField0_0($$parsedSource["Matches"]);
         }
         return new FileSearchResult($$parsedSource as Partial<FileSearchResult>);
+    }
+}
+
+export class FontFamily {
+    "Family": string;
+    "Monospace": boolean;
+
+    /** Creates a new FontFamily instance. */
+    constructor($$source: Partial<FontFamily> = {}) {
+        if (!("Family" in $$source)) {
+            this["Family"] = "";
+        }
+        if (!("Monospace" in $$source)) {
+            this["Monospace"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FontFamily instance from a string or object.
+     */
+    static createFrom($$source: any = {}): FontFamily {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FontFamily($$parsedSource as Partial<FontFamily>);
     }
 }
 
@@ -818,6 +876,8 @@ export class PRProviderStatus {
     "Provider": string;
     "Repo": string;
     "Ready": boolean;
+    "Login": string;
+    "Message": string;
 
     /** Creates a new PRProviderStatus instance. */
     constructor($$source: Partial<PRProviderStatus> = {}) {
@@ -835,6 +895,12 @@ export class PRProviderStatus {
         }
         if (!("Ready" in $$source)) {
             this["Ready"] = false;
+        }
+        if (!("Login" in $$source)) {
+            this["Login"] = "";
+        }
+        if (!("Message" in $$source)) {
+            this["Message"] = "";
         }
 
         Object.assign(this, $$source);
@@ -1100,6 +1166,11 @@ export class ReviewOptions {
     "Focus": string;
     "RunID": string;
 
+    /**
+     * Empty means all files; otherwise only these exact paths are analyzed.
+     */
+    "FilePaths": string[];
+
     /** Creates a new ReviewOptions instance. */
     constructor($$source: Partial<ReviewOptions> = {}) {
         if (!("Backend" in $$source)) {
@@ -1114,6 +1185,9 @@ export class ReviewOptions {
         if (!("RunID" in $$source)) {
             this["RunID"] = "";
         }
+        if (!("FilePaths" in $$source)) {
+            this["FilePaths"] = [];
+        }
 
         Object.assign(this, $$source);
     }
@@ -1122,7 +1196,11 @@ export class ReviewOptions {
      * Creates a new ReviewOptions instance from a string or object.
      */
     static createFrom($$source: any = {}): ReviewOptions {
+        const $$createField4_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("FilePaths" in $$parsedSource) {
+            $$parsedSource["FilePaths"] = $$createField4_0($$parsedSource["FilePaths"]);
+        }
         return new ReviewOptions($$parsedSource as Partial<ReviewOptions>);
     }
 }

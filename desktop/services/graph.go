@@ -73,3 +73,12 @@ func (s *GraphService) LoadCommitMetadata(ctx context.Context, hash string) (*gi
 	}
 	return repo.LoadCommitMetadata(ctx, hash)
 }
+
+// AuthorHistory finds exact author-email matches, independent of commit messages.
+func (s *GraphService) AuthorHistory(ctx context.Context, email string, limit int) ([]*git.Commit, error) {
+	repo, err := s.state.repoContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return repo.AuthorHistory(email, limit)
+}

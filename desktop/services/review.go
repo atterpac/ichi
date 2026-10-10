@@ -59,10 +59,11 @@ type ReviewWalkthrough struct {
 }
 
 type ReviewOptions struct {
-	Backend string
-	Model   string
-	Focus   string
-	RunID   string
+	Backend   string
+	Model     string
+	Focus     string
+	RunID     string
+	FilePaths []string // Empty means all files; otherwise only these exact paths are analyzed.
 }
 
 type reviewBackend interface {
@@ -315,6 +316,10 @@ func (s *ReviewService) Generate(ctx context.Context, id string, options ReviewO
 	if len(options.Focus) > 2000 || len(options.Model) > 200 {
 		return nil, fmt.Errorf("review options are too long")
 	}
+	snapshot, err = scopeReview(snapshot, options.FilePaths)
+	if err != nil {
+		return nil, err
+	}
 	selectBackend := s.backend
 	if selectBackend == nil {
 		selectBackend = newReviewBackend
@@ -376,4 +381,34 @@ func validateReview(raw []byte, snapshot *ReviewSnapshot) (*ReviewWalkthrough, e
 		}
 	}
 	return &ReviewWalkthrough{SnapshotID: value.SnapshotID, Summary: value.Summary, Steps: value.Steps}, nil
+}
+
+func scopeReview(snapshot *ReviewSnapshot, paths []string) (*ReviewSnapshot, error) {
+	if len(paths) == 0 {
+		return snapshot, nil
+	}
+	wanted := map[string]bool{}
+	for _, path := range paths {
+		wanted[path] = true
+	}
+	scoped := *snapshot
+	scoped.References = []ReviewReference{}
+	for _, ref := range snapshot.References {
+		if wanted[snapshot.Files[ref.FileIndex].Path] {
+			scoped.References = append(scoped.References, ref)
+		}
+	}
+	for _, file := range snapshot.Files {
+		delete(wanted, file.Path)
+	}
+	if len(wanted) > 0 || len(scoped.References) == 0 {
+		return nil, fmt.Errorf("choose files from this comparison")
+	}
+	var err error
+	scoped.batches, err = prepareReviewBatches(&scoped)
+	if err != nil {
+		return nil, err
+	}
+	scoped.AnalysisBatches = len(scoped.batches)
+	return &scoped, nil
 }

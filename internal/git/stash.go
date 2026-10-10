@@ -138,7 +138,7 @@ func (r *Repository) StashClear() error {
 
 // StashShow shows the diff of a stash entry.
 func (r *Repository) StashShow(index int) (string, error) {
-	return r.run("stash", "show", "-p", stashRef(index))
+	return r.run("stash", "show", "--include-untracked", "--no-ext-diff", "--no-textconv", "--no-color", "-p", stashRef(index))
 }
 
 // StashFiles returns the per-file numstat for a stash entry, so callers can

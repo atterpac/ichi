@@ -48,6 +48,7 @@ type Provider interface {
 
 // ListPRsOpts configures PR listing
 type ListPRsOpts struct {
+	Search string  // GitHub search qualifiers, including repository-wide sorting
 	State  PRState // Filter by state (empty = all open)
 	Author string  // Filter by author
 	Limit  int     // Max results (0 = default)
@@ -116,26 +117,28 @@ type InlineCommentInput struct {
 
 // PullRequest represents a PR/MR
 type PullRequest struct {
-	ID           int64
-	Number       int
-	Title        string
-	Body         string
-	State        PRState
-	Author       User
-	BaseBranch   string
-	HeadBranch   string
-	HeadSHA      string
-	Draft        bool
-	Mergeable    *bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Labels       []string
-	Reviewers    []User
-	Checks       []Check
-	URL          string
-	Additions    int
-	Deletions    int
-	ChangedFiles int
+	ReviewDecision string
+	Triage         InboxActivity
+	ID             int64
+	Number         int
+	Title          string
+	Body           string
+	State          PRState
+	Author         User
+	BaseBranch     string
+	HeadBranch     string
+	HeadSHA        string
+	Draft          bool
+	Mergeable      *bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Labels         []string
+	Reviewers      []User
+	Checks         []Check
+	URL            string
+	Additions      int
+	Deletions      int
+	ChangedFiles   int
 }
 
 // PRState represents the state of a PR

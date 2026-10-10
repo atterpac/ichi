@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"github.com/atterpac/ichi/internal/git"
+	"time"
 
 	"github.com/atterpac/ichi/internal/remote"
 	_ "github.com/atterpac/ichi/internal/remote/github"
@@ -14,6 +16,8 @@ type PRProviderStatus struct {
 	Provider string
 	Repo     string
 	Ready    bool
+	Login    string
+	Message  string
 }
 
 type PRService struct {
@@ -21,20 +25,30 @@ type PRService struct {
 }
 
 func (s *PRService) ProviderStatus(ctx context.Context, remoteName string) (*PRProviderStatus, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	provider, repoPath, url, err := s.provider(ctx, remoteName)
 	if err != nil {
 		return nil, err
 	}
-	return &PRProviderStatus{
-		Remote:   remoteName,
-		URL:      url,
-		Provider: provider.Name(),
-		Repo:     repoPath,
-		Ready:    true,
-	}, nil
+	status := &PRProviderStatus{Remote: remoteName, URL: url, Provider: provider.Name(), Repo: repoPath}
+	if err := provider.Authenticate(); err != nil {
+		status.Message = err.Error()
+		return status, nil
+	}
+	user, err := provider.CurrentUser()
+	if err != nil {
+		status.Message = err.Error()
+		return status, nil
+	}
+	status.Ready = true
+	status.Login = user.Login
+	return status, nil
 }
 
 func (s *PRService) ListPRs(ctx context.Context, remoteName string, opts remote.ListPRsOpts) ([]remote.PullRequest, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
 	provider, repoPath, _, err := s.provider(ctx, remoteName)
 	if err != nil {
 		return nil, err
@@ -192,4 +206,52 @@ func (s *PRService) provider(ctx context.Context, remoteName string) (remote.Pro
 		return nil, "", "", err
 	}
 	return provider.WithContext(ctx), repoPath, url, nil
+}
+
+// GetDiscussion returns the conversation and complete review threads without modifying GitHub.
+func (s *PRService) GetDiscussion(ctx context.Context, remoteName string, id int) (*remote.Discussion, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	provider, repo, _, err := s.provider(ctx, remoteName)
+	if err != nil {
+		return nil, err
+	}
+	discussion, ok := provider.(remote.DiscussionProvider)
+	if !ok {
+		return nil, fmt.Errorf("review threads are not available for this provider")
+	}
+	return discussion.GetDiscussion(repo, id)
+}
+
+func (s *PRService) GetPRPatches(ctx context.Context, remoteName string, id int, expectedHead string) ([]*git.FileDiff, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	if expectedHead == "" {
+		return nil, fmt.Errorf("refresh the pull request before loading review lines")
+	}
+	provider, repo, _, err := s.provider(ctx, remoteName)
+	if err != nil {
+		return nil, err
+	}
+	verify := func() error {
+		pr, err := provider.GetPR(repo, id)
+		if err != nil {
+			return err
+		}
+		if pr == nil || pr.HeadSHA != expectedHead {
+			return fmt.Errorf("the pull request changed while loading its diff; refresh before reviewing")
+		}
+		return nil
+	}
+	if err = verify(); err != nil {
+		return nil, err
+	}
+	raw, err := provider.GetPRDiff(repo, id)
+	if err != nil {
+		return nil, err
+	}
+	if err = verify(); err != nil {
+		return nil, err
+	}
+	return git.ParseDiff(raw)
 }

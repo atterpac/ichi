@@ -6,6 +6,7 @@ import * as ConflictService from "./conflictservice.js";
 import * as DiffService from "./diffservice.js";
 import * as GraphService from "./graphservice.js";
 import * as InspectService from "./inspectservice.js";
+import * as IssueService from "./issueservice.js";
 import * as PRService from "./prservice.js";
 import * as PreferencesService from "./preferencesservice.js";
 import * as RefService from "./refservice.js";
@@ -21,6 +22,7 @@ export {
     DiffService,
     GraphService,
     InspectService,
+    IssueService,
     PRService,
     PreferencesService,
     RefService,
@@ -41,9 +43,11 @@ export {
     ConflictWorkspace,
     ContentMatch,
     ContentSearchResult,
+    ContributorCommit,
     DiscardResult,
     FileMatch,
     FileSearchResult,
+    FontFamily,
     GitProfile,
     GitProfileCatalog,
     GraphGlyph,
