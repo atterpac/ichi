@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import PersonName from "../people/PersonName.vue"
+import { countLabel } from '../../composables/countLabel'
+import PaneSplitter from '../common/PaneSplitter.vue'
 import AuthorAvatar from '../common/AuthorAvatar.vue'
 import { computed, nextTick, ref, shallowRef, markRaw, watch } from 'vue'
 import { DiffService, InspectService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
@@ -30,6 +33,7 @@ const emit = defineEmits<{
 const settings = usePreferenceBindings()
 const inspect = useFileInspect()
 
+const historyWidth = ref(320)
 const entries = ref<FileLogEntry[]>([])
 const logLoading = ref(false)
 const logError = ref('')
@@ -367,7 +371,7 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
     <template v-else>
       <div class="fi-toolbar">
         <span class="fi-file"><em v-if="fileDir">{{ fileDir }}</em>{{ fileName }}</span>
-        <span v-if="entries.length" class="fi-pill">{{ entries.length }} commits</span>
+        <span v-if="entries.length" class="fi-pill">{{ countLabel(entries.length, 'commit') }}</span>
         <span v-if="blameRef && mode !== 'log'" class="fi-pill fi-blame-at">
           blame @ {{ shortRef }}
           <button type="button" aria-label="Back to working tree blame" @click="resetBlame">
@@ -439,7 +443,7 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
       <div v-else-if="logError" class="fi-state error">{{ logError }}</div>
       <div v-else-if="!entries.length" class="fi-state">No commits touch this file.</div>
 
-      <div v-else class="fi-body" :class="`mode-${mode}`">
+      <div v-else class="fi-body" :class="`mode-${mode}`" :style="{ '--history-width': `${historyWidth}px` }">
         <div
           v-if="mode !== 'blame'"
           ref="railEl"
@@ -448,6 +452,7 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
           tabindex="0"
           @keydown="onRailKey" data-keyboard-pane @focusin="setModeline({ mode: 'HISTORY', hints: 'j/k commit · l diff · Enter graph · / search' })"
         >
+          <PaneSplitter v-model="historyWidth" label="Resize file history" :min="200" :max="560" />
           <div class="fi-rail-track">
             <button
               v-for="entry in entries"
@@ -455,7 +460,7 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
               type="button"
               class="fi-commit"
               :class="{ sel: entry.Hash === selectedHash }"
-              :title="`${entry.ShortHash} · ${entry.Author} · ${entry.Date} · +${entry.Insertions} −${entry.Deletions}`"
+              :title="`${entry.Subject} · ${entry.ShortHash} · ${entry.Author} · ${entry.Date} · +${entry.Insertions} −${entry.Deletions}`"
               @click="selectCommit(entry.Hash)"
             >
               <AuthorAvatar :name="entry.Author" :commit="entry.Hash" :size="18" />
@@ -466,6 +471,11 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
         </div>
 
         <div v-if="mode === 'log'" class="fi-pane">
+          <header v-if="selected" class="fi-selected-commit">
+            <strong>{{ selected.Subject }}</strong>
+            <span>{{ selected.Author }} · {{ selected.Date }} · {{ selected.ShortHash }}</span>
+            <UiButton size="sm" @click="openInGraph">Open in graph</UiButton>
+          </header>
           <div v-if="diffLoading" class="fi-state">Loading diff…</div>
           <div v-else-if="diffError" class="fi-state error">{{ diffError }}</div>
           <DiffView v-else read-only ref="inspectDiff" @exit="railEl?.focus()" @focusin="setModeline({ mode: 'READ', hints: 'j/k hunk · t layout · h history' })" :diff="diff" :file-level-only="true" :load-file-content="loadCommitFileContent" />
@@ -497,7 +507,7 @@ const shortRef = computed(() => blameRef.value.slice(0, 7))
                 >
                   <template v-if="first">
                     <span class="fi-bl-hash">{{ line.ShortHash }}</span>
-                    <span class="fi-bl-author author-identity"><AuthorAvatar :name="line.Author" :commit="line.Hash" :size="16" /><span class="author-name">{{ line.Author }}</span></span>
+                    <span class="fi-bl-author author-identity"><AuthorAvatar :name="line.Author" :commit="line.Hash" :size="16" /><PersonName class="author-name" :name="line.Author" :commit="line.Hash" /></span>
                     <span class="fi-bl-ago">{{ ago }}</span>
                   </template>
                 </button>

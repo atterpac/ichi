@@ -4,7 +4,8 @@ import { Events, System, Window } from '@wailsio/runtime'
 // Matches main.go's macOS full-size-content window. Other platforms use
 // native title bars outside the webview and need no traffic-light inset.
 export function useWindowChrome() {
-  const isMac = ref(System.IsMac())
+  const detectMac = () => System.IsMac() || /Macintosh|MacIntel|Mac OS X/.test(navigator.userAgent + navigator.platform)
+  const isMac = ref(detectMac())
   const fullscreen = ref(false)
   let request = 0
   let disposed = false
@@ -22,7 +23,7 @@ export function useWindowChrome() {
   }
 
   onMounted(() => {
-    isMac.value = System.IsMac()
+    isMac.value = detectMac()
     if (!isMac.value) return
     // Query this window rather than applying another window's event state.
     unsubscribers.push(
@@ -39,5 +40,5 @@ export function useWindowChrome() {
     window.removeEventListener('focus', refreshFullscreen)
   })
 
-  return { reserveTrafficLights: computed(() => isMac.value && !fullscreen.value) }
+  return { isMac: computed(() => isMac.value), reserveTrafficLights: computed(() => isMac.value && !fullscreen.value) }
 }

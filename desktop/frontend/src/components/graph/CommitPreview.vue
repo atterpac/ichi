@@ -53,7 +53,7 @@ watch(() => [props.hash, props.parent, props.file] as const, async (_, __, onCle
           :class="{ added: line.Type === LineType.LineAdded, removed: line.Type === LineType.LineRemoved }">
           <span class="preview-line-number">{{ line.NewLineNo || line.OldLineNo || '' }}</span>
           <span class="preview-line-sign">{{ line.Type === LineType.LineAdded ? '+' : line.Type === LineType.LineRemoved ? '−' : ' ' }}</span>
-          <code>{{ line.Content.slice(0, 500) }}</code>
+          <code>{{ line.Content.slice(0, 500) }}<span v-if="line.Content.length > 500">… (open full diff for remaining characters)</span></code>
         </div>
       </div>
       <p class="preview-caption">First hunk · up to 12 lines</p>

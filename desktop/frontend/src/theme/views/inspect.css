@@ -494,3 +494,11 @@
     border-top: 1px solid var(--border);
   }
 }
+
+.fi-body.mode-log { grid-template-columns: minmax(200px, min(var(--history-width, 320px), 45vw)) minmax(0, 1fr); }
+.fi-rail { position: relative; }
+.fi-selected-commit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.fi-selected-commit strong { flex-basis: 100%; overflow-wrap: anywhere; }
+.fi-selected-commit span { color: var(--text-mut); font-size: var(--fs-xs); }
+
+.fi-body.mode-inspector { grid-template-columns: minmax(180px, min(var(--history-width, 320px), 35vw)) minmax(0, 1fr) 200px; }

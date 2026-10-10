@@ -52,6 +52,14 @@ const diff = {
 const content = Array.from({ length: 14 }, (_, i) => `file line ${i + 1}`).join('\n')
 
 describe('DiffView', () => {
+  it('emits base and head review coordinates without exposing staging', async () => {
+    const wrapper=mount(DiffView,{props:{diff,readOnly:true,reviewComments:true}})
+    await wrapper.get('[aria-label="Comment on base line 2"]').trigger('click')
+    await wrapper.get('[aria-label="Comment on head line 2"]').trigger('click')
+    expect(wrapper.emitted('comment')).toEqual([[{path:'src/thing.ts',line:2,side:'LEFT'}],[{path:'src/thing.ts',line:2,side:'RIGHT'}]])
+    expect(wrapper.emitted('stageHunk')).toBeUndefined()
+    wrapper.unmount()
+  })
   it('reveals a referenced hunk without enabling mutations in a review', async () => {
     const wrapper = mount(DiffView, { props: { diff, readOnly: true } })
     await wrapper.vm.revealHunk(1, false)
@@ -382,4 +390,12 @@ it('wraps bounded reviews and retains the active change through a refresh gap', 
   await wrapper.setProps({ diff: { ...diff } })
   expect(wrapper.get('.cursor-review-actions').text()).toContain('Change 2 of 2')
   wrapper.unmount()
+})
+
+it('exposes each highlighted line with its change type and source line number', () => {
+  const wrapper = mount(DiffView, { props: { diff, readOnly: true } })
+  try {
+    expect(wrapper.find('[aria-label="Added, new line 2: new two"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="Removed, old line 2: old two"]').exists()).toBe(true)
+  } finally { wrapper.unmount() }
 })

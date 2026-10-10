@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { countLabel } from '../../composables/countLabel'
 import { computed, nextTick, ref, watch } from 'vue'
 import { PhCaretRight, PhCheck, PhFolder } from '@phosphor-icons/vue'
 import type { StatusEntry } from '../../bindings/github.com/atterpac/ichi/internal/git'
@@ -131,7 +132,7 @@ defineExpose({ focusFiles })
     <header class="pane-head">
       <div class="pane-title">
         <h2>Working tree</h2>
-        <span>{{ files.length }} files</span>
+        <span>{{ countLabel(files.length, 'file') }}</span>
       </div>
       <div class="summary">
         <span class="positive">+{{ additions }}</span

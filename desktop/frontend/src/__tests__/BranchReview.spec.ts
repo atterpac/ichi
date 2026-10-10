@@ -108,6 +108,18 @@ afterEach(() => {
 })
 
 describe('BranchReview', () => {
+  it('filters file navigation and sends only checked paths for generation', async () => {
+    await openReview()
+    await click('Load comparison')
+    await wrapper.get('[aria-label="Include test.go in tour"]').setValue(false)
+    await wrapper.get('[aria-label="Filter review files"]').setValue('auth')
+    expect(wrapper.findAll('.review-file-row')).toHaveLength(1)
+    await wrapper.find('.review-file-row button').trigger('click')
+    expect(wrapper.find('.diff-stub').text()).toBe('auth.go')
+    await click('Generate tour')
+    expect(api.generate).toHaveBeenCalledWith('snapshot', expect.objectContaining({ FilePaths: ['auth.go'] }))
+  })
+
   it('explains an empty comparison and lets the user reverse it', async () => {
     api.compare.mockResolvedValueOnce(
       new ReviewSnapshot({ ...snapshot(), Files: [], References: [] }),
@@ -118,7 +130,7 @@ describe('BranchReview', () => {
     await click('Swap branches')
     await click('Load comparison')
     expect(api.compare).toHaveBeenLastCalledWith('feature', 'main')
-    expect(wrapper.get('#review-generation-reason').text()).toBe('Ready to generate a tour.')
+    expect(wrapper.get('#review-generation-reason').text()).toBe('Ready to review 2 selected files.')
     await click('Generate tour')
     expect(api.generate).toHaveBeenCalledOnce()
   })
@@ -145,6 +157,7 @@ describe('BranchReview', () => {
       Model: '',
       Focus: '',
       RunID: expect.any(String),
+      FilePaths: ['auth.go', 'test.go'],
     })
     expect(api.reveal).toHaveBeenLastCalledWith(1, false)
     expect(wrapper.get('.review-explanation').text()).toContain('An expired token')
@@ -156,7 +169,7 @@ describe('BranchReview', () => {
     expect(api.reveal).toHaveBeenLastCalledWith(0, false)
     await click('Mark reviewed')
     expect(wrapper.text()).toContain('1 / 2 steps reviewed')
-    await click('All changes (3)')
+    await click('All change sections (3)')
     await wrapper.get('.review-uncovered input').setValue(true)
     expect(wrapper.findAll('.review-target option')).toHaveLength(1)
     expect(wrapper.get('.review-target option').attributes('value')).toBe('one')
@@ -214,7 +227,7 @@ describe('BranchReview', () => {
         .find((button) => button.text() === 'Generate tour')!
         .attributes('disabled'),
     ).toBeUndefined()
-    expect(wrapper.text()).toContain('Ready to analyze 3 parts')
+    expect(wrapper.text()).toContain('Ready to review 2 selected files.')
     expect(wrapper.find('.diff-stub').exists()).toBe(true)
     await wrapper.findAll('select')[0]!.setValue('feature')
     expect(wrapper.find('.diff-stub').exists()).toBe(false)

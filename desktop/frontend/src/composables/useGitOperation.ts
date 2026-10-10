@@ -1,5 +1,6 @@
 import { onScopeDispose, ref } from 'vue'
 import { notify } from './useToasts'
+import { BranchSwitchRecoveryError } from './branchCreation'
 
 type OperationFeedback = {
   success?: string | { title: string; message?: string }
@@ -33,7 +34,7 @@ export function useGitOperation(options: {
       failure = error
       if (alive) {
         if (feedback.onError) feedback.onError(error)
-        else notify({ tone: 'danger', title: feedback.failure ?? 'Operation failed', message: error instanceof Error ? error.message : String(error) })
+        else if (!(feedback.rethrow && error instanceof BranchSwitchRecoveryError)) notify({ tone: 'danger', title: feedback.failure ?? 'Operation failed', message: error instanceof Error ? error.message : String(error) })
       }
     } finally {
       try {

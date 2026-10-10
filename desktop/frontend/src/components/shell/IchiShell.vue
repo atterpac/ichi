@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import ContributorProfile from "../people/ContributorProfile.vue"
+import { profile } from "../people/profile"
+import { countLabel } from '../../composables/countLabel'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import ConflictsView from '../conflicts/ConflictsView.vue'
 import { useConflictWorkspace } from '../../composables/useConflictWorkspace'
 import GitProfilesPage from '../overlays/GitProfilesPage.vue'
 import AppearanceLab from '../overlays/AppearanceLab.vue'
-import UiInput from '../common/UiInput.vue'
 import UiIconButton from '../common/UiIconButton.vue'
 import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
 import GraphView from '../graph/GraphView.vue'
@@ -12,6 +14,8 @@ import ChangesView from '../status/ChangesView.vue'
 import CommitDiffView from '../diff/CommitDiffView.vue'
 import BranchesView from '../refs/BranchesView.vue'
 import StashesView from '../refs/StashesView.vue'
+import IssuesView from '../issues/IssuesView.vue'
+import PullRequestsView from '../pr/PullRequestsView.vue'
 import FileInspectView from '../inspect/FileInspectView.vue'
 import SettingsModal from '../overlays/SettingsModal.vue'
 import ToastViewport from '../overlays/ToastViewport.vue'
@@ -27,7 +31,7 @@ import { useRepoStatus } from '../../composables/useRepoStatus'
 import { usePreferenceBindings, usePreferences } from '../../customization/usePreferences'
 import { PhGitBranch, PhGearSix, PhMagnifyingGlass, PhSidebarSimple, PhCaretUp, PhGitDiff, PhCheckCircle, PhArrowsDownUp, PhArchive, PhKeyboard } from '@phosphor-icons/vue'
 
-const { reserveTrafficLights } = useWindowChrome()
+const { reserveTrafficLights, isMac } = useWindowChrome()
 const profiles = useGitProfiles()
 const settingsProfile = ref('')
 const profilePage = ref<InstanceType<typeof GitProfilesPage>>()
@@ -35,7 +39,7 @@ function openProfileSettings(id = '') { settingsProfile.value = id; settingsOpen
 const settings = usePreferenceBindings()
 const preferences = usePreferences()
 const primaryViews = computed(() => NAV_GROUPS.flatMap(group => group.items).filter(item =>
-  ['graph', 'status', 'branches', 'stashes'].includes(item.id) ||
+  ['graph', 'status', 'branches', 'stashes', 'prs', 'issues'].includes(item.id) ||
   (item.id === 'diff' && activeView.value === 'diff') ||
   (item.id === 'conflicts' && (activeView.value === 'conflicts' || conflictWorkspace.active.value)),
 ))
@@ -82,6 +86,7 @@ watch([() => repo.info?.Path, () => workspaces.state.repos.find(item => item.pat
 const conflictWorkspace = useConflictWorkspace()
 const conflictsPage = ref<InstanceType<typeof ConflictsView>>()
 const activeView = ref('graph')
+onMounted(() => { watch(() => repo.revision, () => { profile.value = null }) })
 const settingsOpen = ref(false)
 const appearanceLabOpen = ref(false)
 function openAppearanceLab() { settingsOpen.value = false; appearanceLabOpen.value = true }
@@ -159,6 +164,7 @@ const views: Record<string, ViewMeta> = {
     group: 'Remote',
     description: 'Fetch, pull, push, upstream setup, and ahead/behind state for the active branch.',
   },
+  issues: { title: 'Issues', group: 'Remote', description: 'GitHub issues and conversations.' },
   prs: {
     title: 'Pull Requests',
     group: 'Remote',
@@ -219,12 +225,12 @@ const modelineCounts = computed<StatusSegment[]>(() => {
   if (changes) segs.push({
     id: 'status', label: 'Changes', count: String(changes), tone: 'warn',
     additions: info.Unstaged.Insertions, deletions: info.Unstaged.Deletions,
-    description: `Review ${changes} changed files: ${info.Unstaged.Insertions} added and ${info.Unstaged.Deletions} removed lines in tracked files${info.Unstaged.Untracked ? `; ${info.Unstaged.Untracked} untracked files` : ''}`,
+    description: `Review ${countLabel(changes, 'changed file')}: ${info.Unstaged.Insertions} added and ${info.Unstaged.Deletions} removed lines in tracked files${info.Unstaged.Untracked ? `; ${countLabel(info.Unstaged.Untracked, 'untracked file')}` : ''}`,
   })
   if (staged) segs.push({
     id: 'commit', label: 'Staged', count: String(staged), tone: 'good',
     additions: info.Staged.Insertions, deletions: info.Staged.Deletions,
-    description: `Review ${staged} staged files: ${info.Staged.Insertions} added and ${info.Staged.Deletions} removed lines`,
+    description: `Review ${countLabel(staged, 'staged file')}: ${info.Staged.Insertions} added and ${info.Staged.Deletions} removed lines`,
   })
   if (info.Ahead || info.Behind) segs.push({
     id: 'sync', label: 'Sync', count: [info.Ahead ? `↑${info.Ahead}` : '', info.Behind ? `↓${info.Behind}` : ''].filter(Boolean).join(' '), tone: 'sync',
@@ -273,13 +279,11 @@ watch(finderOpen, (open) => {
   else void nextTick(() => { if (finderReturn?.isConnected) finderReturn.focus() })
 })
 
-const headerQuery = ref('')
 const finderInitialQuery = ref('')
-function searchFromHeader() {
-  finderInitialQuery.value = headerQuery.value.trim()
-  leaderOpen.value = false
-  finderOpen.value = true
-
+const moreViews = ref<HTMLDetailsElement | null>(null)
+function selectOverflow(view: string) {
+  if (moreViews.value) moreViews.value.open = false
+  setView(view)
 }
 
 function setView(view: string, focus = '', file = '') {
@@ -349,7 +353,7 @@ function handleShellKeydown(event: KeyboardEvent) {
     return
   }
 
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
+  if ((event.ctrlKey || event.metaKey) && ['p', 'k'].includes(event.key.toLowerCase())) {
     event.preventDefault()
     setView('finder')
     return
@@ -395,7 +399,7 @@ function handleShellCapture(event: KeyboardEvent) {
     dismissShortcutHelp()
     return
   }
-  if (((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') ||
+  if (((event.ctrlKey || event.metaKey) && ['p', 'k'].includes(event.key.toLowerCase())) ||
       (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey && !isEditableTarget(event.target))) {
     event.preventDefault()
     event.stopPropagation()
@@ -427,58 +431,46 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
 
 <template>
   <main class="ichi-shell" :class="{ 'has-traffic-lights': reserveTrafficLights }">
-    <header class="topbar">
-      <div class="repo-context" :title="repoPath" :inert="settingsOpen || undefined">
-        <RepoSwitcher :disabled="settingsOpen" @settings="openWorkspaceSettings" @opened="switcherOpened" />
-        <span class="repo-divider" aria-hidden="true">/</span>
-        <span class="repo-branch" :title="branchLabel"><PhGitBranch :size="16" weight="bold" /><span>{{ branchLabel }}</span></span>
-        <span v-if="worktreeCount" class="repo-dirty" :title="`${worktreeCount} changed files`">
-          <i aria-hidden="true" />{{ worktreeCount }} changed
-        </span>
-        <div id="view-header-context" class="header-context" aria-label="Repository actions" :inert="repo.switching || profiles.state.syncing || !!profiles.state.syncError || undefined" />
-      </div>
-      <nav class="primary-nav" aria-label="Repository views" :inert="settingsOpen || repo.switching || profiles.state.syncing || undefined">
-        <button
-          v-for="item in primaryViews"
-          :key="item.id"
-          type="button"
-          :aria-current="activeView === item.id || (item.id === 'status' && activeView === 'commit') ? 'page' : undefined"
-          :title="`${item.label} (${item.key})`"
-          @click="setView(item.id)"
-        >{{ item.label }}<span aria-hidden="true">{{ item.key }}</span></button>
-        <span v-if="!primaryViews.some(item => item.id === activeView) && activeView !== 'commit'" class="secondary-view-title">{{ viewTitle }}</span>
-      </nav>
-      <div class="header-tools" :inert="settingsOpen || undefined">
-        <form class="titlebar-search ui-control size-lg" role="search" @submit.prevent="searchFromHeader">
-          <PhMagnifyingGlass weight="bold" :size="16" aria-hidden="true" />
-          <UiInput
-            size="lg"
-            v-model="headerQuery"
-            type="search"
-            aria-label="Search commits, files, and refs"
-            placeholder="Search commits, files, and refs…"
-            autocomplete="off"
-            spellcheck="false"
-            @focus="finderOpen = false"
-          />
-          <button type="submit" aria-label="Search" title="Search (Enter)"><kbd>↵</kbd></button>
-        </form>
-        <div class="topbar-actions">
-          <UiIconButton v-if="activeView === 'graph'" size="sm" label="Toggle inspector" :aria-expanded="settings['graph.detailPosition'] !== 'hidden'" aria-controls="commit-inspector" @click="toggleInspector">
-            <PhSidebarSimple weight="bold" :size="16" />
-          </UiIconButton>
-
-          <UiIconButton class="titlebar-icon" size="sm" label="Settings" @click="openSettings">
-            <PhGearSix :size="16" weight="bold" />
-          </UiIconButton>
+    <header class="window-header">
+      <div class="window-bar" :inert="settingsOpen || undefined">
+        <div class="repo-context" :title="repoPath">
+          <RepoSwitcher :disabled="settingsOpen" @settings="openWorkspaceSettings" @opened="switcherOpened" />
+          <span class="repo-divider" aria-hidden="true">/</span>
+          <button class="repo-branch" :title="branchLabel" @click="setView('branches', repo.info?.Branch || '')"><PhGitBranch :size="16" weight="bold" /><span>{{ branchLabel }}</span></button>
         </div>
+        <div class="window-drag-space" />
+        <button class="header-search-button" type="button" aria-label="Search commits, files, and refs" :title="`Search (${isMac ? '⌘K' : 'Ctrl+K'})`" @click="setView('finder')">
+          <PhMagnifyingGlass weight="bold" :size="16" aria-hidden="true" /><span>Search</span><kbd>{{ isMac ? '⌘K' : 'Ctrl+K' }}</kbd>
+        </button>
+        <div id="window-sync-context" class="window-sync-context" :inert="!!profile || repo.switching || profiles.state.syncing || !!profiles.state.syncError || undefined" />
+        <UiIconButton class="titlebar-icon" size="sm" label="Settings" @click="openSettings"><PhGearSix :size="16" weight="bold" /></UiIconButton>
+      </div>
+      <div class="navigation-bar" :inert="settingsOpen || repo.switching || profiles.state.syncing || undefined">
+        <nav class="primary-nav" aria-label="Repository views">
+          <button v-for="item in primaryViews" :key="item.id" type="button"
+            :class="{ 'nav-extra': ['stashes', 'prs', 'issues'].includes(item.id), 'nav-secondary': item.id === 'branches' }"
+            :aria-current="activeView === item.id || (item.id === 'status' && activeView === 'commit') ? 'page' : undefined"
+            :title="`${item.label} (${item.key})`" @click="setView(item.id)">{{ item.label }}</button>
+          <details ref="moreViews" class="view-more" @keydown.esc.stop.prevent="moreViews && (moreViews.open = false)">
+            <summary :aria-current="['stashes', 'prs', 'issues', 'branches'].includes(activeView) ? 'page' : undefined">{{ ['stashes', 'prs', 'issues'].includes(activeView) ? viewTitle : 'More' }} <span aria-hidden="true">⌄</span></summary>
+            <div class="view-more-menu">
+              <button class="more-branch" @click="selectOverflow('branches')">Branches</button>
+              <button @click="selectOverflow('stashes')">Stash</button>
+              <button @click="selectOverflow('prs')">Pull Requests</button>
+              <button @click="selectOverflow('issues')">Issues</button>
+            </div>
+          </details>
+          <span v-if="!primaryViews.some(item => item.id === activeView) && activeView !== 'commit'" class="secondary-view-title">{{ viewTitle }}</span>
+        </nav>
+        <div id="view-header-context" class="header-context" aria-label="View actions" :inert="!!profiles.state.syncError || undefined" />
+        <UiIconButton v-if="activeView === 'graph'" size="sm" label="Toggle inspector" :aria-expanded="settings['graph.detailPosition'] !== 'hidden'" aria-controls="commit-inspector" @click="toggleInspector"><PhSidebarSimple weight="bold" :size="16" /></UiIconButton>
       </div>
     </header>
 
     <div v-if="profiles.state.syncError" class="profile-sync-error" role="alert">Could not apply workspace identity: {{ profiles.state.syncError }} <button @click="openProfileSettings()">Manage profiles</button><button @click="profiles.sync().catch(() => {})">Retry</button></div>
     <div class="body-shell" :inert="settingsOpen || undefined">
 
-      <section class="main-island" aria-live="polite" :inert="repo.switching || profiles.state.syncing || (!!profiles.state.syncError && activeView !== 'profiles' && activeView !== 'conflict-demo') || undefined" :aria-busy="repo.switching">
+      <section class="main-island" aria-live="polite" :inert="!!profile || repo.switching || profiles.state.syncing || (!!profiles.state.syncError && activeView !== 'profiles' && activeView !== 'conflict-demo') || undefined" :aria-busy="repo.switching">
         <h1 class="sr-only">{{ viewTitle }}</h1>
 
         <div v-if="conflictWorkspace.active.value && activeView !== 'conflicts'" class="shell-conflict-banner" role="status">
@@ -489,7 +481,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
 
         <GitProfilesPage ref="profilePage" v-else-if="activeView === 'profiles'" :initial-profile="settingsProfile" />
 
-        <GraphView :repository-path="repo.info?.Path" :key="repo.revision" v-else-if="activeView === 'graph'" :focus-hash="focusRef" :focus-blocked="repo.switching || profiles.state.syncing || !!profiles.state.syncError" @navigate="setView" />
+        <GraphView :repository-path="repo.info?.Path" :key="repo.revision" v-else-if="activeView === 'graph'" :focus-hash="focusRef" :focus-blocked="!!profile || repo.switching || profiles.state.syncing || !!profiles.state.syncError || finderOpen || settingsOpen || leaderOpen || ichiMenuOpen || appearanceLabOpen" @navigate="setView" />
 
         <CommitDiffView :key="repo.revision" v-else-if="activeView === 'diff'" :repository-path="repo.info?.Path" :focus-hash="focusRef" :focus-file="focusFile" @back="goBack" />
 
@@ -501,6 +493,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
         />
 
         <BranchesView :repository-path="repo.info?.Path" :focus-branch="focusRef" :key="repo.revision" v-else-if="activeView === 'branches'" @navigate="setView" />
+
+        <IssuesView :key="repo.revision" v-else-if="activeView === 'issues'" />
+        <PullRequestsView :key="repo.revision" v-else-if="activeView === 'prs'" :focus-branch="focusRef" />
 
         <StashesView :key="repo.revision" v-else-if="activeView === 'stashes'" />
 
@@ -560,14 +555,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleShellKeydown))
           </span>
         </button>
       </nav>
-      <button class="ml-ichi" type="button" aria-label="About Ichi" aria-haspopup="dialog" :aria-expanded="ichiMenuOpen" aria-controls="ichi-menu" @click="openIchiMenu">
-        <span aria-hidden="true">一</span> ichi <PhCaretUp :size="12" aria-hidden="true" />
-      </button>
+
+      <button class="ml-ichi" type="button" aria-label="About Ichi" aria-haspopup="dialog" :aria-expanded="ichiMenuOpen" @click="openIchiMenu"><span aria-hidden="true">一</span> ichi <span aria-hidden="true">⌃</span></button>
     </footer>
 
     <IchiMenu v-if="ichiMenuOpen" @close="ichiMenuOpen = false" />
     <AppearanceLab :open="appearanceLabOpen" @close="appearanceLabOpen = false" />
     <SettingsModal @conflict-demo="settingsOpen = false; setView('conflict-demo')" @profiles="openProfileSettings()" @appearance-lab="openAppearanceLab" v-if="settingsOpen" :initial-category="settingsCategory" :initial-profile="settingsProfile" @close="settingsOpen = false" />
+    <ContributorProfile v-if="profile" :key="JSON.stringify(profile)" :person="profile" />
     <ToastViewport />
   </main>
 </template>

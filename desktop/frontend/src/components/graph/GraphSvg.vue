@@ -14,6 +14,7 @@ import type { GraphLayoutRow, GraphRailSegment } from '../../bindings/github.com
 const props = defineProps<{
   rows: GraphLayoutRow[]
   laneCount: number
+  interactiveAvatars?: boolean
   segments?: GraphRailSegment[]
   /** Global position/height when rows is a viewport slice. */
   startIndex?: number
@@ -215,7 +216,7 @@ const renderRows = computed(() => geometryRows.value.map(row => {
           '--node-color': row.node.glyph.color,
         }"
       >
-        <AuthorAvatar :name="row.commit.Author" :commit="row.commit.Hash" :size="Math.max(10, Math.min(20, rowHeight - 12))" />
+        <AuthorAvatar :interactive="interactiveAvatars !== false" :name="row.commit.Author" :commit="row.commit.Hash" :size="Math.max(10, Math.min(20, rowHeight - 12))" />
       </span>
     </template>
   </div>

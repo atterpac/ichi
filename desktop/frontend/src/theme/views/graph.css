@@ -42,7 +42,7 @@
 }
 
 .commit-table {
-  --rail-width: clamp(100px, 16cqw, 180px);
+  --rail-width: inherit;
   min-width: 440px;
   min-height: 100%;
   display: flex;
@@ -836,12 +836,12 @@ button.detail-file-row:hover {
   .graph-grid.detail-bottom .heat-pane .pane-footer { grid-column: 1; grid-row: 3; padding: var(--space-4) var(--space-8); }
 }
 
-/* Refs, their connector, and the node share a lane color. */
-.commit-refs .ref-cluster .ref-label {
+/* Default refs share the lane color; explicit label styles stay owned by RefLabel. */
+.commit-refs .ref-cluster .ref-label:not(.ref-custom-color):not(.ref-outline):not(.ref-plain) {
   background: color-mix(in oklab, var(--row-lane) 16%, var(--surface-panel));
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--row-lane) 22%, transparent);
 }
-.commit-refs .ref-cluster:hover .ref-label {
+.commit-refs .ref-cluster:hover .ref-label:not(.ref-custom-color):not(.ref-outline):not(.ref-plain) {
   background: color-mix(in oklab, var(--row-lane) 25%, var(--surface-panel));
 }
 .commit-table-head .th-subject { padding-left: 12px; }
@@ -929,10 +929,19 @@ button.detail-file-row:hover {
 .commit-preview button:focus-visible, .commit-preview-code:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .commit-preview p { color: var(--text-mut); font: var(--fs-xs)/1.5 var(--font-ui); }
 .commit-preview-code { overflow: auto; border-radius: var(--radius-xs); background: var(--surface); max-height: 264px; }
-.commit-preview-line { display: flex; width: max-content; min-width: 100%; font: var(--fs-xs)/22px var(--font-mono); }
-.commit-preview-line code { white-space: pre; padding-right: 12px; font: inherit; }
+.commit-preview-line { display: flex; min-width: 0; font: var(--fs-xs)/22px var(--font-mono); }
+.commit-preview-line code { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; padding-right: 12px; font: inherit; }
 .preview-line-number { flex: none; width: 4ch; text-align: right; padding-right: 8px; color: var(--text-mut); user-select: none; }
 .preview-line-sign { flex: none; width: 2ch; white-space: pre; }
 .commit-preview-line.added { color: var(--positive-text); background: color-mix(in srgb, var(--positive-text) 9%, transparent); }
 .commit-preview-line.removed { color: var(--negative-text); background: color-mix(in srgb, var(--negative-text) 9%, transparent); }
 .preview-caption { margin: 6px 0 0; }
+
+/* Preserve readable subjects and give the working composer the metadata columns. */
+.commit-table-head .resizable-column { position: relative; overflow: visible; height: 100%; display: flex; align-items: center; }
+.commit-row.working .commit-main { grid-column: 3 / -1; }
+.commit-row.working .commit-hash, .commit-row.working .commit-table-author, .commit-row.working .commit-table-date { display: none; }
+@container commit-table (min-width: 761px) and (max-width: 960px) {
+  .commit-list:not(.no-author-column) .commit-table-head, .commit-list:not(.no-author-column) .commit-row { grid-template-columns: var(--ref-width) var(--rail-width) minmax(0, 1fr) 74px 76px; }
+  .commit-list:not(.no-author-column) .th-author, .commit-list:not(.no-author-column) .commit-table-author { display: none; }
+}

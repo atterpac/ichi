@@ -594,45 +594,48 @@
   .topbar-actions { grid-column: 2; grid-row: 1; }
 }
 
-/* One app header: repository actions, view navigation, search, utilities. */
-.topbar {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: var(--space-6);
-  border-bottom: 0;
+/* Window identity and navigation occupy separate, predictable rows. */
+.ichi-shell { --topbar-height: 90px; }
+.window-header { position: absolute; inset: 0 0 auto; height: var(--topbar-height); z-index: 10; background: var(--chrome-bg); }
+.window-bar { height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 max(12px, var(--window-controls-inset)); --wails-draggable: drag; }
+.window-bar button, .window-bar summary, .window-bar .pocket, .window-sync-context { --wails-draggable: no-drag; }
+.window-bar .repo-context { padding-left: 0; flex: 0 1 auto; min-width: 0; gap: 8px; }
+.window-bar .pocket-trigger { max-width: 220px; min-width: 70px; background: transparent; border-color: transparent; }
+.window-bar .repo-branch { display: inline-flex; max-width: 240px; background: none; border: 0; padding: 5px; cursor: pointer; }
+.window-bar .repo-divider { display: inline; }
+.window-drag-space { flex: 1; min-width: 20px; align-self: stretch; }
+.header-search-button { border: 0; border-radius: 5px; background: none; color: var(--text-dim); padding: 6px 8px; display: inline-flex; align-items: center; gap: 8px; flex: none; cursor: pointer; }
+.header-search-button kbd { color: var(--text-mut); font: var(--fs-xs) var(--font-ui); }
+.window-header button:hover, .window-header summary:hover { background: var(--hover); }
+.window-header button:focus-visible, .window-header summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.navigation-bar { height: 40px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-top: 1px solid var(--border); }
+.navigation-bar .primary-nav { box-shadow: none; flex: none; overflow: visible; gap: 2px; border: 0; padding: 0; background: none; }
+.navigation-bar .primary-nav > button { padding: 6px 10px; font-size: var(--fs-sm); border-radius: 5px; }
+.navigation-bar .header-context { margin-left: auto; min-width: 0; overflow: hidden; }
+.window-sync-context { display: flex; align-items: center; gap: 6px; }
+.window-sync-context:empty { display: none; }
+.header-sync-menu, .view-more { position: relative; font-size: var(--fs-sm); }
+.header-sync-menu summary, .view-more summary { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 5px; color: var(--text-dim); cursor: pointer; list-style: none; white-space: nowrap; }
+.header-sync-menu summary::-webkit-details-marker, .view-more summary::-webkit-details-marker { display: none; }
+.sync-menu-actions, .view-more-menu { position: absolute; right: 0; top: calc(100% + 6px); display: grid; min-width: 150px; padding: 6px; gap: 4px; background: var(--surface-overlay); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--elev-3); z-index: 50; }
+.view-more-menu button { width: 100%; text-align: left; }
+.navigation-bar .view-more, .navigation-bar .more-branch { display: none; }
+@media(max-width: 1050px) {
+ .window-bar .pocket-trigger { max-width: 160px; }
+ .window-bar .repo-branch { max-width: 160px; }
+ .header-search-button span, .header-search-button kbd { display: none; }
+ .navigation-bar .header-meta { display: none; }
 }
-.header-tools {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-4);
-  min-width: 0;
+@media(max-width: 760px) {
+ .navigation-bar .primary-nav > .nav-extra { display: none; }
+ .navigation-bar .view-more { display: block; }
+ .window-bar { gap: 5px; }
+ .window-bar .repo-branch { max-width: 100px; }
+ .window-bar .pocket-trigger { max-width: 130px; }
 }
-.header-tools .titlebar-search { max-width: 300px; }
-.header-tools .topbar-actions { flex-shrink: 0; }
-.topbar .primary-nav,
-.topbar .header-context { --wails-draggable: no-drag; }
-.topbar .primary-nav { overflow-x: auto; }
-.topbar .primary-nav button { padding-inline: var(--space-4); }
-.topbar .primary-nav button span { display: none; }
-.topbar .header-context { flex-shrink: 0; margin-left: var(--space-3); }
-.topbar .repo-branch { min-width: 0; }
-.topbar .repo-branch > span { overflow: hidden; text-overflow: ellipsis; }
-.topbar .repo-dirty { display: none; }
-@media (max-width: 1200px) {
-  .topbar { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--space-3); }
-  .topbar .repo-branch, .topbar .repo-divider, .topbar .header-meta, .topbar .header-sync { display: none; }
-}
-@media (max-width: 900px) {
-  .ichi-shell { --topbar-height: 88px; }
-  .topbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 44px 44px; gap: 0 var(--space-4); }
-  .header-tools { display: contents; }
-  .repo-context { grid-column: 1; grid-row: 1; }
-  .topbar-actions { grid-column: 2; grid-row: 1; }
-  .topbar .primary-nav { grid-column: 1; grid-row: 2; justify-self: start; max-width: 100%; }
-  .titlebar-search { grid-column: 2; grid-row: 2; width: 180px; }
-}
-@media (max-width: 440px) {
-  .titlebar-search { width: 100px; }
-  .topbar .primary-nav button { padding-inline: var(--space-3); font-size: var(--fs-sm); }
-  .topbar .pocket-trigger { max-width: 140px; }
+@media(max-width: 560px) {
+ .navigation-bar .primary-nav > .nav-secondary { display: none; }
+ .navigation-bar .more-branch { display: block; }
+ .window-bar .repo-branch, .window-bar .repo-divider { display: none; }
+ .window-drag-space { min-width: 0; }
 }

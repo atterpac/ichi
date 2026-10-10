@@ -15,6 +15,8 @@ const props = defineProps<{
   staged?: boolean
   readOnly?: boolean
   cursorReview?: boolean
+  reviewComments?: boolean
+  filesOnRight?: boolean
   /** whole-file staging only (untracked previews) — hunk/line ops disabled */
   fileLevelOnly?: boolean
   /**
@@ -26,6 +28,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  comment: [line: { path: string; line: number; side: string }]
   stageHunk: [hunk: DiffHunk]
   stageLines: [hunk: DiffHunk, lines: DiffLine[]]
   stageFile: []
@@ -45,11 +48,12 @@ const DENSITY_HEIGHTS = { compact: 17, comfortable: 20, relaxed: 24 } as const
 
 const CURSOR_DENSITY_HEIGHTS = { compact: 22, comfortable: 26, relaxed: 30 } as const
 const rowHeight = computed(() => props.cursorReview ? CURSOR_DENSITY_HEIGHTS[settings['diff.density']] : DENSITY_HEIGHTS[settings['diff.density']])
-const layout = computed(() => props.cursorReview ? 'unified' : settings['diff.layout'])
+const layout = computed(() => (props.cursorReview || props.reviewComments) ? 'unified' : settings['diff.layout'])
 
 const LAYOUT_CYCLE = ['unified', 'split', 'inline', 'changes', 'result'] as const
 
 function cycleLayout() {
+  if (props.reviewComments) return
   const index = LAYOUT_CYCLE.indexOf(layout.value)
   settings['diff.layout'] = LAYOUT_CYCLE[(index + 1) % LAYOUT_CYCLE.length]!
 }
@@ -680,6 +684,11 @@ function onKey(event: KeyboardEvent) {
   const key = event.key
   if (props.readOnly && ['s', 'S', 'v', 'e'].includes(key)) { event.preventDefault(); return }
   if (editMode.value) return
+  if (props.filesOnRight && !lineMode.value && ['l', 'ArrowRight'].includes(key)) {
+    event.preventDefault()
+    emit('exit')
+    return
+  }
   if (props.cursorReview && !lineMode.value) {
     let handled = true
     switch (key) {
@@ -921,6 +930,8 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
             v-else-if="row.kind === 'line'"
             class="diff-line"
             :data-diff-row="index"
+            :role="reviewComments || (cursorReview && editMode && index === cursorRow) ? undefined : 'img'"
+            :aria-label="reviewComments || (cursorReview && editMode && index === cursorRow) ? undefined : `${row.cell.line.Type === LineType.LineAdded ? 'Added' : row.cell.line.Type === LineType.LineRemoved ? 'Removed' : 'Context'}${row.cell.line.OldLineNo ? `, old line ${row.cell.line.OldLineNo}` : ''}${row.cell.line.NewLineNo ? `, new line ${row.cell.line.NewLineNo}` : ''}: ${row.cell.content}${row.cell.truncatedChars ? `, ${row.cell.truncatedChars} more characters` : ''}`"
             :class="{
               add: row.cell.line.Type === LineType.LineAdded,
               del: row.cell.line.Type === LineType.LineRemoved,
@@ -936,6 +947,7 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
             <span v-if="cursorReview" class="diff-cursor-marker" aria-hidden="true">{{ index === cursorRow ? '›' : '' }}</span>
             <span class="line-no">{{ row.cell.line.OldLineNo || '' }}</span>
             <span class="line-no">{{ row.cell.line.NewLineNo || '' }}</span>
+            <button v-if="reviewComments && row.cell.hunkIndex >= 0 && (row.cell.line.Type === LineType.LineRemoved ? row.cell.line.OldLineNo : row.cell.line.NewLineNo) > 0" class="diff-review-add" :aria-label="`Comment on ${row.cell.line.Type === LineType.LineRemoved ? 'base' : 'head'} line ${row.cell.line.Type === LineType.LineRemoved ? row.cell.line.OldLineNo : row.cell.line.NewLineNo}`" @click.stop="emit('comment', {path:diff?.Path || '',line:row.cell.line.Type === LineType.LineRemoved ? row.cell.line.OldLineNo : row.cell.line.NewLineNo,side:row.cell.line.Type === LineType.LineRemoved ? 'LEFT' : 'RIGHT'})">+</button>
             <span class="line-sign">{{ row.cell.line.Type === LineType.LineAdded ? '+' : row.cell.line.Type === LineType.LineRemoved ? '-' : ' ' }}</span>
             <input v-if="cursorReview && editMode && index === cursorRow"
               v-model="editValue" class="diff-inline-editor" aria-label="Edit line" spellcheck="false" autocomplete="off"
@@ -971,3 +983,7 @@ const editHint = computed(() => canEditActive.value ? ' · e edit' : '')
     </template>
   </section>
 </template>
+
+<style scoped>
+.diff-review-add { width:20px; min-width:20px; height:18px; line-height:14px; padding:0; margin:0 3px; border:1px solid var(--accent-line); border-radius:3px; color:var(--accent-text); background:var(--selected); cursor:pointer; font-size:13px; }
+</style>

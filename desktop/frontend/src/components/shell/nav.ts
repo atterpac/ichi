@@ -35,6 +35,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'sync', label: 'Sync', key: 'u' },
       { id: 'prs', label: 'Pull Requests', key: 'p' },
+      { id: 'issues', label: 'Issues', key: 'e' },
       { id: 'remotes', label: 'Remotes', key: 'r' },
     ],
   },

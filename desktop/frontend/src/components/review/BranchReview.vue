@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { countLabel } from '../../composables/countLabel'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Events } from '@wailsio/runtime'
-import type { Branch } from '../../bindings/github.com/atterpac/ichi/internal/git'
+import type { Branch, FileDiff } from '../../bindings/github.com/atterpac/ichi/internal/git'
 import type {
   ReviewSnapshot,
   ReviewWalkthrough,
@@ -52,6 +53,27 @@ const stepIndex = ref(-1)
 const referenceID = ref('')
 const reviewed = ref(new Set<number>())
 const uncoveredOnly = ref(false)
+const fileQuery = ref('')
+const selectedPaths = ref(new Set<string>())
+const generatedPaths = ref<string[]>([])
+const matchingFiles = computed(() => (snapshot.value?.Files ?? []).filter((file): file is FileDiff => !!file).filter(file => `${file.Path} ${file.OldPath || ''}`.toLowerCase().includes(fileQuery.value.toLowerCase())))
+function toggleFile(path: string) {
+  const next = new Set(selectedPaths.value)
+  if (next.has(path)) next.delete(path)
+  else next.add(path)
+  selectedPaths.value = next
+}
+function selectMatching(include: boolean) {
+  const next = new Set(selectedPaths.value)
+  for (const file of matchingFiles.value) { if (include) next.add(file.Path); else next.delete(file.Path) }
+  selectedPaths.value = next
+}
+function browseFile(index: number) {
+  stepIndex.value = -1
+  uncoveredOnly.value = false
+  referenceID.value = references.value.find(reference => reference.FileIndex === index)?.ID ?? ''
+}
+
 const diffViewer = ref<InstanceType<typeof DiffView> | null>(null)
 const activeStep = computed(() => tour.value?.steps[stepIndex.value])
 const covered = computed(() => new Set(tour.value?.steps.flatMap((step) => step.diffRefs) ?? []))
@@ -79,6 +101,7 @@ const generationBlocker = computed(() => {
       : 'Load a comparison first.'
   if (!references.value.length)
     return `No new changes on ${head.value} from the common ancestor. Try swapping base and head.`
+  if (!selectedPaths.value.size) return 'Select at least one file to generate a tour.'
   if (settings['review.backend'] === 'ollama' && !model.value.trim())
     return 'Enter an installed Ollama model name to generate a tour.'
   return ''
@@ -109,6 +132,9 @@ function reset() {
   referenceID.value = ''
   reviewed.value = new Set()
   uncoveredOnly.value = false
+  fileQuery.value = ''
+  selectedPaths.value = new Set()
+  generatedPaths.value = []
 }
 watch([base, head, () => props.repositoryPath], reset)
 
@@ -123,6 +149,7 @@ async function loadComparison() {
     if (!alive || generation !== version) return
     if (!result) throw new Error('Comparison unavailable')
     snapshot.value = result
+    selectedPaths.value = new Set(result.Files.filter((file): file is FileDiff => !!file).map(file => file.Path))
     referenceID.value = result.References[0]?.ID ?? ''
   } catch (cause) {
     if (alive && generation === version) error.value = String(cause)
@@ -143,11 +170,13 @@ async function generate() {
   phase.value = 'generating'
   error.value = notice.value = ''
   try {
+    const paths = [...selectedPaths.value]
     const request = ReviewService.Generate(id, {
       Backend: settings['review.backend'],
       Model: model.value.trim(),
       Focus: focus.value,
       RunID: runID,
+      FilePaths: [...selectedPaths.value],
     })
     pending = request
     const result = await request
@@ -155,6 +184,7 @@ async function generate() {
     if (!result || result.snapshotId !== id)
       throw new Error('Walkthrough does not match this comparison')
     tour.value = result
+    generatedPaths.value = paths
     reviewed.value = new Set()
     selectStep(0)
     void checkFreshness()
@@ -310,15 +340,13 @@ onBeforeUnmount(() => {
           <p id="review-generation-reason" class="review-help review-provider-note" role="status">
             {{
               generationBlocker ||
-              (snapshot && snapshot.AnalysisBatches > 1
-                ? `Ready to analyze ${snapshot.AnalysisBatches} parts and combine them into one tour.`
-                : 'Ready to generate a tour.')
+              `Ready to review ${countLabel(selectedPaths.size, 'selected file')}.`
             }}
           </p>
           <p class="review-help review-provider-note">
             {{
               settings['review.backend'] === 'codex'
-                ? 'Sends this diff to OpenAI using your Codex login. Run codex login first.'
+                ? 'Sends only the selected file diffs to OpenAI using your Codex login. Run codex login first.'
                 : 'Uses Ollama on this device. Enter a local model from ollama list; 64k context is requested.'
             }}
             Tours stay in this view for this first version.
@@ -345,44 +373,15 @@ onBeforeUnmount(() => {
             <span>Base {{ snapshot.BaseCommit.slice(0, 8) }}</span
             ><span>Common ancestor {{ snapshot.MergeBase.slice(0, 8) }}</span
             ><span>Head {{ snapshot.HeadCommit.slice(0, 8) }}</span
-            ><span>{{ snapshot.Files.length }} files</span>
+            ><span>{{ countLabel(snapshot.Files.length, 'file') }} · {{ countLabel(references.length, 'change section') }}</span>
           </div>
-          <p v-if="snapshot.GenerationNote" class="review-banner">{{ snapshot.GenerationNote }}</p>
+          <p class="review-banner">A change section is a diff hunk or a file-only change. Choose files below to limit the tour; all captured changes remain available to browse.</p>
           <SurfaceState
             v-if="!references.length"
             title="No changes to review"
             message="The head has no changes from the common ancestor."
           />
           <div v-else class="review-content">
-            <aside class="review-sidebar" aria-label="Review steps">
-              <template v-if="tour">
-                <p class="review-summary">{{ tour.summary }}</p>
-                <p class="review-help">
-                  {{ covered.size }} / {{ references.length }} change sections linked ·
-                  {{ reviewed.size }} / {{ tour.steps.length }} steps reviewed
-                </p>
-                <button
-                  v-for="(step, index) in tour.steps"
-                  :key="index"
-                  class="review-step"
-                  :aria-current="stepIndex === index ? 'step' : undefined"
-                  @click="selectStep(index)"
-                >
-                  <span>{{ reviewed.has(index) ? '✓' : index + 1 }}</span
-                  >{{ step.title }}
-                </button>
-              </template>
-              <p v-else class="review-help">
-                Browse the captured changes, or generate a tour to group them by purpose.
-              </p>
-              <UiButton block :active="stepIndex === -1" @click="selectStep(-1)"
-                >All changes ({{ references.length }})</UiButton
-              >
-              <p v-if="tour" class="review-help">
-                {{ references.length - covered.size }} sections outside the tour. Linked does not
-                mean reviewed.
-              </p>
-            </aside>
             <section class="review-detail" aria-label="Review diff">
               <div v-if="activeStep" class="review-explanation">
                 <div class="review-step-heading">
@@ -420,6 +419,7 @@ onBeforeUnmount(() => {
                 </select></label
               >
               <DiffView
+        files-on-right
                 v-if="selectedFile && selectedReference && selectedReference.HunkIndex >= 0"
                 :key="`${snapshot.ID}:${selectedReference.FileIndex}`"
                 ref="diffViewer"
@@ -438,6 +438,49 @@ onBeforeUnmount(() => {
                 message="All change sections are linked in the tour."
               />
             </section>
+            <aside class="review-sidebar" aria-label="Review steps">
+              <details class="review-file-scope" :open="!tour">
+                <summary>Tour scope · {{ selectedPaths.size }} / {{ snapshot.Files.length }} files</summary>
+                <input v-model="fileQuery" type="search" aria-label="Filter review files" placeholder="Filter files by path…" />
+                <div class="review-scope-actions"><UiButton size="sm" :disabled="busy" @click="selectMatching(true)">Select matching</UiButton><UiButton size="sm" :disabled="busy" @click="selectMatching(false)">Clear matching</UiButton></div>
+                <div class="review-file-list">
+                  <div v-for="file in matchingFiles" :key="file.Path" class="review-file-row">
+                    <input type="checkbox" :disabled="busy" :checked="selectedPaths.has(file.Path)" :aria-label="`Include ${file.Path} in tour`" @change="toggleFile(file.Path)" />
+                    <button type="button" :title="file.Path" @click="browseFile(snapshot.Files.indexOf(file))">{{ file.Path }}</button>
+                  </div>
+                  <p v-if="!matchingFiles.length" class="review-help">No matching files.</p>
+                </div>
+              </details>
+              <p v-if="tour" class="review-help">This tour covers {{ countLabel(generatedPaths.length, 'selected file') }}. Regenerate to use a changed selection.</p>
+              <template v-if="tour">
+                <p class="review-summary">{{ tour.summary }}</p>
+                <p class="review-help">
+                  {{ covered.size }} / {{ references.length }} change sections linked ·
+                  {{ reviewed.size }} / {{ tour.steps.length }} steps reviewed
+                </p>
+                <button
+                  v-for="(step, index) in tour.steps"
+                  :key="index"
+                  class="review-step"
+                  :aria-current="stepIndex === index ? 'step' : undefined"
+                  @click="selectStep(index)"
+                >
+                  <span>{{ reviewed.has(index) ? '✓' : index + 1 }}</span
+                  >{{ step.title }}
+                </button>
+              </template>
+              <p v-else class="review-help">
+                Browse the captured changes, or generate a tour to group them by purpose.
+              </p>
+              <UiButton block :active="stepIndex === -1" @click="selectStep(-1)"
+                >All change sections ({{ references.length }})</UiButton
+              >
+              <p v-if="tour" class="review-help">
+                {{ references.length - covered.size }} sections outside the tour. Linked does not
+                mean reviewed.
+              </p>
+            </aside>
+
           </div>
         </template>
         <SurfaceState
@@ -556,14 +599,14 @@ h3 {
 }
 .review-content {
   display: grid;
-  grid-template-columns: minmax(230px, 28%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 30%);
   flex: 1;
   min-height: 0;
 }
 .review-sidebar {
   overflow: auto;
   padding: var(--space-4);
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -653,7 +696,7 @@ h3 {
   }
   .review-sidebar {
     max-height: 180px;
-    border-right: 0;
+    border-left: 0;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
@@ -661,4 +704,11 @@ h3 {
     flex: 1;
   }
 }
+.review-file-scope summary { cursor: pointer; font-size: var(--fs-sm); }
+.review-file-scope > input { box-sizing: border-box; width: 100%; margin-block: 10px; padding: 8px; background: var(--surface-panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.review-scope-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.review-file-list { max-height: 250px; overflow: auto; }
+.review-file-row { display: flex; align-items: center; gap: 6px; }
+.review-file-row button { min-width: 0; text-align: left; overflow-wrap: anywhere; background: none; color: var(--text); border: 0; padding: 6px 0; cursor: pointer; font-size: var(--fs-xs); }
+.review-file-row input { accent-color: var(--accent); }
 </style>

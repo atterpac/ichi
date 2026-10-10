@@ -1,3 +1,4 @@
+import { branchCreation } from '../../composables/branchCreation'
 // Builds the branch / reset / ref action rows for a commit's context menu.
 // Extracted from GraphView so the action model is unit-testable and shared by
 // the right-click menu and the `r` keybind — both open the same ContextMenu.
@@ -104,11 +105,7 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
               pattern: '^[^\\s]+$',
             },
           ],
-          onConfirm: ({ name }) =>
-            deps.run(async () => {
-              await RefService.CreateBranchAt(name!.trim(), commit.Hash)
-              await RefService.CheckoutBranch(name!.trim(), false)
-            }),
+          ...branchCreation(commit.Hash, deps.run),
         }),
     },
     {

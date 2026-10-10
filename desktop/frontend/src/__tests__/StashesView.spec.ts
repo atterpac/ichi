@@ -31,6 +31,7 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     StashBranch: () => Promise.resolve(),
     StashPush: () => Promise.resolve(),
     StashClear: () => Promise.resolve(),
+    StashDiff: () => Promise.resolve([]),
     StashFiles: (i: number) => stashFiles(i),
     StashCheckoutFiles: (i: number, paths: string[]) => checkoutFiles(i, paths),
   },
@@ -128,6 +129,20 @@ describe('StashesView', () => {
     wrapper.unmount()
   })
 
+  it('separates clicking to preview from checking files to restore', async () => {
+    const wrapper = await mountView()
+    await wrapper.find('.st-file').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.branch-detail').element)
+    expect(wrapper.find('.stash-preview').text()).toContain('src/a.ts')
+    expect(wrapper.findAll('.st-file.on')).toHaveLength(0)
+    await wrapper.find('.st-file-row input').setValue(true)
+    expect(wrapper.find('.st-selcount').text()).toContain('1 selected')
+    expect(checkoutFiles).not.toHaveBeenCalled()
+    expect(applyIndex).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('shows no heatmap for a short stash', async () => {
     const wrapper = await mountView()
     expect(wrapper.find('.file-heatmap').exists()).toBe(false)
@@ -169,14 +184,15 @@ describe('StashesView', () => {
     wrapper.unmount()
   })
 
-  it('restores the cursor file with enter when nothing is ticked', async () => {
+  it('previews the cursor file with enter without restoring it', async () => {
     const wrapper = await mountView()
     const list = wrapper.find('.branches-list')
     await list.trigger('keydown', { key: 'l' })
     await list.trigger('keydown', { key: 'j' }) // move to src/b.ts
     await list.trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    expect(checkoutFiles).toHaveBeenCalledWith(0, ['src/b.ts'])
+    expect(checkoutFiles).not.toHaveBeenCalled()
+    expect(wrapper.find('.stash-preview').text()).toContain('src/b.ts')
     wrapper.unmount()
   })
   it('shows a detail error with retry instead of reporting an empty stash', async () => {

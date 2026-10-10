@@ -141,6 +141,39 @@ describe('Graph inspector refresh', () => {
     } finally { wrapper.unmount() }
   })
 
+  it('takes startup focus back from the automatically focused header search', async () => {
+    let finish!: (value: { Branch: string }) => void
+    repoInfo.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const input = document.createElement('input')
+    input.setAttribute('data-startup-search', '')
+    document.body.appendChild(input)
+    const wrapper = await mountView()
+    try {
+      input.focus()
+      finish({ Branch: 'main' })
+      await flushPromises()
+      expect(document.activeElement).toBe(wrapper.get('.commit-list').element)
+    } finally { wrapper.unmount(); input.remove() }
+  })
+
+  it.each(['pointerdown', 'keydown'])('preserves intentional search interaction during startup (%s)', async (eventType) => {
+    let finish!: (value: { Branch: string }) => void
+    repoInfo.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const input = document.createElement('input')
+    input.setAttribute('data-startup-search', '')
+    document.body.appendChild(input)
+    const wrapper = await mountView()
+    try {
+      input.focus()
+      input.dispatchEvent(eventType === 'keydown'
+        ? new KeyboardEvent('keydown', { key: 'a', bubbles: true })
+        : new Event('pointerdown', { bubbles: true }))
+      finish({ Branch: 'main' })
+      await flushPromises()
+      expect(document.activeElement).toBe(input)
+    } finally { wrapper.unmount(); input.remove() }
+  })
+
   it('loads working-tree counts from summaries without patch APIs', async () => {
     repoInfo.mockResolvedValue({ Branch: 'main', Ahead: 0, Behind: 0, Staged: { Insertions: 0, Deletions: 0 }, Unstaged: { Insertions: 7, Deletions: 2 } })
     summary.mockResolvedValue({
@@ -555,7 +588,7 @@ describe('Graph inspector refresh', () => {
   it('resizes by keyboard and persists a bounded inspector width', async () => {
     const wrapper = await mountView()
 
-    const handle = wrapper.find('[role="separator"]')
+    const handle = wrapper.find('[aria-label="Resize commit inspector"]')
     await handle.trigger('keydown', { key: 'Home' })
     expect(usePreferenceBindings()['graph.detailWidth']).toBe(320)
     await handle.trigger('keydown', { key: 'ArrowLeft' })

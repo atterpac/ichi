@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PersonName from "../people/PersonName.vue"
 import CommitFileRow from './CommitFileRow.vue'
 import { commitFileModel } from './commitFileModel'
 import WindowedList from '../common/WindowedList.vue'
@@ -320,7 +321,7 @@ function resizeKey(event: KeyboardEvent) {
             <div class="detail-meta">
               <span v-if="settings['graph.detailShowAuthorDate']" class="detail-person">
                 <AuthorAvatar :name="author" :commit="commit.Hash" :email="detail?.AuthorEmail" :size="20" />
-                <span class="detail-author">{{ author }}</span>
+                <PersonName class="detail-author" :name="author" :commit="commit.Hash" :email="detail?.AuthorEmail" />
                 <time class="detail-date" :datetime="authorDate" :title="date(authorDate)">{{ relative(authorDate) }}</time>
               </span>
 

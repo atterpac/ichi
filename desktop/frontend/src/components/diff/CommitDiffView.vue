@@ -17,9 +17,11 @@ import SurfaceState from '../common/SurfaceState.vue'
 import UiButton from '../common/UiButton.vue'
 import WindowedList from '../common/WindowedList.vue'
 import DiffView from './DiffView.vue'
+import PaneSplitter from '../common/PaneSplitter.vue'
 
 const props = defineProps<{ focusHash?: string; focusFile?: string; repositoryPath?: string }>()
 const emit = defineEmits<{ back: [] }>()
+const inspectorWidth = ref(350)
 const listPane = ref<HTMLElement | null>(null)
 const fileWindow = ref<{ scrollToIndex: (index: number) => void } | null>(null)
 const diffPane = ref<HTMLElement | null>(null)
@@ -175,12 +177,12 @@ const loadFileContent = computed(() => {
 })
 function onListKey(event: KeyboardEvent) {
   if (event.defaultPrevented || isEditable(event.target) || isModified(event)) return
-  if (!vim.search.active.value && ['Tab', 'Enter', 'l', 'ArrowRight'].includes(event.key)) {
+  if (!vim.search.active.value && ['Tab', 'Enter', 'h', 'ArrowLeft'].includes(event.key)) {
     event.preventDefault()
     void focusDiff()
     return
   }
-  if (!vim.search.active.value && ['h', 'ArrowLeft', 'Escape'].includes(event.key)) {
+  if (!vim.search.active.value && ['Escape'].includes(event.key)) {
     event.preventDefault()
     emit('back')
     return
@@ -191,7 +193,7 @@ function onDiffKey(event: KeyboardEvent) {
   if (event.defaultPrevented || isEditable(event.target) || isModified(event)) return
   if (
     event.key === 'Tab' ||
-    (!textDiff.value && ['h', 'ArrowLeft', 'Escape'].includes(event.key))
+    (!textDiff.value && ['l', 'ArrowRight', 'Escape'].includes(event.key))
   ) {
     event.preventDefault()
     void focusFiles()
@@ -233,7 +235,54 @@ onUnmounted(() => {
       action-label="Retry"
       @action="loadCommit"
     />
-    <div v-else class="commit-diff-grid">
+    <div v-else class="commit-diff-grid" :style="{ '--commit-files-width': `${inspectorWidth}px` }">
+      <section
+        ref="diffPane"
+        class="commit-patch"
+        :tabindex="textDiff ? -1 : 0"
+        aria-label="Selected commit file diff"
+        :data-keyboard-pane="textDiff ? undefined : ''"
+        @keydown="onDiffKey"
+        @focusin="
+          setModeline({ mode: 'DIFF', hints: 'j/k hunk · t layout · Tab files · Esc files' })
+        "
+      >
+        <header v-if="selectedFile" class="commit-patch-heading">
+          <strong>{{ selectedFile.Path }}</strong
+          ><small v-if="selectedFile.OldPath">from {{ selectedFile.OldPath }}</small>
+        </header>
+        <SurfaceState v-if="diffLoading" compact tone="loading" title="Loading diff" />
+        <SurfaceState
+          v-else-if="diffError"
+          compact
+          tone="error"
+          title="Unable to load diff"
+          :message="diffError"
+          action-label="Retry"
+          @action="retry"
+        />
+        <SurfaceState
+          v-else-if="diff?.Binary"
+          compact
+          title="Binary file"
+          message="This file's contents cannot be displayed as a text diff."
+        />
+        <DiffView
+        files-on-right
+          v-else-if="textDiff"
+          ref="diffView"
+          :key="`${detail?.Hash}:${selectedFile?.Path}`"
+          :diff="diff"
+          read-only
+          :load-file-content="loadFileContent"
+          @exit="focusFiles"
+        />
+        <SurfaceState
+          v-else
+          compact
+          :title="selectedFile ? 'No text changes' : 'No file selected'"
+        />
+      </section>
       <section
         ref="listPane"
         class="commit-files"
@@ -246,6 +295,8 @@ onUnmounted(() => {
           setModeline({ mode: 'FILES', hints: 'j/k file · Enter diff · Tab diff · Esc back' })
         "
       >
+        <PaneSplitter v-model="inspectorWidth" side="left" label="Resize commit files" :min="240" :max="560" />
+        <div v-if="detail" class="commit-inspector-summary"><strong>{{ detail.Subject }}</strong><span>{{ detail.Author }} · {{ detail.ShortHash }}</span></div>
         <header class="commit-files-heading">
           <h2>
             Changed files <span>{{ files.length }}</span>
@@ -302,52 +353,7 @@ onUnmounted(() => {
           /></template>
         </WindowedList>
       </section>
-      <section
-        ref="diffPane"
-        class="commit-patch"
-        :tabindex="textDiff ? -1 : 0"
-        aria-label="Selected commit file diff"
-        :data-keyboard-pane="textDiff ? undefined : ''"
-        @keydown="onDiffKey"
-        @focusin="
-          setModeline({ mode: 'DIFF', hints: 'j/k hunk · t layout · Tab files · Esc files' })
-        "
-      >
-        <header v-if="selectedFile" class="commit-patch-heading">
-          <strong>{{ selectedFile.Path }}</strong
-          ><small v-if="selectedFile.OldPath">from {{ selectedFile.OldPath }}</small>
-        </header>
-        <SurfaceState v-if="diffLoading" compact tone="loading" title="Loading diff" />
-        <SurfaceState
-          v-else-if="diffError"
-          compact
-          tone="error"
-          title="Unable to load diff"
-          :message="diffError"
-          action-label="Retry"
-          @action="retry"
-        />
-        <SurfaceState
-          v-else-if="diff?.Binary"
-          compact
-          title="Binary file"
-          message="This file's contents cannot be displayed as a text diff."
-        />
-        <DiffView
-          v-else-if="textDiff"
-          ref="diffView"
-          :key="`${detail?.Hash}:${selectedFile?.Path}`"
-          :diff="diff"
-          read-only
-          :load-file-content="loadFileContent"
-          @exit="focusFiles"
-        />
-        <SurfaceState
-          v-else
-          compact
-          :title="selectedFile ? 'No text changes' : 'No file selected'"
-        />
-      </section>
+
     </div>
   </section>
 </template>
@@ -387,7 +393,7 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(220px, min(330px, 35%)) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, min(var(--commit-files-width, 350px), 42vw));
 }
 .commit-files,
 .commit-patch {
@@ -398,7 +404,8 @@ onUnmounted(() => {
   outline: none;
 }
 .commit-files {
-  border-right: 1px solid var(--border);
+  position: relative;
+  border-left: 1px solid var(--border);
 }
 .commit-files-heading,
 .commit-patch-heading {
@@ -464,5 +471,12 @@ onUnmounted(() => {
 .commit-patch > :deep(.diff-view) {
   flex: 1;
   min-height: 0;
+}
+.commit-inspector-summary { display: flex; flex-direction: column; gap: 8px; padding: 16px; overflow-wrap: anywhere; }
+.commit-inspector-summary span { color: var(--text-mut); font-size: var(--fs-xs); }
+@media (max-width: 650px) {
+  .commit-diff-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(250px, 1fr) minmax(180px, 35vh); overflow: auto; }
+  .commit-files { border-left: 0; border-top: 1px solid var(--border); }
+  .commit-files :deep(.pane-splitter) { display: none; }
 }
 </style>

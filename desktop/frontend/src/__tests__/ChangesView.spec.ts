@@ -274,14 +274,14 @@ describe('ChangesView', () => {
     wrapper.unmount()
   })
 
-  it('enters the diff and returns to the file list with Escape or Left', async () => {
+  it('enters the diff and returns to the right-hand file list with Escape or Right', async () => {
     const wrapper = await mountView()
     // Enter through the actual list handler, then send keys to browser focus.
-    const pane = wrapper.find('[data-keyboard-pane]')
+    const pane = wrapper.find('.changes-files')
     await pane.trigger('keydown', { key: 'l' })
     await flushPromises()
     expect(document.activeElement?.classList.contains('diff-view')).toBe(true)
-    await wrapper.find('.diff-view').trigger('keydown', { key: 'ArrowLeft' })
+    await wrapper.find('.diff-view').trigger('keydown', { key: 'ArrowRight' })
     expect(document.activeElement).toBe(pane.element)
     await pane.trigger('keydown', { key: 'l' })
     await flushPromises()
@@ -595,7 +595,7 @@ describe('ChangesView', () => {
       expect(wrapper.findAll('.changes-section .section-count').map(item => item.text())).toEqual(['0', '0'])
       expect(wrapper.text()).toContain('Working tree clean')
       expect(wrapper.find('.changes-selection-footer').exists()).toBe(false)
-      expect(wrapper.get('.changes-left .commit-bar').text()).toContain('0 staged')
+      expect(wrapper.get('.changes-sidebar .commit-bar').text()).toContain('0 staged')
     } finally { wrapper.unmount(); statusEntries = original }
   })
 
@@ -892,7 +892,7 @@ it('filters files and scopes bulk staging to matching paths', async () => {
 it('keeps summary and description together below the file list', async () => {
   const wrapper = await mountView()
   try {
-    expect(wrapper.get('.changes-left .commit-editor [aria-label="Commit summary"]').isVisible()).toBe(true)
+    expect(wrapper.get('.changes-sidebar .commit-editor [aria-label="Commit summary"]').isVisible()).toBe(true)
     expect(wrapper.get('.commit-editor [aria-label="Commit description"]').isVisible()).toBe(true)
     await wrapper.get('[aria-label="Commit summary"]').setValue('Keep my draft')
     await wrapper.get('[aria-label="Commit description"]').setValue('And the explanation')
@@ -901,10 +901,10 @@ it('keeps summary and description together below the file list', async () => {
   } finally { wrapper.unmount() }
 })
 
-it('resizes the left composer from the keyboard and resets its default height', async () => {
+it('resizes the sidebar composer from the keyboard and resets its default height', async () => {
   const wrapper = await mountView()
   try {
-    Object.defineProperty(wrapper.get('.changes-left').element, 'clientHeight', { value: 680 })
+    Object.defineProperty(wrapper.get('.changes-sidebar').element, 'clientHeight', { value: 680 })
     const handle = wrapper.get('[aria-label="Resize commit composer"]')
     await handle.trigger('keydown', { key: 'ArrowUp' })
     expect(wrapper.get('.commit-bar').attributes('style')).toContain('height: 240px')
@@ -926,4 +926,22 @@ it('switches between both sides of a partially staged file', async () => {
     expect(wrapper.get('.diff-side').text()).toBe('Staged')
     expect(worktreeFile).toHaveBeenLastCalledWith('src/partial.ts', '', true)
   } finally { wrapper.unmount(); statusEntries = original }
+})
+
+it('resizes the right-hand file panel toward the pointer and arrow direction', async () => {
+  const wrapper = await mountView()
+  try {
+    const handle = wrapper.get('[aria-label="Resize changes list"]')
+    await handle.trigger('keydown', { key: 'ArrowLeft' })
+    expect(handle.attributes('aria-valuenow')).toBe('386')
+    await handle.trigger('keydown', { key: 'ArrowRight' })
+    expect(handle.attributes('aria-valuenow')).toBe('370')
+    handle.element.dispatchEvent(new MouseEvent('pointerdown', { clientX: 800, bubbles: true, cancelable: true }))
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 750 }))
+    window.dispatchEvent(new MouseEvent('pointerup'))
+    await wrapper.vm.$nextTick()
+    expect(handle.attributes('aria-valuenow')).toBe('420')
+    const panes = wrapper.findAll('[data-keyboard-pane]')
+    expect(panes[0]!.classes()).toContain('diff-view')
+  } finally { wrapper.unmount() }
 })

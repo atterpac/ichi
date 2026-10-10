@@ -28,6 +28,7 @@ export type OperationConfirmRequest = {
   inputs?: OperationInput[]
   tone?: OperationTone
   icon?: Component
+  recovery?: (error: unknown) => { message: string; label: string; run: () => void | Promise<void> } | undefined
   onConfirm: (values: OperationInputValues) => void | Promise<void>
 }
 </script>
@@ -52,6 +53,7 @@ useDialogFocus(dialog, () => emit('close'))
 
 const busy = ref(false)
 const error = ref('')
+const recovery = ref<ReturnType<NonNullable<OperationConfirmRequest['recovery']>>>()
 const values = ref<OperationInputValues>({})
 
 const tone = computed(() => props.request.tone ?? 'default')
@@ -74,6 +76,7 @@ watch(
       (request.inputs ?? []).map((input) => [input.id, input.value ?? '']),
     )
     error.value = ''
+    recovery.value = undefined
   },
   { immediate: true },
 )
@@ -86,10 +89,12 @@ async function confirm() {
   busy.value = true
   error.value = ''
   try {
-    await props.request.onConfirm(values.value)
+    if (recovery.value) await recovery.value.run()
+    else await props.request.onConfirm(values.value)
     emit('close')
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
+    recovery.value = props.request.recovery?.(err)
+    error.value = recovery.value?.message ?? (err instanceof Error ? err.message : String(err))
   } finally {
     busy.value = false
   }
@@ -153,6 +158,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 :placeholder="input.placeholder"
                 :required="input.required"
                 :invalid="Boolean(error)"
+                :disabled="busy || Boolean(recovery)"
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -180,7 +186,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             :loading="busy"
           >
             <PhCheck :size="16" weight="bold" />
-            {{ busy ? 'Running...' : props.request.confirmLabel }}
+            {{ busy ? 'Running...' : recovery?.label ?? props.request.confirmLabel }}
           </UiButton>
         </footer>
       </section>

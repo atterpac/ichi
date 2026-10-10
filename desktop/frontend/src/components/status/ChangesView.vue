@@ -63,7 +63,10 @@ const filteredGroups = computed(() => {
 const commonDirectory = computed(() => {
   const dirs = [...unstagedRows.value, ...stagedRows.value].map(row => row.dir.split('/'))
   const shared = dirs[0]?.slice() ?? []
-  for (const dir of dirs) while (shared.length && !shared.every((part, index) => dir[index] === part)) shared.pop()
+  for (const dir of dirs) {
+    const mismatch = shared.findIndex((part, index) => dir[index] !== part)
+    if (mismatch !== -1) shared.splice(mismatch)
+  }
   return shared.length ? shared.join('/') : ''
 })
 function displayDirectory(dir: string) {
@@ -512,6 +515,8 @@ function onListKey(event: KeyboardEvent) {
       focusCommitBox()
       event.preventDefault()
       return
+    case 'h':
+    case 'ArrowLeft':
     case 'l':
     case 'ArrowRight':
       void focusDiff()
@@ -831,7 +836,7 @@ const CHANGE_LIST_MIN_WIDTH = 220
 const CHANGE_LIST_MAX_WIDTH = 520
 const changeListWidth = ref(370)
 const changesGridStyle = computed(() => ({
-  '--changes-left-w': `${changeListWidth.value}px`,
+  '--changes-sidebar-w': `${changeListWidth.value}px`,
 }))
 let resizeStartX = 0
 let resizeStartWidth = 0
@@ -843,10 +848,10 @@ function clampChangeListWidth(width: number) {
 function resizeListKey(event: KeyboardEvent) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || isModified(event)) return
   event.preventDefault()
-  changeListWidth.value = event.key === 'Home' ? CHANGE_LIST_MIN_WIDTH : event.key === 'End' ? CHANGE_LIST_MAX_WIDTH : clampChangeListWidth(changeListWidth.value + (event.key === 'ArrowRight' ? 16 : -16))
+  changeListWidth.value = event.key === 'Home' ? CHANGE_LIST_MIN_WIDTH : event.key === 'End' ? CHANGE_LIST_MAX_WIDTH : clampChangeListWidth(changeListWidth.value + (event.key === 'ArrowLeft' ? 16 : -16))
 }
 function onChangeListResizeMove(event: PointerEvent) {
-  changeListWidth.value = clampChangeListWidth(resizeStartWidth + event.clientX - resizeStartX)
+  changeListWidth.value = clampChangeListWidth(resizeStartWidth + resizeStartX - event.clientX)
 }
 
 function endChangeListResize() {
@@ -925,7 +930,68 @@ const summaryLimit = 50
 
     <div v-else class="changes-grid" :style="changesGridStyle" :inert="showingCached || undefined" :aria-busy="statusRefreshing">
       <span v-if="showingCached" role="status" style="position: absolute; z-index: 5; background: var(--surface-panel); padding: 4px 8px">Checking latest changes…</span>
-      <div class="changes-left">
+      <DiffView
+        files-on-right
+        ref="diffView"
+        class="changes-diff"
+        cursor-review
+        :read-only="showingCached || runningOperations || statusRefreshing"
+        :diff="displayDiff"
+        :staged="currentRow?.staged ?? false"
+        :file-level-only="isUntrackedPreview"
+        :load-file-content="loadCurrentFileContent"
+        :load-editor-file="loadEditorFile"
+        :save-editor-file="saveEditorFile"
+        @file-editor-closed="onFileEditorClosed"
+        @stage-hunk="onStageHunk"
+        @stage-lines="onStageLines"
+        @edit-hunk="onEditHunk"
+        @stage-file="onStageFile"
+        @exit="listEl?.focus()"
+        @modechange="onDiffModeChange"
+        @focusin="onFocusDiff"
+      >
+        <template #head>
+          <div
+            v-if="currentRow && displayDiff"
+            class="diff-file-head"
+            :style="{ '--status-color': statusColor(currentRow.label) }"
+          >
+            <FileStatusIcon class="file-status" :status="currentRow.label" />
+            <span class="diff-file-path" :title="currentRow.path"><span v-if="currentRow.dir" class="diff-file-directory">{{ currentRow.dir }}/</span><span class="diff-file-name">{{ currentRow.name }}</span></span>
+            <span class="diff-side">{{ currentRow.staged ? 'Staged' : isUntrackedPreview ? 'Untracked' : 'Unstaged' }}</span>
+            <button v-if="oppositeRow" type="button" class="diff-side-switch" @click="switchDiffSide">
+              {{ currentRow.staged ? 'Unstaged' : 'Staged' }}<template v-if="deltaFor(oppositeRow)"> +{{ deltaFor(oppositeRow)!.ins }} −{{ deltaFor(oppositeRow)!.del }}</template>
+            </button>
+            <span class="diff-file-progress">{{ vim.cursor.value + 1 }} / {{ rows.length }}</span>
+            <UiButton size="sm" variant="ghost" aria-label="Previous file" :disabled="vim.cursor.value === 0" @click="nextFile(-1)">↑</UiButton>
+            <UiButton size="sm" variant="ghost" aria-label="Next file" :disabled="vim.cursor.value >= rows.length - 1" @click="nextFile(1)">↓</UiButton>
+            <UiButton size="sm" class="diff-stage-file" :disabled="runningOperations || statusRefreshing" @click="onStageFile">{{
+              currentRow.staged ? 'Unstage file' : 'Stage file'
+            }}</UiButton>
+            <UiButton v-if="!currentRow.staged && !currentRow.conflict" size="sm" variant="ghost" class="is-danger" :disabled="runningOperations || statusRefreshing" @click="discardRow(currentRow)">Discard file</UiButton>
+          </div>
+        </template>
+        <template #empty>
+          <template v-if="diffLoading">Loading diff...</template>
+          <template v-else-if="diffError">{{ diffError }} <UiButton size="sm" @click="retryPatch">Retry</UiButton></template>
+          <template v-else>{{
+            currentRow ? 'No diff to show.' : 'Select a file to preview its diff.'
+          }}</template>
+        </template>
+      </DiffView>
+
+      <button
+        class="changes-resizer"
+        type="button"
+        aria-label="Resize changes list" role="separator" aria-orientation="vertical"
+        :aria-valuemin="CHANGE_LIST_MIN_WIDTH" :aria-valuemax="CHANGE_LIST_MAX_WIDTH" :aria-valuenow="changeListWidth"
+        @keydown="resizeListKey"
+        title="Resize changes list"
+        @pointerdown.prevent="startChangeListResize"
+      />
+
+      <div class="changes-sidebar">
         <header class="changes-tree-heading">
           <span>Changes</span>
           <span class="change-delta"><em class="d-add">+{{ totalDelta.ins }}</em><em class="d-del">−{{ totalDelta.del }}</em></span>
@@ -1192,65 +1258,9 @@ const summaryLimit = 50
       </form>
       </div>
 
-      <button
-        class="changes-resizer"
-        type="button"
-        aria-label="Resize changes list" role="separator" aria-orientation="vertical"
-        :aria-valuemin="CHANGE_LIST_MIN_WIDTH" :aria-valuemax="CHANGE_LIST_MAX_WIDTH" :aria-valuenow="changeListWidth"
-        @keydown="resizeListKey"
-        title="Resize changes list"
-        @pointerdown.prevent="startChangeListResize"
-      />
 
-      <DiffView
-        ref="diffView"
-        class="changes-diff"
-        cursor-review
-        :read-only="showingCached || runningOperations || statusRefreshing"
-        :diff="displayDiff"
-        :staged="currentRow?.staged ?? false"
-        :file-level-only="isUntrackedPreview"
-        :load-file-content="loadCurrentFileContent"
-        :load-editor-file="loadEditorFile"
-        :save-editor-file="saveEditorFile"
-        @file-editor-closed="onFileEditorClosed"
-        @stage-hunk="onStageHunk"
-        @stage-lines="onStageLines"
-        @edit-hunk="onEditHunk"
-        @stage-file="onStageFile"
-        @exit="listEl?.focus()"
-        @modechange="onDiffModeChange"
-        @focusin="onFocusDiff"
-      >
-        <template #head>
-          <div
-            v-if="currentRow && displayDiff"
-            class="diff-file-head"
-            :style="{ '--status-color': statusColor(currentRow.label) }"
-          >
-            <FileStatusIcon class="file-status" :status="currentRow.label" />
-            <span class="diff-file-path" :title="currentRow.path"><span v-if="currentRow.dir" class="diff-file-directory">{{ currentRow.dir }}/</span><span class="diff-file-name">{{ currentRow.name }}</span></span>
-            <span class="diff-side">{{ currentRow.staged ? 'Staged' : isUntrackedPreview ? 'Untracked' : 'Unstaged' }}</span>
-            <button v-if="oppositeRow" type="button" class="diff-side-switch" @click="switchDiffSide">
-              {{ currentRow.staged ? 'Unstaged' : 'Staged' }}<template v-if="deltaFor(oppositeRow)"> +{{ deltaFor(oppositeRow)!.ins }} −{{ deltaFor(oppositeRow)!.del }}</template>
-            </button>
-            <span class="diff-file-progress">{{ vim.cursor.value + 1 }} / {{ rows.length }}</span>
-            <UiButton size="sm" variant="ghost" aria-label="Previous file" :disabled="vim.cursor.value === 0" @click="nextFile(-1)">↑</UiButton>
-            <UiButton size="sm" variant="ghost" aria-label="Next file" :disabled="vim.cursor.value >= rows.length - 1" @click="nextFile(1)">↓</UiButton>
-            <UiButton size="sm" class="diff-stage-file" :disabled="runningOperations || statusRefreshing" @click="onStageFile">{{
-              currentRow.staged ? 'Unstage file' : 'Stage file'
-            }}</UiButton>
-            <UiButton v-if="!currentRow.staged && !currentRow.conflict" size="sm" variant="ghost" class="is-danger" :disabled="runningOperations || statusRefreshing" @click="discardRow(currentRow)">Discard file</UiButton>
-          </div>
-        </template>
-        <template #empty>
-          <template v-if="diffLoading">Loading diff...</template>
-          <template v-else-if="diffError">{{ diffError }} <UiButton size="sm" @click="retryPatch">Retry</UiButton></template>
-          <template v-else>{{
-            currentRow ? 'No diff to show.' : 'Select a file to preview its diff.'
-          }}</template>
-        </template>
-      </DiffView>
+
+
 
 
     </div>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { branchCreation, isDirtyTreeError } from '../../composables/branchCreation'
+import { countLabel } from '../../composables/countLabel'
 import { navigationGeneration, invalidateNavigationSnapshots, peekNavigationSnapshot, saveNavigationSnapshot, forgetNavigationSnapshot } from '../../composables/navigationSnapshots'
 
 import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
@@ -63,7 +65,13 @@ const previewLoading = ref(false)
 const previewError = ref('')
 let previewReq = 0
 const allBranches = computed(() => [...locals.value, ...remotes.value])
-const comparison = computed(() => baseline.value || current.value?.Name || '')
+const defaultComparison = computed(() => {
+  const selected = detailBranch.value
+  if (!selected?.IsCurrent) return current.value?.Name || ''
+  if (selected.Upstream && allBranches.value.some(branch => branch.Name === selected.Upstream)) return selected.Upstream
+  return ['origin/main', 'main', 'origin/master', 'master'].find(name => name !== selected.Name && allBranches.value.some(branch => branch.Name === name)) || ''
+})
+const comparison = computed(() => baseline.value || defaultComparison.value)
 const filteredLocals = computed(() => scope.value === 'remote' ? [] : locals.value.filter(matches))
 const filteredRemotes = computed(() => scope.value === 'local' ? [] : remotes.value.filter(matches))
 function matches(b: Branch) { return b.Name.toLowerCase().includes(query.value.toLowerCase()) }
@@ -203,12 +211,6 @@ async function run(label: string, op: () => Promise<void>) {
   await runOperation(op, { success: label, failure: `${label} failed` })
 }
 
-// git refuses checkout when the switch would clobber uncommitted work.
-function isDirtyTreeError(err: unknown) {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
-  return msg.includes('would be overwritten') || msg.includes('stash them') || msg.includes('local changes')
-}
-
 function checkout(row: Branch) {
   if (row.IsCurrent) return
   // Remote rows check out the short name: git DWIMs a local tracking branch.
@@ -251,11 +253,9 @@ function createFrom(row: Branch) {
     target: row.Name,
     icon: PhGitBranch,
     inputs: [{ id: 'name', label: 'Branch name', placeholder: 'feature/…', required: true, pattern: '^[^\\s]+$' }],
-    onConfirm: ({ name }) =>
-      run(`Created ${name}`, async () => {
-        await RefService.CreateBranchAt(name!, row.Name)
-        await RefService.CheckoutBranch(name!, false)
-      }),
+    ...branchCreation(row.Name, async (op) => {
+      await runOperation(op, { success: 'Branch ready', rethrow: true })
+    }),
   }
 }
 
@@ -647,7 +647,7 @@ onUnmounted(() => {
 
           <label class="branch-compare">Compare against
             <select v-model="baseline" class="ui-field size-sm" aria-label="Compare against">
-              <option value="">Current branch{{ current ? ` · ${current.Name}` : '' }}</option>
+              <option value="">{{ detailBranch.IsCurrent ? 'Upstream / mainline' : 'Current branch' }}{{ defaultComparison ? ` · ${defaultComparison}` : ' · choose a branch' }}</option>
               <option v-for="b in allBranches" :key="`${b.IsRemote}:${b.Name}`" :value="b.Name">{{ b.Name }}</option>
             </select>
             <span>Tip-to-tip changes</span>
@@ -688,7 +688,7 @@ onUnmounted(() => {
               <DiffBar :additions="f.Added" :deletions="f.Deleted" />
             </div>
             <span v-if="changedFiles.more" class="bd-churn-more">+{{ changedFiles.more }} more files</span>
-            <span class="bd-churn-total">{{ changedFiles.total.files }} files · +{{ changedFiles.total.added }} −{{ changedFiles.total.deleted }}</span>
+            <span class="bd-churn-total">{{ countLabel(changedFiles.total.files, 'file') }} · +{{ changedFiles.total.added }} −{{ changedFiles.total.deleted }}</span>
           </div>
 
           <p v-if="!detailLoading && !detailError && !changedFiles.total.files" class="bd-empty">No file changes against {{ comparison || 'the current branch' }}.</p>
@@ -697,6 +697,7 @@ onUnmounted(() => {
           <UiButton v-if="preview" size="sm" @click="closePreview">Close diff</UiButton>
           <div v-if="preview" class="branch-diff"><DiffView ref="diffViewer" :diff="preview" read-only cursor-review @exit="closePreview" /></div>
           <div class="bd-actions">
+            <UiButton size="sm" @click="emit('navigate', 'prs', detailBranch.IsRemote ? splitRemote(detailBranch.Name).short : detailBranch.Name)">Pull requests</UiButton>
             <UiButton size="sm" @click="openInGraph(detailBranch)"><kbd>o</kbd> Graph</UiButton>
             <template v-if="!detailBranch.IsCurrent">
             <UiButton size="sm" :disabled="busy" variant="primary" @click="checkout(detailBranch)"><kbd>↵</kbd> Checkout</UiButton>

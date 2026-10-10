@@ -70,3 +70,14 @@ describe('native window control spacing', () => {
     wrapper.unmount()
   })
 })
+
+  it('reserves the inset when native platform metadata is missing on macOS', async () => {
+    native.mac = false
+    const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
+    native.fullscreen.mockResolvedValue(false)
+    const wrapper = mount(Host)
+    await flushPromises()
+    expect(wrapper.attributes('data-inset')).toBe('true')
+    wrapper.unmount()
+    platform.mockRestore()
+  })

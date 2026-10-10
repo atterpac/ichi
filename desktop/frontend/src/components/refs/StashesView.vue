@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { countLabel } from '../../composables/countLabel'
 import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 // Stash surface — a ranger list of saved worktree snapshots. The detail pane is a
 // navigable file list (parsed numstat, not raw diff): step into it with `l`, select
@@ -10,6 +11,9 @@ import { PhArchive, PhStack } from '@phosphor-icons/vue'
 import OperationConfirmModal, {
   type OperationConfirmRequest,
 } from '../overlays/OperationConfirmModal.vue'
+import DiffView from '../diff/DiffView.vue'
+import PaneSplitter from '../common/PaneSplitter.vue'
+import type { FileDiff } from '../../bindings/github.com/atterpac/ichi/internal/git'
 import WindowedList from '../common/WindowedList.vue'
 import SurfaceState from '../common/SurfaceState.vue'
 import UiButton from '../common/UiButton.vue'
@@ -42,6 +46,26 @@ const files = ref<FileChurn[]>([])
 const filesLoading = ref(false)
 const filesError = ref('')
 const fileCursor = ref(0)
+const previewDiffs = ref<FileDiff[]>([])
+const previewLoading = ref(false)
+const previewError = ref('')
+const previewOpen = ref(false)
+let previewFocusPending = false
+const inspectorWidth = ref(370)
+const previewViewer = ref<InstanceType<typeof DiffView> | null>(null)
+const previewFile = computed(() => previewDiffs.value.find(file => file.Path === cursorFile.value?.Path) ?? null)
+function reviewFile() {
+  previewOpen.value = true
+  previewFocusPending = true
+  void nextTick(focusReadyPreview)
+}
+function focusReadyPreview() {
+  if (previewFocusPending && previewViewer.value) {
+    previewViewer.value.focus()
+    previewFocusPending = false
+  }
+}
+watch(previewViewer, focusReadyPreview)
 const selected = ref(new Set<string>())
 const focusPane = ref<'stashes' | 'files'>('stashes')
 
@@ -142,6 +166,27 @@ const vim = useVimList(stashes, {
 const current = computed<Stash | null>(() => stashes.value[vim.cursor.value] ?? null)
 const cursorFile = computed<FileChurn | null>(() => files.value[fileCursor.value] ?? null)
 
+watch([current, () => settings['stashes.detailVisible']], async ([stash, visible], _, onCleanup) => {
+  let cancelled = false
+  let read: { cancel?: () => void } | undefined
+  onCleanup(() => { cancelled = true; read?.cancel?.() })
+  previewDiffs.value = []
+  previewError.value = ''
+  previewOpen.value = false
+  previewFocusPending = false
+  previewLoading.value = false
+  if (!stash || !visible) return
+  previewLoading.value = true
+  try {
+    const pending = StashService.StashDiff(stash.Index)
+    read = pending
+    const result = await pending
+    if (!cancelled) previewDiffs.value = (result ?? []).filter((file): file is FileDiff => !!file)
+  } catch (error) {
+    if (!cancelled) previewError.value = error instanceof Error ? error.message : String(error)
+  } finally { if (!cancelled) previewLoading.value = false }
+})
+
 // Restore selected files (or the cursor file when nothing is ticked) into the
 // worktree. This is a partial apply: the stash stays put for the remaining files.
 function applyFiles(s: Stash) {
@@ -181,10 +226,11 @@ async function selectHeatFile(path: string) {
     .getElementById(`stash-heat-file-${fileCursor.value}`)
     ?.scrollIntoView({ block: 'nearest' })
 }
-function clickFile(index: number, path: string) {
+function clickFile(index: number) {
   enterFiles()
   fileCursor.value = index
-  toggleSelect(path)
+  previewFocusPending = false
+  previewOpen.value = true
 }
 function enterFiles() {
   if (!current.value) return
@@ -247,10 +293,7 @@ function onFileKey(event: KeyboardEvent): boolean {
       if (s) applyFiles(s)
       return true
     case 'Enter':
-      if (s && cursorFile.value) {
-        selected.value = new Set()
-        applyFiles(s)
-      }
+      if (cursorFile.value) reviewFile()
       return true
     case 'h':
     case 'Escape':
@@ -326,7 +369,7 @@ watch(focusPane, (pane) => {
     mode: 'NORMAL',
     hints:
       pane === 'files'
-        ? 'j/k file · ␣ select · a restore selected · ⏎ restore file · h back'
+        ? 'j/k file · ␣ select · a restore selected · ⏎ preview · h back'
         : '⏎ apply · l files · p pop · b branch · n stash · d drop · x clear · i inspector · F6 pane · / search',
   })
 })
@@ -362,7 +405,7 @@ onUnmounted(() => { listRead?.cancel?.(); detailRead?.cancel?.(); disposed = tru
 </script>
 
 <template>
-  <div class="branches-view">
+  <div class="branches-view stashes-view">
     <Teleport defer to="#view-header-context">
       <span class="header-meta"
         >{{ stashes.length }} stash{{ stashes.length === 1 ? '' : 'es' }}</span
@@ -395,7 +438,17 @@ onUnmounted(() => { listRead?.cancel?.(); detailRead?.cancel?.(); disposed = tru
       @action="stashWorktree"
     />
 
-    <div v-else class="branches-body" :class="{ 'detail-open': settings['stashes.detailVisible'] }">
+    <div v-else class="branches-body" :style="{ '--stash-inspector-width': `${inspectorWidth}px` }" :class="{ 'detail-open': settings['stashes.detailVisible'], 'stash-reviewing': previewOpen }">
+      <section class="stash-preview" aria-label="Stash file preview">
+        <header v-if="previewOpen"><strong>{{ cursorFile?.Path }}</strong><UiButton size="sm" @click="enterFiles()">Back to files</UiButton></header>
+        <SurfaceState v-if="!previewOpen" title="Select a file to preview" message="Choose a saved stash and a file from the inspector." />
+        <SurfaceState v-else-if="previewLoading" tone="loading" title="Loading saved changes" />
+        <SurfaceState v-else-if="previewError" tone="error" title="Unable to preview stash" :message="previewError" />
+        <DiffView files-on-right v-else-if="previewFile" ref="previewViewer" :diff="previewFile" read-only @exit="enterFiles()" />
+        <SurfaceState v-else title="No text diff available" message="This file may contain only metadata changes." />
+      </section>
+      <div class="stash-sidebar">
+        <PaneSplitter v-model="inspectorWidth" side="left" label="Resize stash inspector" :min="300" :max="560" />
       <WindowedList
         :ref="setStashWindow" :items="stashes" :row-height="32" :key-of="stash => stash.Index"
         class="branches-list"
@@ -459,9 +512,9 @@ onUnmounted(() => { listRead?.cancel?.(); detailRead?.cancel?.(); disposed = tru
           <SurfaceState v-else-if="filesError" tone="error" title="Unable to load stash files" :message="filesError" action-label="Retry" @action="loadFiles" />
           <p v-else-if="!files.length" class="bd-empty">No files</p>
           <div v-else class="st-files" @click="enterFiles">
+            <div v-for="(f, i) in files" :key="f.Path" class="st-file-row">
+              <input type="checkbox" :aria-label="`Select ${f.Path} for restoration`" :checked="selected.has(f.Path)" @click.stop @change="toggleSelect(f.Path)" />
             <button
-              v-for="(f, i) in files"
-              :key="f.Path"
               type="button"
               class="st-file"
               :id="`stash-heat-file-${i}`"
@@ -469,35 +522,38 @@ onUnmounted(() => { listRead?.cancel?.(); detailRead?.cancel?.(); disposed = tru
                 cursor: focusPane === 'files' && fileCursor === i,
                 on: selected.has(f.Path),
               }"
-              @click.stop="clickFile(i, f.Path)"
+              @click.stop="clickFile(i)" :title="`Preview ${f.Path}`"
             >
-              <span class="st-file-tick">{{ selected.has(f.Path) ? '◉' : '○' }}</span>
               <span class="st-file-path">{{ f.Path }}</span>
               <span class="st-file-delta">
                 <em v-if="f.Added" class="add">+{{ f.Added }}</em>
                 <em v-if="f.Deleted" class="del">−{{ f.Deleted }}</em>
               </span>
             </button>
+            </div>
             <span class="bd-churn-total"
-              >{{ churnTotal.files }} files · +{{ churnTotal.added }} −{{
+              >{{ countLabel(churnTotal.files, 'file') }} · +{{ churnTotal.added }} −{{
                 churnTotal.deleted
               }}</span
             >
           </div>
 
+          <p class="stash-action-help">Apply keeps the stash. Pop applies and removes it. Restore overwrites the selected working files.</p>
           <div class="bd-actions">
             <UiButton size="sm" variant="primary" @click="apply(current)"
-              ><kbd>↵</kbd> Apply all</UiButton
+              ><kbd>↵</kbd> Apply and keep</UiButton
             >
             <UiButton size="sm" :disabled="!files.length" @click="applyFiles(current)">
               <kbd>a</kbd> Restore {{ selected.size ? `${selected.size} selected` : 'file' }}
             </UiButton>
-            <UiButton size="sm" @click="pop(current)"><kbd>p</kbd> Pop</UiButton>
+            <UiButton size="sm" @click="pop(current)"><kbd>p</kbd> Pop and remove</UiButton>
             <UiButton size="sm" variant="danger" @click="drop(current)"><kbd>d</kbd> Drop</UiButton>
           </div>
         </template>
         <p v-else class="bd-empty">Select a stash</p>
       </aside>
+      </div>
+
     </div>
 
     <OperationConfirmModal

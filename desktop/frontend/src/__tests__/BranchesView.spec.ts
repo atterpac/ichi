@@ -111,7 +111,11 @@ describe('BranchesView', () => {
     deleteBranch.mockClear()
     fetchAll.mockClear()
     logRef.mockClear()
-    diffFiles.mockClear()
+    diffFiles.mockReset()
+    diffFiles.mockResolvedValue([
+      { Path: 'src/components/diff/DiffView.vue', OldPath: '', Added: 400, Deleted: 60 },
+      { Path: 'src/theme/shell.css', OldPath: '', Added: 120, Deleted: 40 },
+    ])
     diffBetweenFile.mockClear()
   })
 
@@ -151,7 +155,7 @@ describe('BranchesView', () => {
   })
 
   it('loads only the opened file from a multi-file comparison, including rename source', async () => {
-    diffFiles.mockResolvedValueOnce([
+    diffFiles.mockResolvedValue([
       { Path: 'new/name.ts', OldPath: 'old/name.ts', Added: 4, Deleted: 2 },
       { Path: 'unrelated.ts', OldPath: '', Added: 8, Deleted: 0 },
     ])
@@ -280,7 +284,8 @@ describe('BranchesView', () => {
     expect(pane.text()).toContain('Changed files')
     expect(pane.text()).not.toContain('Recent commits')
     expect(logRef).not.toHaveBeenCalled()
-    expect(pane.find('.bd-churn').exists()).toBe(false)
+    expect(pane.find('.bd-churn').exists()).toBe(true)
+    expect(diffFiles).toHaveBeenCalledWith('origin/main', 'main')
 
     // main is ↑2 ↓0 and tracking, so the divergence bar renders ahead-only
     expect(pane.find('.bd-div').exists()).toBe(true)
@@ -289,9 +294,10 @@ describe('BranchesView', () => {
     expect(pane.find('.bd-div-track i.ahead').exists()).toBe(true)
     expect(pane.find('.bd-div-track i.behind').exists()).toBe(false)
 
-    // current branch shows only the Graph button; a non-current one adds the verbs
-    expect(pane.findAll('.ui-button').length).toBe(1)
-    expect(pane.find('.ui-button').text()).toContain('Graph')
+    // The current branch links to its graph and pull requests.
+    expect(pane.findAll('.ui-button').map(button => button.text())).toEqual(['Pull requests', 'o Graph'])
+    await pane.findAll('.ui-button').find(button => button.text() === 'Pull requests')!.trigger('click')
+    expect(wrapper.emitted('navigate')?.slice(-1)[0]).toEqual(['prs', 'main'])
     const list = wrapper.find('.branches-list')
     await list.trigger('keydown', { key: 'j' })
     await flushPromises()

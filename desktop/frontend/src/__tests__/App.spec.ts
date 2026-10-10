@@ -90,9 +90,6 @@ describe('App', () => {
   it('opens main search with slash from a view but allows typing slash in inputs', async () => {
     const wrapper = mount(App, { attachTo: document.body })
     try {
-      const input = wrapper.get('.titlebar-search input')
-      await input.trigger('keydown', { key: '/' })
-      expect(wrapper.find('.finderbar').exists()).toBe(false)
       await wrapper.get('.graph-view').trigger('keydown', { key: '/' })
       await flushPromises()
       expect(wrapper.find('.finderbar').exists()).toBe(true)
@@ -104,7 +101,7 @@ describe('App', () => {
     const wrapper = mount(App, { attachTo: document.body })
     try {
       const graph = wrapper.get('.graph-view').element
-      await wrapper.get('.topbar [aria-label="Settings"]').trigger('click')
+      await wrapper.get('.window-bar [aria-label="Settings"]').trigger('click')
       expect(wrapper.find('.settings-workspace').exists()).toBe(true)
       expect(wrapper.get('.body-shell').attributes('inert')).toBeDefined()
       await wrapper.findAll('button').find(b => b.text() === 'Back to workspace')!.trigger('click')
@@ -117,7 +114,7 @@ describe('App', () => {
   it('opens the conflict demo from Settings without a repository and exits', async () => {
     const wrapper = mount(App, { attachTo: document.body })
     try {
-      await wrapper.get('.topbar [aria-label="Settings"]').trigger('click')
+      await wrapper.get('.window-bar [aria-label="Settings"]').trigger('click')
       await wrapper.findAll('.set-catitem').find(b => b.text() === 'Developer')!.trigger('click')
       await wrapper.findAll('button').find(b => b.text().includes('Open conflict demo'))!.trigger('click')
       await flushPromises()
@@ -187,13 +184,15 @@ describe('App', () => {
     settings['graph.detailPosition'] = 'right'
   })
 
-  it('submits the header search and keeps the settings cog', async () => {
+  it('opens the compact header search and keeps settings on the window row', async () => {
     const wrapper = mount(App, { attachTo: document.body })
-    await wrapper.find('.titlebar-search input').setValue('graph')
-    await wrapper.find('form[role="search"]').trigger('submit')
+    await wrapper.get('.header-search-button').trigger('click')
     expect(wrapper.find('.finderbar').exists()).toBe(true)
-    expect((wrapper.find('.fb-query').element as HTMLInputElement).value).toBe('graph')
-    expect(wrapper.find('.topbar [aria-label="Settings"]').exists()).toBe(true)
+    expect((wrapper.find('.fb-query').element as HTMLInputElement).value).toBe('')
+    await wrapper.get('.fb-query').setValue('path/to/file')
+    await wrapper.get('.fb-query').trigger('keydown', { key: '/' })
+    expect(wrapper.find('.finderbar').exists()).toBe(true)
+    expect(wrapper.find('.window-bar [aria-label="Settings"]').exists()).toBe(true)
     wrapper.unmount()
   })
 

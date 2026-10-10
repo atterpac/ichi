@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { countLabel } from '../../composables/countLabel'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch, type Component } from 'vue'
 import { NAV_GROUPS } from './nav'
 import { notify } from '../../composables/useToasts'
@@ -47,6 +48,7 @@ const viewIcons: Record<string, Component> = {
   stashes: PhArchive,
   sync: PhArrowsClockwise,
   prs: PhGitPullRequest,
+  issues: PhWarningDiamond,
   remotes: PhCloud,
   diff: PhGitDiff,
   blame: PhUserList,
@@ -118,7 +120,7 @@ const LIMIT = 8
 const UNIFIED_GROUP_LIMIT = 8
 
 function viewEntries() {
-  const order = ['graph', 'status', 'branches', 'stashes', 'diff', 'commit']
+  const order = ['graph', 'status', 'branches', 'stashes', 'prs', 'issues', 'diff', 'commit']
   return NAV_GROUPS.flatMap((g) => g.items.filter((i) => order.includes(i.id)).map((i) => ({ ...i, group: g.title }))).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 }
 
@@ -406,7 +408,7 @@ watch([previewOpen, selectedRow], async ([open, row], _, onCleanup) => {
       const pending = GraphService.LoadCommit(row.id)
       request = pending
       const detail = await pending
-      text = detail ? [detail.Subject, detail.Body, detail.Author, detail.Stats ? `${detail.Stats.FilesChanged} files · +${detail.Stats.Insertions} −${detail.Stats.Deletions}` : ''].filter(Boolean).join('\n\n') : 'Commit details unavailable.'
+      text = detail ? [detail.Subject, detail.Body, detail.Author, detail.Stats ? `${countLabel(detail.Stats.FilesChanged, 'file')} · +${detail.Stats.Insertions} −${detail.Stats.Deletions}` : ''].filter(Boolean).join('\n\n') : 'Commit details unavailable.'
     } else if (row.kind === 'branch') {
       const branch = row.data as Branch
       const current = branches.value.find(b => b.IsCurrent)
@@ -509,7 +511,7 @@ onBeforeUnmount(() => {
       <div v-if="workspaceFilter" class="fb-summary"><span>Workspace: {{ workspaces.state.workspaces.find(w => w.id === workspaceFilter)?.name }}</span><button @click="workspaceFilter = ''">All repositories</button></div>
       <div v-if="profiles.state.error && mode === 'profile'" class="fb-summary" role="alert">{{ profiles.state.error }}</div>
       <div class="fb-summary" aria-live="polite">
-        <span>{{ !query && mode === 'root' ? 'Recent & suggested' : `${results.length} results` }}</span>
+        <span>{{ !query && mode === 'root' ? 'Recent & suggested' : countLabel(results.length, 'result') }}</span>
         <span>{{ searchLoading ? 'Searching…' : searchError ? searchError : contentTruncated ? 'More matches available; refine your search' : loadingCommits ? 'Searching commits…' : commitError ? 'Commit search unavailable' : mode === 'root' && !query ? 'Files · commits · branches · workspaces' : activeScope?.label ?? '' }}</span>
       </div>
       <div class="fb-body">

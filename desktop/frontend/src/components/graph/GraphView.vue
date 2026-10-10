@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PersonName from "../people/PersonName.vue"
 import { navigationGeneration, invalidateNavigationSnapshots, peekNavigationSnapshot, saveNavigationSnapshot, forgetNavigationSnapshot } from '../../composables/navigationSnapshots'
 
 import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
@@ -39,6 +40,7 @@ import {
 } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import { PhArchive, PhArrowLineUp, PhCopy, PhDownloadSimple, PhTrash } from '@phosphor-icons/vue'
 import { invalidateChangesSnapshots } from '../status/changesSnapshotCache'
+import PaneSplitter from '../common/PaneSplitter.vue'
 import { workingDraft } from './workingDraft'
 import {
   Commit,
@@ -120,7 +122,16 @@ const commitBranches = computed(() => branchLabels(
 const railWidth = computed(() => graphRailWidth(laneCount.value))
 // The viewport stays fixed while the underlying lane coordinates scroll.
 const laneScroller = ref<HTMLElement | null>(null)
-const laneViewportWidth = ref(160)
+const refColumnWidth = ref(120)
+const graphTableWidth = ref(800)
+const preferredGraphWidth = ref<number | null>(null)
+// Allocate a quarter of the table to ancestry, leaving room for refs and subjects.
+const graphColumnMax = computed(() => Math.max(136, Math.min(480, graphTableWidth.value - refColumnWidth.value - 300)))
+const graphColumnWidth = computed({
+  get: () => Math.min(graphColumnMax.value, preferredGraphWidth.value ?? Math.max(136, Math.min(256, Math.round(graphTableWidth.value * 0.25)))),
+  set: (width: number) => { preferredGraphWidth.value = width },
+})
+const laneViewportWidth = ref(200)
 const laneScrollOffset = ref(0)
 const lanesOverflow = computed(() => railWidth.value > laneViewportWidth.value)
 watch(laneScroller, (element, _, onCleanup) => {
@@ -136,7 +147,9 @@ watch(laneScroller, (element, _, onCleanup) => {
   onCleanup(() => observer.disconnect())
 })
 function scrollLanes(event: Event) {
-  laneScrollOffset.value = (event.currentTarget as HTMLElement).scrollLeft
+  const element = event.currentTarget as HTMLElement
+  if (element.clientWidth > 0) laneViewportWidth.value = element.clientWidth
+  laneScrollOffset.value = element.scrollLeft
 }
 function wheelLanes(event: WheelEvent) {
   const element = laneScroller.value
@@ -357,6 +370,7 @@ const footerHeight = ref(18)
 watch([listEl, canvasEl, headerEl, footerEl], ([list, canvas, header, footer], _, onCleanup) => {
   if (!list || !canvas || !header || !footer) return
   const measure = () => {
+    if (header.clientWidth > 0) graphTableWidth.value = header.clientWidth
     contentOffset.value = canvas.offsetTop
     headerHeight.value = header.offsetHeight
     footerHeight.value = footer.offsetHeight
@@ -757,17 +771,25 @@ watch(
 const initialLoadComplete = ref(false)
 let initialFocusPending = true
 let mountFocus: Element | null = null
+let startupInteracted = false
+function recordStartupInteraction() {
+  if (initialFocusPending) startupInteracted = true
+}
 watch([listEl, graphRefreshing, initialLoadComplete, () => props.focusBlocked], ([list, refreshing, loaded, blocked]) => {
   if (!initialFocusPending || !list || refreshing || !loaded || blocked) return
   initialFocusPending = false
-  // Let a user who moved to another control during loading keep that focus.
-  if (document.activeElement === mountFocus || document.activeElement === document.body) {
+  // WebKit can automatically focus a header control while loading.
+  // Only actual pointer/keyboard activity should give that control ownership.
+  const active = document.activeElement
+  if (!startupInteracted && (active === mountFocus || active === document.body || active?.matches('[data-startup-search]') || active?.closest('.window-header'))) {
     list.focus({ preventScroll: true })
   }
 }, { flush: 'post' })
 
 onMounted(() => {
   mountFocus = document.activeElement
+  window.addEventListener('pointerdown', recordStartupInteraction, true)
+  window.addEventListener('keydown', recordStartupInteraction, true)
   window.addEventListener('keydown', onHoverKey)
   window.addEventListener('keyup', releaseCommitRefs)
   window.addEventListener('blur', resetCommitRefs)
@@ -785,6 +807,8 @@ onMounted(() => {
   })
 })
 onUnmounted(() => {
+  window.removeEventListener('pointerdown', recordStartupInteraction, true)
+  window.removeEventListener('keydown', recordStartupInteraction, true)
   window.removeEventListener('keydown', onHoverKey)
   window.removeEventListener('keyup', releaseCommitRefs)
   window.removeEventListener('blur', resetCommitRefs)
@@ -793,15 +817,16 @@ onUnmounted(() => {
 
 <template>
   <div class="graph-view">
-    <Teleport defer to="#view-header-context">
-      <span v-if="repo" class="header-sync" aria-label="Branch sync status"
-        ><span class="sync-ahead">↑{{ repo.Ahead }}</span> ahead
-        <span>↓{{ repo.Behind }}</span> behind</span
-      >
-      <UiButton size="sm" title="Push current branch" :disabled="graphRefreshing || activeOperations" @click="openPushConfirm">
-        <PhArrowLineUp :size="16" weight="bold" />
-        Push <span v-if="repo?.Ahead" class="push-count">{{ repo.Ahead }}</span>
-      </UiButton>
+    <Teleport defer to="#window-sync-context">
+      <details class="header-sync-menu" @keydown.esc.stop.prevent="($event.currentTarget as HTMLDetailsElement).open = false">
+        <summary aria-label="Sync actions">Sync <span v-if="repo?.Ahead">↑{{ repo.Ahead }}</span><span v-if="repo?.Behind">↓{{ repo.Behind }}</span><span aria-hidden="true">⌄</span></summary>
+        <div class="sync-menu-actions" @click="($event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open')">
+          <UiButton size="sm" :disabled="graphRefreshing || activeOperations" @click="runOperation(() => RemoteService.FetchAll(), { success: 'Fetch complete' })">Fetch</UiButton>
+          <UiButton size="sm" :disabled="graphRefreshing || activeOperations" @click="openOperation({ title: 'Pull current branch?', message: 'Fetch and integrate upstream changes into the current branch.', confirmLabel: 'Pull', target: repo?.Branch, onConfirm: () => runRef(() => RemoteService.Pull()) })">Pull</UiButton>
+          <UiButton size="sm" title="Push current branch" :disabled="graphRefreshing || activeOperations" @click="openPushConfirm">Push</UiButton>
+        </div>
+      </details>
+      <UiButton v-if="repo?.Ahead" size="sm" title="Push ahead commits" :disabled="graphRefreshing || activeOperations" @click="openPushConfirm"><PhArrowLineUp :size="16" weight="bold" />Push {{ repo.Ahead }}</UiButton>
     </Teleport>
 
     <SurfaceState
@@ -840,7 +865,7 @@ onUnmounted(() => {
           { 'no-author-column': !settings['graph.showAuthor'] },
           { 'keyboard-navigation': keyboardNavigation },
         ]"
-        :style="{ '--graph-row-height': `${rowHeight}px` }"
+        :style="{ '--graph-row-height': `${rowHeight}px`, '--ref-width': `${refColumnWidth}px`, '--rail-width': `${graphColumnWidth}px` }"
         aria-label="Commit graph"
         data-keyboard-pane
         tabindex="0"
@@ -852,8 +877,8 @@ onUnmounted(() => {
       >
         <div class="commit-table">
           <div ref="headerEl" class="commit-table-head">
-            <span class="th-refs">Refs</span>
-            <span>Graph</span>
+            <span class="th-refs resizable-column">Refs<PaneSplitter v-model="refColumnWidth" label="Resize reference column" :min="90" :max="260" /></span>
+            <span class="resizable-column" title="Drag the divider to resize. Double-click to restore automatic width." @dblclick="preferredGraphWidth = null">Graph<PaneSplitter v-model="graphColumnWidth" label="Resize graph column" :min="80" :max="graphColumnMax" /></span>
             <span class="th-subject">Subject</span>
             <span class="th-hash">Hash</span>
             <span v-if="settings['graph.showAuthor']" class="th-author">Author</span>
@@ -920,10 +945,10 @@ onUnmounted(() => {
                     <button type="button" class="wip-action" :disabled="activeOperations" title="Stash all changes, including untracked files (Alt+Enter)" @click.stop="stashDraft">Stash</button>
                   </span>
                 </template>
-                <span v-else class="commit-subject" :title="row.Commit.IsStash ? row.Commit.Message : undefined">{{ row.Commit.IsStash ? row.Commit.Message.replace(/^(?:WIP on|On) [^:]+:\s*/, '') : row.Commit.Message }}</span>
+                <span v-else class="commit-subject" :title="row.Commit.Message">{{ row.Commit.IsStash ? row.Commit.Message.replace(/^(?:WIP on|On) [^:]+:\s*/, '') : row.Commit.Message }}</span>
               </span>
               <span class="commit-hash">{{ row.Commit.ShortHash }}</span>
-              <span v-if="settings['graph.showAuthor']" class="commit-table-author author-identity"><AuthorAvatar v-if="!settings['graph.authorAvatars'] && row.Commit.Hash !== '__ichi_working_changes__'" :name="row.Commit.Author" :commit="row.Commit.Hash" :size="rowHeight - 10" /><span class="author-name">{{ row.Commit.Author }}</span></span>
+              <span v-if="settings['graph.showAuthor']" class="commit-table-author author-identity"><AuthorAvatar v-if="!settings['graph.authorAvatars'] && row.Commit.Hash !== '__ichi_working_changes__'" :name="row.Commit.Author" :commit="row.Commit.Hash" :size="rowHeight - 10" /><PersonName class="author-name" :name="row.Commit.Author" :commit="row.Commit.Hash" /></span>
               <span class="commit-table-date">{{ formatDate(row.Commit.Date) }}</span>
             </component>
           </div>
