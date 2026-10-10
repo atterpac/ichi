@@ -42,7 +42,7 @@
 }
 
 .commit-table {
-  --rail-width: clamp(110px, 22cqw, 240px);
+  --rail-width: clamp(100px, 16cqw, 180px);
   min-width: 440px;
   min-height: 100%;
   display: flex;
@@ -201,7 +201,7 @@
   min-width: 0;
   height: calc(var(--graph-row-height) - 8px);
   padding: 0 var(--space-4);
-  border: 1px dashed var(--line-faint);
+  border: 1px solid var(--line-faint);
   border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text);
@@ -681,9 +681,9 @@ button.detail-file-row:hover {
   contain: layout paint;
 }
 .detail-file-window .detail-file-row {
-  height: 30px;
-  min-height: 30px;
-  max-height: 30px;
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
 }
 .detail-file-group h4 {
   margin: 0;
@@ -859,3 +859,80 @@ button.detail-file-row:hover {
 .graph-lane-scroll::-webkit-scrollbar { height: 8px; }
 .graph-lane-scroll::-webkit-scrollbar-thumb { background: var(--text-mut); border-radius: 4px; }
 .graph-lane-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Inspector: identity, explanation, then files. Actions remain pinned below. */
+.detail-identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+}
+.detail-kind {
+  color: var(--text-mut);
+  font: var(--font-label);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.detail-stash-ref { color: var(--text-dim); font: var(--font-data); }
+.detail-identity .detail-sha {
+  margin-left: auto;
+  border: 0;
+  padding: 0;
+  font: var(--font-data);
+  color: var(--text-mut);
+  max-width: 100%;
+}
+.detail-head h3 { font: var(--weight-emphasis) var(--fs-body-lg)/1.4 var(--font-ui); text-wrap: pretty; }
+.detail-meta { width: 100%; }
+.detail-person { flex-wrap: wrap; font-size: var(--fs-xs); }
+.detail-ancestry {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+.detail-context-label { flex: none; color: var(--text-mut); }
+.detail-ancestry .detail-parents { display: grid; min-width: 0; }
+.detail-ancestry .detail-parents button {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+  text-align: left;
+  padding: 2px 0;
+}
+.detail-parents code { flex: none; color: var(--accent-text); font: var(--font-data); }
+.detail-parents button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-full-sha { font-family: var(--font-mono); }
+.detail-message { margin-bottom: var(--space-4); }
+.detail-message p {
+  margin: 0;
+  color: var(--read-text);
+  font: var(--fs-sm)/1.6 var(--font-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.detail-info { border-top: 0; margin-bottom: var(--space-3); }
+.detail-info-toggle { padding: var(--space-2) 0; font-size: var(--fs-xs); }
+.detail-summary { gap: var(--space-3); padding: var(--space-5) 0 var(--space-4); }
+.detail-summary > span:first-child { margin-right: auto; color: var(--text); font-weight: var(--weight-medium); }
+.detail-file-group { margin-bottom: var(--space-4); }
+.detail-file-row .file-path { flex-direction: column; align-items: stretch; gap: 0; }
+.detail-file-row .file-name { font-weight: var(--weight-medium); }
+.commit-preview { margin-top: var(--space-6); border-top: 1px solid var(--line-faint); }
+.commit-preview header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0; font: var(--fs-xs) var(--font-ui); color: var(--text-mut); }
+.commit-preview button { border: 0; padding: 0; background: none; color: var(--accent-text); font: inherit; cursor: pointer; }
+.commit-preview button:focus-visible, .commit-preview-code:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.commit-preview p { color: var(--text-mut); font: var(--fs-xs)/1.5 var(--font-ui); }
+.commit-preview-code { overflow: auto; border-radius: var(--radius-xs); background: var(--surface); max-height: 264px; }
+.commit-preview-line { display: flex; width: max-content; min-width: 100%; font: var(--fs-xs)/22px var(--font-mono); }
+.commit-preview-line code { white-space: pre; padding-right: 12px; font: inherit; }
+.preview-line-number { flex: none; width: 4ch; text-align: right; padding-right: 8px; color: var(--text-mut); user-select: none; }
+.preview-line-sign { flex: none; width: 2ch; white-space: pre; }
+.commit-preview-line.added { color: var(--positive-text); background: color-mix(in srgb, var(--positive-text) 9%, transparent); }
+.commit-preview-line.removed { color: var(--negative-text); background: color-mix(in srgb, var(--negative-text) 9%, transparent); }
+.preview-caption { margin: 6px 0 0; }
