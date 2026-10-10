@@ -4,15 +4,15 @@
         <key>CFBundlePackageType</key>
             <string>APPL</string>
         <key>CFBundleName</key>
-            <string>Pigeon</string>
+            <string>Ichi</string>
         <key>CFBundleExecutable</key>
-            <string>Pigeon</string>
+            <string>Ichi</string>
         <key>CFBundleIdentifier</key>
-            <string>com.atterpac.pigeon.dev</string>
+            <string>com.atterpac.ichi.dev</string>
         <key>CFBundleVersion</key>
             <string>0.1.0</string>
         <key>CFBundleGetInfoString</key>
-            <string>Pigeon email client</string>
+            <string>Ichi Git client</string>
         <key>CFBundleShortVersionString</key>
             <string>0.1.0</string>
         <key>CFBundleIconFile</key>
