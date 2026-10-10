@@ -17,6 +17,50 @@ vi.mock('@wailsio/runtime', () => ({ System: { IsDesktop: () => false } }))
 const config = (): RefLabelConfig => JSON.parse(JSON.stringify(defaultRefLabels))
 beforeEach(() => usePreferences().resetCategory())
 describe('custom ref labels', () => {
+  it('applies presets to both modes, and reverts unsaved appearance changes', async () => {
+    const wrapper = mount(RefLabelEditor)
+    try {
+      await wrapper.get('[aria-label="Label preset"]').findAll('button')[0]!.trigger('click')
+      expect((wrapper.get('#ref-format-compact').element as HTMLInputElement).value).toBe(
+        '{{.Branch}}',
+      )
+      expect((wrapper.get('#ref-format-expanded').element as HTMLInputElement).value).toBe(
+        '{{.Branch}}',
+      )
+      await wrapper.get('[aria-label="Label color"]').setValue('blue')
+      await wrapper.get('[aria-label="Label background"]').setValue('outline')
+      expect(usePreferences().values.value['graph.refLabels'].kinds.remote.color).toBeUndefined()
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Revert')!
+        .trigger('click')
+      expect((wrapper.get('[aria-label="Label color"]').element as HTMLSelectElement).value).toBe(
+        'lane',
+      )
+      expect((wrapper.get('#ref-format-compact').element as HTMLInputElement).value).toBe(
+        '{{.Name}}',
+      )
+    } finally {
+      wrapper.unmount()
+    }
+  })
+  it('accepts new visual styles while rejecting arbitrary CSS and preserving old configurations', () => {
+    const prefs = config()
+    expect(validateRefLabels(prefs)).toBeNull()
+    prefs.kinds.remote.color = 'blue'
+    prefs.kinds.remote.background = 'outline'
+    expect(validateRefLabels(prefs)).toBeNull()
+    expect(refPresentation(prefs, 'origin/main', 'remote').color).toBe('blue')
+    expect(
+      validateRefLabels({
+        ...prefs,
+        kinds: {
+          ...prefs.kinds,
+          remote: { ...prefs.kinds.remote, color: 'url(https://example.com)' },
+        },
+      }),
+    ).toContain('supported label color')
+  })
   it('distinguishes two cloud remotes and retains nested branch paths and complete accessible names', async () => {
     const prefs = config()
     prefs.remotes.origin = { icon: 'fork', compact: '{{.Branch}}', expanded: '{{.Name}}' }
@@ -55,9 +99,7 @@ describe('custom ref labels', () => {
     await flushPromises()
     await wrapper.get('[aria-label="Edit origin"]').trigger('click')
     await wrapper.get('[aria-label="Fork"]').trigger('click')
-    await wrapper
-      .get('[aria-label="compact format preset"] [data-format="{{.Branch}}"]')
-      .trigger('click')
+    await wrapper.get('#ref-format-compact').setValue('{{.Branch}}')
     await flushPromises()
     expect(wrapper.get('.ref-samples').text()).toContain('feature/search')
     expect(usePreferences().values.value['graph.refLabels'].remotes.origin).toBeUndefined()
@@ -86,7 +128,7 @@ describe('custom ref labels', () => {
     expect(usePreferences().values.value['graph.refLabels'].kinds.remote.compact).toBe('{{.Name}}')
     await wrapper
       .findAll('button')
-      .find((b) => b.text() === 'Discard edits')!
+      .find((b) => b.text() === 'Revert')!
       .trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
@@ -97,18 +139,11 @@ describe('custom ref labels', () => {
     const wrapper = mount(RefLabelEditor)
     try {
       await wrapper.get('[aria-label="Edit upstream"]').trigger('click')
-      await wrapper
-        .get('[aria-label="compact format preset"] [data-format="{{.Branch}}"]')
-        .trigger('click')
-      await wrapper.get('[aria-label="Label mode"]').findAll('button')[1]!.trigger('click')
-      expect(
-        wrapper
-          .get('[aria-label="expanded format preset"] [data-format="{{.Name}}"]')
-          .attributes('aria-pressed'),
-      ).toBe('true')
-      await wrapper
-        .get('[aria-label="expanded format preset"] [data-format="{{.Branch}} · {{.Remote}}"]')
-        .trigger('click')
+      await wrapper.get('#ref-format-compact').setValue('{{.Branch}}')
+      expect((wrapper.get('#ref-format-expanded').element as HTMLInputElement).value).toBe(
+        '{{.Name}}',
+      )
+      await wrapper.get('#ref-format-expanded').setValue('{{.Branch}} · {{.Remote}}')
       await flushPromises()
       await wrapper
         .findAll('button')
@@ -137,9 +172,8 @@ describe('custom ref labels', () => {
       expect(wrapper.get('[aria-label="Cloud"]').attributes('aria-pressed')).toBe('true')
       expect(wrapper.find('[aria-label="Edit team/origin"]').exists()).toBe(true)
       await wrapper
-        .get('[aria-label="Remote style"]')
         .findAll('button')
-        .find((b) => b.text() === 'All remotes')!
+        .find((b) => b.text() === '← All remotes')!
         .trigger('click')
       await wrapper.get('[aria-label="Dot"]').trigger('click')
       await flushPromises()
@@ -170,7 +204,7 @@ describe('custom ref labels', () => {
       await wrapper
         .get('[aria-label="Label type"]')
         .findAll('button')
-        .find((b) => b.text() === 'Local branches')!
+        .find((b) => b.text() === 'Branch')!
         .trigger('click')
       await wrapper.get('[aria-label="Pin"]').trigger('click')
       await flushPromises()

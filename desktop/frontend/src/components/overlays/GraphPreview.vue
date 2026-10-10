@@ -92,7 +92,7 @@ const rows = sample.map(
 
 <template>
   <div class="graph-preview-frame" aria-hidden="true">
-    <GraphSvg :rows="rows" :lane-count="3" :row-height="rowHeight" />
+    <GraphSvg :interactive-avatars="false" :rows="rows" :lane-count="3" :row-height="rowHeight" />
     <div class="graph-preview-rows">
       <div
         v-for="row in sample"

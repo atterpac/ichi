@@ -46,6 +46,11 @@
      per palette (see scripts/generate-themes.mjs). */
   --surface-base: var(--surface-chrome-gen, var(--bg));
   --surface-panel: var(--surface);
+  --surface-card: var(--surface-card-gen, var(--surface-panel));
+  --comment-border: color-mix(in oklab, var(--text) 22%, var(--surface-card));
+  --comment-header: color-mix(in oklab, var(--surface-sidebar) 65%, var(--surface-card));
+  --surface-input: var(--surface-input-gen, var(--surface-panel));
+  --surface-sidebar: var(--surface-raised);
   --surface-raised: var(--surface-raised-gen, var(--surface-2));
   --surface-overlay: var(--surface-overlay-gen, var(--surface-raised));
   --surface-hover-strong: color-mix(in oklab, var(--text) 10%, transparent);

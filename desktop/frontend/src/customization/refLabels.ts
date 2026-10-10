@@ -29,6 +29,8 @@ export type RefIcon = keyof typeof refIcons
 export type RefKind = 'branch' | 'remote' | 'tag' | 'head'
 export interface RefStyle {
   icon: RefIcon
+  color?: 'lane' | 'accent' | 'blue' | 'green' | 'orange' | 'purple' | 'red'
+  background?: 'filled' | 'outline' | 'plain'
   compact: string
   expanded: string
 }
@@ -67,11 +69,23 @@ export function validateRefLabels(value: unknown): string | null {
   for (const style of [...Object.values(value.kinds), ...Object.values(value.remotes)]) {
     if (
       !object(style) ||
-      Object.keys(style).sort().join(',') !== 'compact,expanded,icon' ||
+      Object.keys(style).some(
+        (key) => !['icon', 'compact', 'expanded', 'color', 'background'].includes(key),
+      ) ||
       typeof style.icon !== 'string' ||
       !Object.prototype.hasOwnProperty.call(refIcons, style.icon)
     )
       return 'Choose a supported ref icon'
+    if (
+      style.color !== undefined &&
+      !['lane', 'accent', 'blue', 'green', 'orange', 'purple', 'red'].includes(String(style.color))
+    )
+      return 'Choose a supported label color'
+    if (
+      style.background !== undefined &&
+      !['filled', 'outline', 'plain'].includes(String(style.background))
+    )
+      return 'Choose a supported background style'
     for (const mode of ['compact', 'expanded']) {
       const format = style[mode]
       if (
@@ -106,6 +120,8 @@ export function refPresentation(
   const style = override ? config.remotes[override]! : config.kinds[type]
   return {
     icon: style.icon,
+    color: style.color ?? 'lane',
+    background: style.background ?? 'filled',
     request: {
       Format: expanded ? style.expanded : style.compact,
       Name: name,
@@ -123,6 +139,8 @@ const styleSchema = {
   required: ['icon', 'compact', 'expanded'],
   properties: {
     icon: { type: 'string', enum: Object.keys(refIcons) },
+    color: { type: 'string', enum: ['lane', 'accent', 'blue', 'green', 'orange', 'purple', 'red'] },
+    background: { type: 'string', enum: ['filled', 'outline', 'plain'] },
     compact: {
       type: 'string',
       minLength: 1,

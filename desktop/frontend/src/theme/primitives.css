@@ -133,7 +133,7 @@
   padding: 0 var(--control-pad);
   border: 1px solid var(--border);
   border-radius: var(--control-radius);
-  background: var(--surface-panel);
+  background: var(--surface-input);
   color: var(--text);
   font: var(--weight-regular) var(--control-font)/var(--control-line) var(--font-ui);
   transition:
@@ -202,3 +202,5 @@ textarea.ui-field {
 /* Shared author attribution: fixed avatar, shrinking name, no row-height shift. */
 .author-identity { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .author-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ui-field::placeholder { color: var(--text-mut); opacity: .85; }

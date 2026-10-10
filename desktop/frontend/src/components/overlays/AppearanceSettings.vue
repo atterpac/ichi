@@ -3,11 +3,15 @@ import { computed, ref } from 'vue'
 import { placeholderStyles, placeholderSvg } from '../common/avatarPlaceholder'
 import { usePreferenceBindings } from '../../customization/usePreferences'
 import { DEFAULT_THEME, THEMES } from '../../theme/themes'
+import FontSettings from './FontSettings.vue'
+import SettingsPreview from './SettingsPreview.vue'
 import GraphPreview from './GraphPreview.vue'
 import UiButton from '../common/UiButton.vue'
 const emit = defineEmits<{ appearanceLab: [] }>()
 const settings = usePreferenceBindings()
-const section = ref('Themes')
+withDefaults(defineProps<{ section?: 'Themes' | 'Typography' | 'Avatars' }>(), {
+  section: 'Themes',
+})
 const filter = ref('All')
 const visibleThemes = computed(() =>
   THEMES.filter(
@@ -20,30 +24,21 @@ const selectedTheme = computed(() =>
 </script>
 <template>
   <div class="appearance-settings">
-    <div class="set-subnav" role="group" aria-label="Appearance sections">
-      <button
-        v-for="tab in ['Themes', 'Typography', 'Avatars']"
-        :key="tab"
-        type="button"
-        :aria-pressed="section === tab"
-        @click="section = tab"
-      >
-        {{ tab }}
-      </button>
-    </div>
     <template v-if="section === 'Themes'">
-      <section class="theme-feature" aria-label="Selected theme preview">
-        <div class="theme-feature-copy">
-          <h3>{{ selectedTheme?.label }}</h3>
-        </div>
-        <div class="theme-feature-scene">
-          <GraphPreview />
-          <div class="theme-code-preview" aria-hidden="true">
-            <code> export const workspace = {</code><code class="removed">− theme: 'before'</code
-            ><code class="added">+ theme: '{{ selectedTheme?.label }}'</code><code> }</code>
+      <SettingsPreview
+        ><section class="theme-feature" aria-label="Selected theme preview">
+          <div class="theme-feature-copy">
+            <h3>{{ selectedTheme?.label }}</h3>
           </div>
-        </div>
-      </section>
+          <div class="theme-feature-scene">
+            <GraphPreview />
+            <div class="theme-code-preview" aria-hidden="true">
+              <code> export const workspace = {</code><code class="removed">− theme: 'before'</code
+              ><code class="added">+ theme: '{{ selectedTheme?.label }}'</code><code> }</code>
+            </div>
+          </div>
+        </section></SettingsPreview
+      >
       <div class="theme-gallery-head">
         <div class="set-segmented" role="group" aria-label="Theme brightness">
           <button
@@ -93,27 +88,7 @@ const selectedTheme = computed(() =>
     <template v-else-if="section === 'Typography'">
       <div class="settings-split">
         <div class="settings-controls">
-          <p class="set-note">Bundled or installed fonts.</p>
-          <label class="set-field"
-            >Interface font<input
-              v-model="settings['appearance.uiFont']"
-              class="ui-field"
-              list="settings-ui-fonts"
-          /></label>
-          <datalist id="settings-ui-fonts">
-            <option value="Inter Variable" />
-            <option value="system-ui" />
-          </datalist>
-          <label class="set-field"
-            >Code font<input
-              v-model="settings['appearance.codeFont']"
-              class="ui-field"
-              list="settings-code-fonts"
-          /></label>
-          <datalist id="settings-code-fonts">
-            <option value="JetBrains Mono" />
-            <option value="ui-monospace" />
-          </datalist>
+          <FontSettings />
           <label class="set-field"
             >Text size <span>{{ settings['appearance.textScale'] }}%</span
             ><input
@@ -127,16 +102,43 @@ const selectedTheme = computed(() =>
             >Reset text size</UiButton
           >
         </div>
-        <aside class="settings-preview typography-preview" aria-label="Typography preview">
-          <h3>Polish the settings workspace</h3>
-          <small>Alex Chen committed 12 minutes ago</small>
-          <div class="theme-code-preview">
-            <code>const greeting = 'Hello, world'</code><code>// 0123456789 · {} [] () =&gt;</code>
-          </div>
-        </aside>
+        <SettingsPreview
+          ><aside class="settings-preview typography-preview" aria-label="Typography preview">
+            <h3>Polish the settings workspace</h3>
+            <small>Alex Chen committed 12 minutes ago</small>
+            <div class="theme-code-preview">
+              <code>const greeting = 'Hello, world'</code
+              ><code>// 0123456789 · {} [] () =&gt;</code>
+            </div>
+          </aside></SettingsPreview
+        >
       </div>
     </template>
     <template v-else>
+      <SettingsPreview
+        ><section class="settings-avatar-scene" aria-label="Avatar preview">
+          <h3>Contributors</h3>
+          <p class="set-note">When an author photo is unavailable</p>
+          <div
+            v-for="(name, index) in ['Alex Chen', 'Sam Rivera', 'Morgan Lee']"
+            :key="name"
+            class="settings-avatar-person"
+          >
+            <span
+              aria-hidden="true"
+              v-html="placeholderSvg(name, settings['appearance.avatarPlaceholder'])"
+            />
+            <div>
+              <strong>{{ name }}</strong
+              ><small>{{
+                ['Refine the inspector', 'Fix keyboard navigation', 'Add contribution history'][
+                  index
+                ]
+              }}</small>
+            </div>
+          </div>
+        </section></SettingsPreview
+      >
       <p class="set-section">Avatar placeholders</p>
       <p class="set-note">Used when an author photo is unavailable.</p>
       <div class="avatar-placeholder-options" role="group" aria-label="Avatar placeholder style">

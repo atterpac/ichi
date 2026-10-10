@@ -45,8 +45,20 @@ const icon = computed(() => refIcons[presentation.value.icon].component)
 <template>
   <span
     class="ref-label"
-    :class="{ 'is-current': current, 'is-tag': kind === 'tag' }"
-    :style="colorVar ? { '--ref-color': `var(${colorVar})` } : undefined"
+    :class="{
+      'is-current': current,
+      'is-tag': kind === 'tag',
+      'ref-outline': presentation.background === 'outline',
+      'ref-plain': presentation.background === 'plain',
+      'ref-custom-color': presentation.color !== 'lane',
+    }"
+    :style="
+      presentation.color !== 'lane'
+        ? { '--ref-color': `var(--${presentation.color === 'blue' ? 'cyan' : presentation.color})` }
+        : colorVar
+          ? { '--ref-color': `var(${colorVar})` }
+          : undefined
+    "
     :title="`${name}${current ? ' · current branch' : ''}`"
   >
     <PhCheck v-if="current" class="ref-marker" :size="14" weight="bold" aria-hidden="true" />
@@ -113,5 +125,22 @@ const icon = computed(() => refIcons[presentation.value.icon].component)
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+.ref-outline {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ref-color);
+}
+.ref-plain {
+  background: transparent;
+  padding-inline: 0;
+}
+.ref-custom-color {
+  color: var(--ref-color);
+}
+.ref-custom-color:not(.ref-plain):not(.ref-outline) {
+  background: color-mix(in oklab, var(--ref-color) 12%, transparent);
+}
+.ref-custom-color .ref-marker {
+  color: var(--ref-color);
 }
 </style>

@@ -135,34 +135,34 @@ if (!themes.some((t) => t.name === DEFAULT_THEME)) {
 function cssBlock({ name, colors: c }) {
   const light = isLight(c.bg)
   const selector = name === DEFAULT_THEME ? `:root,\n.theme-${name}` : `.theme-${name}`
-  // Layering must be monotonic regardless of how the def orders its bg tones
-  // (rosepine ships surface darker than bg): dark stacks lightest-on-top,
-  // light keeps the lightest tone for cards with the page slightly darker.
+  // Workspace is the reading plane; sidebars share a quieter companion tone.
+  // Imported editor palettes often use blue prose or very dark selection colors:
+  // retain their accent/hue without treating those colors as app surface roles.
   const layers = [c.bg_dark, c.bg, c.bg_light].sort((a, b) => luminance(a) - luminance(b))
-  const surface = light ? mix(layers[2], '#000000', .025) : layers[1]
-  const bg = light ? mix(surface, '#000000', .04) : layers[0]
-  const surface2 = light ? layers[0] : layers[2]
-  // Some palettes sit bg/surface/raised within a few luminance points of each
-  // other. Push dark raised panels a touch lighter and give window chrome its
-  // own darker step so the frame, working card, and inspectors always separate.
-  const raised = light ? mix(layers[2], '#ffffff', .6) : mix(mix(surface, surface2, .65), '#ffffff', .03)
-  const chrome = mix(bg, '#000000', light ? .06 : .18)
-  const overlay = mix(raised, '#ffffff', light ? .65 : .035)
-  const head = light ? mix(c.fg, '#000000', 0.35) : mix(c.fg, '#ffffff', 0.3)
+  const surface = light ? mix(layers[2], '#ffffff', .82) : layers[1]
+  const bg = light ? surface : layers[0]
+  const sidebar = light ? mix(surface, '#48505c', .035) : mix(surface, layers[2], .24)
+  const surface2 = light ? sidebar : mix(surface, layers[2], .55)
+  const raised = sidebar
+  const chrome = light ? mix(surface, '#48505c', .085) : mix(layers[0], '#000000', .18)
+  const overlay = light ? '#ffffff' : mix(layers[2], '#ffffff', .035)
+  const head = light ? mix('#1e232b', c.fg, .06) : mix(c.fg, '#ffffff', .3)
   const accentInk = contrast(c.accent, '#151515') >= contrast(c.accent, '#ffffff') ? '#151515' : '#ffffff'
   const textSurfaces = [chrome, bg, surface, raised, overlay]
   const textTarget = light ? '#000000' : '#ffffff'
-  const readableText = tuneMut(c.fg, textSurfaces, textTarget)
+  const readableText = tuneMut(light ? mix('#303640', c.fg, .08) : c.fg, textSurfaces, textTarget)
   const accentText = tuneMut(c.accent, textSurfaces, textTarget)
   const positiveText = tuneMut(c.success, textSurfaces, textTarget)
   const negativeText = tuneMut(c.error, textSurfaces, textTarget)
   const warningText = tuneMut(c.warning, textSurfaces, textTarget)
-  const mut = tuneMut(c.fg_dim, textSurfaces, light ? '#000000' : '#ffffff')
+  const mut = tuneMut(light ? mix('#626975', c.fg_dim, .08) : c.fg_dim, textSurfaces, light ? '#000000' : '#ffffff')
   const vars = [
     // native chrome (select popups, scrollbars) keys off color-scheme, not CSS vars
     `color-scheme:${light ? 'light' : 'dark'};`,
     `--bg:${bg};--surface:${surface};--surface-2:${surface2};`,
     `--surface-chrome-gen:${chrome};--surface-raised-gen:${raised};--surface-overlay-gen:${overlay};`,
+    `--surface-input-gen:${light ? '#ffffff' : bg};`,
+    `--surface-card-gen:${light ? '#ffffff' : mix(surface, '#ffffff', .035)};`,
     `--text:${readableText};--text-mut:${mut};--head:${head};`,
     `--accent-text:${accentText};--positive-text:${positiveText};--negative-text:${negativeText};--warning-text:${warningText};`,
     `--accent:${c.accent};--accent-ink:${accentInk};`,

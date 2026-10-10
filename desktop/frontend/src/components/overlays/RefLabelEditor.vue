@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { settingsRevealControls } from './settingsPreview'
+import SettingsPreview from './SettingsPreview.vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
 import { usePreferences } from '../../customization/usePreferences'
 import {
   defaultRefLabels,
@@ -15,6 +17,8 @@ import RefLabel from '../common/RefLabel.vue'
 import UiButton from '../common/UiButton.vue'
 
 const preferences = usePreferences()
+const revealControls = inject(settingsRevealControls, () => {})
+const editor = ref<HTMLElement | null>(null)
 const clone = (value: RefLabelConfig): RefLabelConfig => JSON.parse(JSON.stringify(value))
 const draft = ref(clone(preferences.values.value['graph.refLabels']))
 const target = ref<RefKind>('remote')
@@ -24,16 +28,9 @@ const newRemote = ref('')
 const message = ref('')
 const previewWidth = ref(160)
 const sampleBranch = ref('feature/search')
-const mode = ref<'compact' | 'expanded'>('compact')
+const overridesOpen = ref(false)
 const previewRemote = ref('origin')
 const sampleRemotes = ref(['origin', 'upstream'])
-const sampleSubjects = [
-  'Add search shortcuts',
-  'Polish the finder',
-  'Update dependencies',
-  'Release 1.2.0',
-  'Check out a commit',
-]
 type Example = { name: string; kind: RefKind; current: boolean; remote?: string }
 const errors = ref<string[]>([])
 const validating = ref(false)
@@ -138,13 +135,6 @@ function setStyle<K extends keyof RefStyle>(key: K, value: RefStyle[K]) {
   }
   style.value[key] = value
 }
-function isSelected(example: Example) {
-  if (target.value !== example.kind) return false
-  if (example.kind !== 'remote') return true
-  return remoteScope.value
-    ? example.remote === remoteScope.value
-    : !draft.value.remotes[example.remote!]
-}
 function addRemote() {
   const name = newRemote.value.trim()
   if (!name || Object.prototype.hasOwnProperty.call(draft.value.remotes, name)) {
@@ -197,612 +187,564 @@ function apply() {
   message.value = 'Ref labels applied.'
 }
 const refTypes = [
-  { id: 'branch', label: 'Local branches', name: 'feature/search' },
-  { id: 'remote', label: 'Remotes', name: 'origin/feature/search' },
-  { id: 'tag', label: 'Tags', name: 'v1.2.0' },
+  { id: 'branch', label: 'Branch', name: 'feature/search' },
+  { id: 'remote', label: 'Remote branch', name: 'origin/feature/search' },
+  { id: 'tag', label: 'Tag', name: 'v1.2.0' },
   { id: 'head', label: 'HEAD', name: 'HEAD' },
 ] as const
-const selectedExample = computed(() => ({
-  name:
-    target.value === 'remote'
-      ? `${previewRemote.value}/${sampleBranch.value}`
-      : target.value === 'branch'
-        ? sampleBranch.value
-        : target.value === 'tag'
-          ? 'v1.2.0'
-          : 'HEAD',
-  kind: target.value,
-}))
-function presetConfig(format: string): RefLabelConfig {
-  const config = clone(draft.value)
-  if (target.value === 'remote' && !selectedRemote.value) delete config.remotes[previewRemote.value]
-  const selected =
-    target.value === 'remote' && selectedRemote.value
-      ? config.remotes[selectedRemote.value]!
-      : config.kinds[target.value]
-  selected.compact = format
-  selected.expanded = format
-  return config
-}
 const presets = computed(() => [
-  { label: 'Full ref name', format: '{{.Name}}' },
+  {
+    label: 'Name only',
+    format: target.value === 'remote' ? '{{.Branch}}' : '{{.Name}}',
+    icon: 'none' as const,
+  },
+  {
+    label: 'Icon + name',
+    format: target.value === 'remote' ? '{{.Branch}}' : '{{.Name}}',
+    icon: defaultRefLabels.kinds[target.value].icon,
+  },
   ...(target.value === 'remote'
-    ? [
-        { label: 'Branch only', format: '{{.Branch}}' },
-        { label: 'Branch · remote', format: '{{.Branch}} · {{.Remote}}' },
-      ]
+    ? [{ label: 'Remote + branch', format: '{{.Name}}', icon: 'cloud' as const }]
     : []),
 ])
+function choosePreset(preset: (typeof presets.value)[number]) {
+  setStyle('icon', preset.icon)
+  setStyle('compact', preset.format)
+  setStyle('expanded', preset.format)
+}
+const simple = computed(
+  () =>
+    ['{{.Name}}', '{{.Branch}}'].includes(style.value.compact) &&
+    ['{{.Name}}', '{{.Branch}}'].includes(style.value.expanded),
+)
+function showRemote(enabled: boolean) {
+  setStyle('compact', enabled ? '{{.Name}}' : '{{.Branch}}')
+  setStyle('expanded', enabled ? '{{.Name}}' : '{{.Branch}}')
+}
+function editExample(example: Example) {
+  revealControls()
+  void nextTick(() =>
+    editor.value
+      ?.querySelector<HTMLButtonElement>('[aria-label="Label type"] [aria-pressed="true"]')
+      ?.focus(),
+  )
+  selectType(example.kind)
+  if (example.kind === 'remote') {
+    selectRemote(example.remote || '')
+    overridesOpen.value = true
+  }
+}
+const selectedExamples = computed<Example[]>(() => {
+  const make = (name: string, current = false): Example => ({
+    name: target.value === 'remote' ? `${previewRemote.value}/${name}` : name,
+    kind: target.value,
+    current,
+    remote: target.value === 'remote' ? previewRemote.value : undefined,
+  })
+  if (target.value === 'tag') return [make('v1.2.0'), make('release/2026-10-stable')]
+  if (target.value === 'head') return [make('HEAD'), make('HEAD', true)]
+  return [
+    make('main'),
+    make(sampleBranch.value),
+    make('feature/improve-contributor-history-navigation'),
+    ...(target.value === 'branch' ? [make('main', true)] : []),
+  ]
+})
+const previewConfig = computed(() => {
+  const value = clone(draft.value)
+  if (target.value === 'remote' && !remoteScope.value) delete value.remotes[previewRemote.value]
+  return value
+})
+const colors = ['lane', 'accent', 'blue', 'green', 'orange', 'purple', 'red'] as const
+const backgrounds = ['filled', 'outline', 'plain'] as const
 </script>
-
 <template>
-  <section class="ref-editor" aria-label="Ref label editor">
-    <div class="ref-stage ref-live-preview" aria-label="Ref preview">
-      <div class="ref-target-picker" role="group" aria-label="Label type">
+  <section ref="editor" class="ref-editor" aria-label="Ref label editor">
+    <div class="ref-edit-controls">
+      <h3>Label type</h3>
+      <div class="ref-options" role="group" aria-label="Label type">
         <button
           v-for="type in refTypes"
           :key="type.id"
-          type="button"
           :aria-pressed="target === type.id"
           @click="selectType(type.id)"
         >
           {{ type.label }}
         </button>
       </div>
-      <div
-        v-if="target === 'remote'"
-        class="ref-remote-picker"
-        role="group"
-        aria-label="Remote style"
-      >
-        <button type="button" :aria-pressed="!remoteScope" @click="selectRemote('')">
-          All remotes
-        </button>
-        <button
-          v-for="remote in remoteNames"
-          :key="remote"
-          type="button"
-          :aria-label="`Edit ${remote}`"
-          :aria-pressed="remoteScope === remote"
-          @click="selectRemote(remote)"
+      <div v-if="target === 'remote'" class="remote-scope">
+        <p>
+          <strong>{{ remoteScope || 'All remotes' }}</strong
+          ><span>{{
+            remoteScope
+              ? selectedRemote
+                ? 'Custom style'
+                : 'Using shared style until edited'
+              : 'Shared style · specific overrides keep their own style'
+          }}</span>
+        </p>
+        <button v-if="remoteScope" @click="selectRemote('')">← All remotes</button>
+        <details
+          :open="overridesOpen"
+          @toggle="overridesOpen = ($event.target as HTMLDetailsElement).open"
         >
-          {{ remote }}<i v-if="draft.remotes[remote]" class="ref-custom-dot" aria-hidden="true" />
-        </button>
-      </div>
-      <div class="ref-stage-toolbar">
-        <div class="set-segmented" role="group" aria-label="Label mode">
-          <button
-            v-for="item in ['compact', 'expanded'] as const"
-            :key="item"
-            type="button"
-            :aria-pressed="mode === item"
-            @click="mode = item"
-          >
-            {{ item === 'compact' ? 'Compact' : 'Expanded' }}
-          </button>
-        </div>
-        <label class="ref-width"
-          >Width
-          <input
-            v-model.number="previewWidth"
-            type="range"
-            min="80"
-            max="360"
-            aria-label="Badge preview width"
-            :disabled="mode === 'expanded'"
-        /></label>
-      </div>
-      <div class="ref-samples" aria-label="Ref label preview">
-        <div
-          v-for="(example, index) in examples"
-          :key="example.name"
-          class="ref-scene-row"
-          :class="{ selected: isSelected(example) }"
-        >
-          <span class="ref-scene-rail" aria-hidden="true"
-            ><i :class="{ merge: example.kind === 'tag' }"
-          /></span>
-          <span class="ref-scene-subject">{{ sampleSubjects[index % sampleSubjects.length] }}</span>
-          <span class="ref-scene-badge">
-            <RefLabel
-              v-bind="example"
-              :config="draft"
-              :expanded="mode === 'expanded'"
-              :style="{ maxWidth: mode === 'compact' ? `${previewWidth}px` : '100%' }"
-            />
-          </span>
-          <span
-            v-if="example.remote && draft.remotes[example.remote]"
-            class="ref-custom-dot"
-            :title="`${example.remote} has a custom style`"
-            aria-hidden="true"
-          />
-        </div>
-      </div>
-    </div>
-
-    <div class="ref-inspector">
-      <header class="ref-inspector-head">
-        <h3>
-          {{
-            target === 'remote'
-              ? remoteScope || 'All remotes'
-              : refTypes.find((type) => type.id === target)?.label
-          }}
-        </h3>
-        <div v-if="target === 'remote' && remoteScope" class="ref-scope">
-          <UiButton v-if="selectedRemote" size="sm" @click="removeRemote"
-            >Use shared style</UiButton
-          >
-          <span v-else class="ref-scope-note">Shared style</span>
-        </div>
-        <details v-if="target === 'remote'" class="ref-add-remote">
-          <summary>Add remote</summary>
+          <summary>Customize a specific remote…</summary>
+          <div class="ref-options" role="group" aria-label="Remote style">
+            <button
+              v-for="remote in remoteNames"
+              :key="remote"
+              :aria-label="`Edit ${remote}`"
+              :aria-pressed="remoteScope === remote"
+              @click="selectRemote(remote)"
+            >
+              {{ remote }}{{ draft.remotes[remote] ? ' · custom' : '' }}
+            </button>
+          </div>
           <form class="remote-add" @submit.prevent="addRemote">
             <input
               v-model="newRemote"
               class="ui-field"
               aria-label="New remote name"
-              placeholder="e.g. upstream"
+              placeholder="Another remote name"
               maxlength="128"
-            />
-            <UiButton @click="addRemote">Add override</UiButton>
+            /><UiButton @click="addRemote">Add override</UiButton>
           </form>
-        </details>
-      </header>
-      <div class="ref-tools">
-        <fieldset class="ref-icon-tool">
-          <legend>Icon</legend>
-          <div class="icon-choices" role="group" aria-label="Ref icon">
-            <button
-              v-for="(icon, id) in refIcons"
-              :key="id"
-              type="button"
-              :aria-label="icon.label"
-              :title="icon.label"
-              :aria-pressed="style.icon === id"
-              @click="setStyle('icon', id)"
-            >
-              <component :is="icon.component" v-if="icon.component" :size="20" aria-hidden="true" />
-              <span v-else-if="id === 'dot'" class="icon-dot" aria-hidden="true" />
-              <span v-else aria-hidden="true">∅</span>
-            </button>
-          </div>
-        </fieldset>
-        <fieldset class="ref-text-tool">
-          <legend>{{ mode === 'compact' ? 'Compact text' : 'Expanded text' }}</legend>
-          <div class="ref-format-options" role="group" :aria-label="`${mode} format preset`">
-            <button
-              v-for="preset in presets"
-              :key="preset.format"
-              type="button"
-              class="ref-format-choice"
-              :aria-pressed="style[mode] === preset.format"
-              :data-format="preset.format"
-              @click="setStyle(mode, preset.format)"
-            >
-              <RefLabel v-bind="selectedExample" :config="presetConfig(preset.format)" expanded />
-              <span>{{ preset.label }}</span
-              ><span class="ref-choice-check" aria-hidden="true">{{
-                style[mode] === preset.format ? '✓' : ''
-              }}</span>
-            </button>
-          </div>
-          <details
-            :key="`${target}-${selectedRemote}-${mode}`"
-            class="format-custom"
-            :open="!presets.some((p) => p.format === style[mode])"
+          <UiButton v-if="selectedRemote" size="sm" @click="removeRemote"
+            >Use shared style</UiButton
           >
-            <summary>Custom template</summary>
-            <input
-              :id="`ref-format-${mode}`"
-              :value="style[mode]"
-              @input="setStyle(mode, ($event.target as HTMLInputElement).value)"
-              class="ui-field format-input"
-              spellcheck="false"
-              :aria-label="`${mode} custom template`"
-            />
-            <p>
-              <code>.Name</code> · <code>.Branch</code> · <code>.Remote</code> ·
-              <code>.Kind</code> · <code>.Current</code>
-            </p>
-            <p class="ref-template-note">
-              Go templates · one line, up to 512 bytes · evaluated in the desktop app.
-            </p>
-          </details>
-        </fieldset>
+        </details>
       </div>
-      <details class="ref-sample-options">
-        <summary>Sample branch</summary>
-        <input v-model="sampleBranch" class="ui-field" aria-label="Sample branch" maxlength="128" />
+      <h3>Start with a preset</h3>
+      <div class="ref-presets" role="group" aria-label="Label preset">
+        <button
+          v-for="preset in presets"
+          :key="preset.label"
+          :aria-pressed="
+            style.compact === preset.format &&
+            style.expanded === preset.format &&
+            style.icon === preset.icon
+          "
+          @click="choosePreset(preset)"
+        >
+          <strong>{{ preset.label }}</strong
+          ><small>{{
+            preset.label === 'Remote + branch'
+              ? 'origin / feature/search'
+              : target === 'tag'
+                ? 'v1.2.0'
+                : target === 'head'
+                  ? 'HEAD'
+                  : 'feature/search'
+          }}</small>
+        </button>
+      </div>
+      <h3>Content</h3>
+      <label class="ref-setting"
+        ><span>Show icon</span
+        ><input
+          type="checkbox"
+          :checked="style.icon !== 'none'"
+          @change="
+            setStyle(
+              'icon',
+              ($event.target as HTMLInputElement).checked
+                ? defaultRefLabels.kinds[target].icon
+                : 'none',
+            )
+          "
+      /></label>
+      <label v-if="target === 'remote'" class="ref-setting"
+        ><span
+          >Show remote name<small v-if="!simple"
+            >Choose a preset to return from custom formatting.</small
+          ></span
+        ><input
+          type="checkbox"
+          :disabled="!simple"
+          :checked="style.compact === '{{.Name}}'"
+          @change="showRemote(($event.target as HTMLInputElement).checked)"
+      /></label>
+      <h3>Appearance</h3>
+      <fieldset v-if="style.icon !== 'none'">
+        <legend>Icon</legend>
+        <div class="icon-choices" role="group" aria-label="Ref icon">
+          <button
+            v-for="(icon, id) in refIcons"
+            :key="id"
+            :aria-label="icon.label"
+            :title="icon.label"
+            :aria-pressed="style.icon === id"
+            @click="setStyle('icon', id)"
+          >
+            <component v-if="icon.component" :is="icon.component" :size="18" /><span v-else>{{
+              id === 'dot' ? '•' : '∅'
+            }}</span>
+          </button>
+        </div>
+      </fieldset>
+      <label class="ref-setting"
+        ><span>Color</span
+        ><select
+          class="ui-field"
+          aria-label="Label color"
+          :value="style.color || 'lane'"
+          @change="
+            setStyle('color', ($event.target as HTMLSelectElement).value as (typeof colors)[number])
+          "
+        >
+          <option v-for="color in colors" :key="color" :value="color">
+            {{ color === 'lane' ? 'Follow graph lane' : color[0]!.toUpperCase() + color.slice(1) }}
+          </option>
+        </select></label
+      >
+      <label class="ref-setting"
+        ><span>Background</span
+        ><select
+          class="ui-field"
+          aria-label="Label background"
+          :value="style.background || 'filled'"
+          @change="
+            setStyle(
+              'background',
+              ($event.target as HTMLSelectElement).value as (typeof backgrounds)[number],
+            )
+          "
+        >
+          <option v-for="background in backgrounds" :key="background" :value="background">
+            {{ background[0]!.toUpperCase() + background.slice(1) }}
+          </option>
+        </select></label
+      >
+      <details class="ref-advanced">
+        <summary>Advanced formatting</summary>
+        <p>
+          Set different text for the graph and inspector. Choosing a preset replaces both templates.
+        </p>
+        <label v-for="mode in ['compact', 'expanded'] as const" :key="mode"
+          >{{ mode === 'compact' ? 'Compact · graph' : 'Expanded · inspector'
+          }}<input
+            :id="`ref-format-${mode}`"
+            class="ui-field"
+            :aria-label="`${mode} custom template`"
+            :value="style[mode]"
+            @input="setStyle(mode, ($event.target as HTMLInputElement).value)"
+            spellcheck="false"
+        /></label>
+        <p>
+          <code>.Name</code> · <code>.Branch</code> · <code>.Remote</code> · <code>.Kind</code> ·
+          <code>.Current</code>
+        </p>
+        <small>Go templates · one line, up to 512 bytes.</small
+        ><UiButton size="sm" @click="resetDraft">Restore all defaults</UiButton>
       </details>
-      <p v-if="validating" role="status">Checking formats…</p>
-      <ul v-if="errors.length" class="ref-errors" role="alert">
-        <li v-for="error in errors" :key="error">{{ error }}</li>
-      </ul>
       <p v-if="message" role="status">{{ message }}</p>
     </div>
-    <div class="ref-actions">
-      <span class="ref-save-state">{{ dirty ? 'Unapplied changes' : '' }}</span>
-      <UiButton :disabled="!dirty" @click="discard">Discard edits</UiButton>
-      <UiButton @click="resetDraft">Restore defaults</UiButton>
-      <UiButton variant="primary" :disabled="!dirty || validating || !!errors.length" @click="apply"
+    <footer class="ref-actions">
+      <span role="status">{{
+        validating ? 'Checking formats…' : dirty ? 'Unapplied changes' : 'Using saved style'
+      }}</span
+      ><UiButton :disabled="!dirty" @click="discard">Revert</UiButton
+      ><UiButton
+        variant="primary"
+        :disabled="!dirty || validating || !!errors.length"
+        @click="apply"
         >Apply ref labels</UiButton
       >
-    </div>
+    </footer>
+    <SettingsPreview
+      ><div class="ref-stage ref-live-preview" aria-label="Ref preview">
+        <h3>
+          {{ refTypes.find((type) => type.id === target)?.label
+          }}<template v-if="remoteScope"> · {{ remoteScope }}</template>
+        </h3>
+        <p class="preview-help">Sample labels · click a remote below to customize it.</p>
+        <label class="ref-width"
+          >Compact width
+          <input
+            v-model.number="previewWidth"
+            type="range"
+            min="80"
+            max="300"
+            aria-label="Badge preview width"
+          /><span>{{ previewWidth }}px</span></label
+        >
+        <div class="ref-samples" aria-label="Ref label preview">
+          <section
+            v-for="expanded in [false, true]"
+            :key="String(expanded)"
+            class="ref-preview-card"
+          >
+            <h4>{{ expanded ? 'Expanded · inspector' : 'Compact · graph' }}</h4>
+            <div
+              v-for="example in selectedExamples"
+              :key="`${example.name}-${example.current}`"
+              class="ref-example"
+              :class="{ selected: example.current }"
+            >
+              <RefLabel
+                v-bind="example"
+                :config="previewConfig"
+                :expanded="expanded"
+                :style="{ maxWidth: expanded ? '100%' : `${previewWidth}px` }"
+              /><small v-if="example.current">Current branch</small>
+            </div>
+          </section>
+        </div>
+        <ul v-if="errors.length" class="ref-errors" role="alert">
+          <li v-for="error in errors" :key="error">{{ error }}</li>
+        </ul>
+        <section v-if="target === 'remote'" class="ref-preview-card">
+          <h4>Remote styles</h4>
+          <button
+            v-for="remote in remoteNames"
+            :key="remote"
+            class="remote-example"
+            :aria-label="`Customize ${remote} from preview`"
+            @click="editExample({ name: `${remote}/main`, kind: 'remote', current: false, remote })"
+          >
+            <RefLabel :name="`${remote}/main`" kind="remote" :config="draft" expanded /><small>{{
+              draft.remotes[remote] ? 'Custom' : 'Shared'
+            }}</small>
+          </button>
+        </section>
+      </div></SettingsPreview
+    >
   </section>
 </template>
-
 <style scoped>
 .ref-editor {
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  gap: 20px;
 }
-.ref-stage {
-  position: sticky;
-  top: 0;
-  z-index: 9;
-  flex: none;
-  max-height: 48vh;
+.ref-edit-controls {
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--read-bg);
-}
-.ref-stage-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.ref-width {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: var(--fs-xs);
-  color: var(--text-mut);
-}
-.ref-width input {
-  width: 100px;
-  accent-color: var(--accent);
-}
-.ref-samples {
-  padding: 8px 20px 16px;
-}
-.ref-scene-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  min-height: 36px;
-  padding-right: 10px;
-  border-radius: var(--radius-sm);
-}
-.ref-scene-row.selected {
-  background: var(--selected);
-}
-.ref-scene-rail {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 36px;
-  flex: none;
-}
-.ref-scene-rail::before {
-  content: '';
-  position: absolute;
-  width: 2px;
-  inset-block: 0;
-  background: var(--accent);
-  opacity: 0.5;
-}
-.ref-scene-rail i {
-  position: relative;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  outline: 3px solid var(--read-bg);
-}
-.ref-scene-rail i.merge {
-  border-radius: 1px;
-  transform: rotate(45deg);
-}
-.ref-scene-subject {
+  padding-right: 6px;
   flex: 1;
   min-width: 0;
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
 }
-.ref-scene-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 60%;
-  padding: 4px 8px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  color: var(--text-mut);
-}
-.ref-custom-dot {
-  height: 5px;
-  width: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex: none;
-}
-.ref-inspector {
-  padding: 0 4px;
-}
-.ref-inspector-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 28px;
-}
-.ref-inspector-head h3 {
-  margin: 0;
-  font-size: var(--fs-md);
-  font-weight: 500;
+h3 {
+  margin: 24px 0 12px;
+  font-size: 13px;
   color: var(--head);
+  font-weight: 600;
 }
-.ref-scope {
+h3:first-child {
+  margin-top: 0;
+}
+.ref-options,
+.icon-choices {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.ref-scope-note {
+button {
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--surface-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+button[aria-pressed='true'] {
+  background: var(--selected);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.remote-scope {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-base);
+}
+.remote-scope p {
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+.remote-scope span,
+small {
+  display: block;
   color: var(--text-mut);
-  font-size: var(--fs-xs);
-}
-.ref-add-remote {
-  margin-left: auto;
-  position: relative;
-  font-size: var(--fs-sm);
-  color: var(--text-dim);
+  font-size: 11px;
+  margin-top: 5px;
+  line-height: 1.5;
 }
 summary {
   cursor: pointer;
+  font-size: 12px;
+}
+details .ref-options {
+  margin-top: 12px;
 }
 .remote-add {
   display: flex;
   gap: 8px;
-  margin-top: 12px;
+  margin: 12px 0;
 }
 .remote-add input {
-  width: 160px;
   min-width: 0;
+  flex: 1;
+  width: 100px;
 }
-.ref-tools {
+.ref-presets {
   display: grid;
-  grid-template-columns: minmax(180px, 0.55fr) minmax(0, 1fr);
-  gap: 40px;
-}
-fieldset {
-  min-width: 0;
-  padding: 0;
-  margin: 0;
-  border: 0;
-}
-legend {
-  font-size: var(--fs-sm);
-  color: var(--text-mut);
-  margin-bottom: 16px;
-  padding: 0;
-}
-.icon-choices {
-  display: grid;
-  grid-template-columns: repeat(6, 36px);
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
   gap: 8px;
 }
-.icon-choices button {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-dim);
-  background: transparent;
+.ref-presets button {
+  text-align: left;
+  padding: 12px;
 }
-.icon-choices button:hover {
-  color: var(--text);
-  background: var(--hover);
+.ref-presets strong {
+  font-weight: 500;
 }
-.icon-choices button[aria-pressed='true'] {
-  border-color: var(--accent);
-  color: var(--accent-text);
-  background: var(--selected);
-}
-.icon-dot {
-  height: 6px;
-  width: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.ref-format-options {
-  display: grid;
-  gap: 8px;
-}
-.ref-format-choice {
+.ref-setting {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-dim);
-  background: transparent;
-  text-align: left;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
 }
-.ref-format-choice > span:nth-child(2) {
-  margin-left: auto;
-  font-size: var(--fs-xs);
-  white-space: nowrap;
+.ref-setting select {
+  max-width: 200px;
 }
-.ref-format-choice[aria-pressed='true'] {
-  border-color: var(--accent);
-  background: var(--selected);
+.ref-setting input {
+  accent-color: var(--accent);
 }
-.ref-choice-check {
-  width: 12px;
-  color: var(--accent-text);
-  flex: none;
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
 }
-.format-custom,
-.ref-sample-options {
-  margin-top: 16px;
+legend {
+  font-size: 12px;
   color: var(--text-mut);
-  font-size: var(--fs-sm);
+  margin-bottom: 10px;
 }
-.format-input,
-.ref-sample-options input {
-  display: block;
-  width: 100%;
-  margin-top: 12px;
-  font-family: var(--font-mono);
+.icon-choices button {
+  width: 34px;
+  height: 34px;
+  padding: 6px;
+  display: grid;
+  place-items: center;
 }
-.ref-template-note {
+.ref-advanced {
+  margin-top: 24px;
+  font-size: 12px;
+}
+.ref-advanced p {
+  color: var(--text-mut);
   line-height: 1.6;
 }
-.ref-errors {
-  color: var(--red);
-  font-size: var(--fs-sm);
-  overflow-wrap: anywhere;
+.ref-advanced label {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.ref-advanced input {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+.ref-advanced .ui-button {
+  margin-top: 16px;
 }
 .ref-actions {
-  position: sticky;
-  bottom: -32px;
+  position: relative;
+  flex: none;
+  bottom: 0;
   z-index: 10;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: auto;
-  padding: 18px 0;
+  padding: 16px 0;
   background: var(--surface-panel);
   border-top: 1px solid var(--border);
+  margin-top: auto;
 }
-.ref-save-state {
+.ref-actions > span {
   margin-right: auto;
+  font-size: 11px;
   color: var(--text-mut);
-  font-size: var(--fs-xs);
 }
-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.preview-help {
+  font-size: 11px;
+  color: var(--text-mut);
+  line-height: 1.6;
 }
-@media (max-width: 1100px) {
-  .ref-tools {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
-  }
-  .ref-stage {
-    max-height: 42vh;
-  }
-}
-@media (max-width: 620px) {
-  .ref-stage-toolbar {
-    padding: 10px;
-    gap: 8px;
-  }
-  .ref-width {
-    gap: 4px;
-  }
-  .ref-width input {
-    width: 70px;
-  }
-  .ref-samples {
-    padding: 8px;
-  }
-  .ref-scene-row {
-    gap: 8px;
-  }
-  .ref-scene-subject {
-    display: none;
-  }
-  .ref-scene-badge {
-    max-width: calc(100% - 45px);
-  }
-  .ref-format-choice {
-    flex-wrap: wrap;
-  }
-  .ref-format-choice > span:nth-child(2) {
-    margin-left: 0;
-  }
-  .ref-actions {
-    bottom: -20px;
-  }
-}
-.ref-target-picker {
-  display: flex;
-  gap: 24px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--border);
-}
-.ref-target-picker button {
-  padding: 14px 0;
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-}
-.ref-target-picker button[aria-pressed='true'] {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-}
-.ref-remote-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--border);
-}
-.ref-remote-picker button {
+.ref-width {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 5px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-  overflow-wrap: anywhere;
+  font-size: 11px;
+  margin: 16px 0;
 }
-.ref-remote-picker button[aria-pressed='true'] {
+.ref-width input {
+  min-width: 60px;
+  width: 100px;
+  flex: 1;
+  accent-color: var(--accent);
+}
+.ref-preview-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-panel);
+  padding: 12px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.ref-preview-card h4 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: var(--text-mut);
+  font-weight: 500;
+}
+.ref-example {
+  padding: 8px 0;
+  min-width: 0;
+}
+.ref-example.selected {
   background: var(--selected);
-  border-color: var(--accent-line);
-  color: var(--text);
+  padding: 8px;
+  border-radius: 4px;
+}
+.remote-example {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  margin: 6px 0;
+}
+.remote-example small {
+  flex: none;
+}
+.ref-errors {
+  color: var(--negative-text);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  padding-left: 16px;
 }
 @media (max-width: 620px) {
-  .ref-target-picker {
-    padding-inline: 10px;
-    gap: 20px;
-  }
-  .ref-remote-picker {
-    padding-inline: 10px;
-  }
-  .ref-scene-row {
-    min-height: 28px;
-  }
-  .ref-scene-rail {
-    height: 28px;
-  }
-  .ref-scene-badge {
-    padding-block: 2px;
+  .ref-actions {
+    bottom: 0;
   }
 }
 </style>

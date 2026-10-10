@@ -69,3 +69,18 @@ test('pinned inputs reproduce committed themes without a sibling checkout', asyn
   await assert.rejects(generate(), /versioned dado module/)
   assert.equal(await output('themes.css'), css)
 })
+
+test('light palettes keep reading surfaces bright and prose neutral', async () => {
+  const css = await readFile(new URL('src/theme/themes.css', frontend), 'utf8')
+  for (const block of css.split('\n\n').filter(block => block.includes('color-scheme:light'))) {
+    const color = name => block.match(new RegExp(`--${name}:(#[a-f0-9]{6});`))[1]
+    const rgb = hex => [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16))
+    const luma = hex => rgb(hex).reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0)
+    assert.ok(luma(color('surface')) > 245, block.split('\n')[0])
+    assert.ok(luma(color('surface')) > luma(color('surface-raised-gen')))
+    assert.ok(luma(color('surface-raised-gen')) > luma(color('surface-chrome-gen')))
+    assert.equal(color('surface-input-gen'),'#ffffff')
+    const text=rgb(color('text'))
+    assert.ok(Math.max(...text)-Math.min(...text)<35, 'body text should not inherit a saturated syntax color')
+  }
+})

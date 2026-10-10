@@ -12,6 +12,29 @@ const mountSettings = (initialCategory: 'appearance' | 'graph' | 'diff') =>
   })
 
 describe('visual settings', () => {
+  it('keeps only the active category preview in the shared rail', async () => {
+    const wrapper = mountSettings('appearance')
+    try {
+      await flushPromises()
+      const rail = () => wrapper.get('#settings-preview-rail')
+      expect(rail().find('[aria-label="Selected theme preview"]').exists()).toBe(true)
+      const category = (label: string) =>
+        wrapper.findAll('.set-catitem').find((button) => button.text() === label)!
+      await category('Ref labels').trigger('click')
+      await flushPromises()
+      expect(rail().find('[aria-label="Ref preview"]').exists()).toBe(true)
+      expect(rail().find('[aria-label="Selected theme preview"]').exists()).toBe(false)
+      await category('Graph').trigger('click')
+      await flushPromises()
+      expect(rail().find('[aria-label="Ref preview"]').exists()).toBe(false)
+      expect(rail().find('[aria-label="Graph preview"]').exists()).toBe(true)
+      await category('Ref labels').trigger('click')
+      await flushPromises()
+      expect(rail().findAll('[aria-label="Ref preview"]')).toHaveLength(1)
+    } finally {
+      wrapper.unmount()
+    }
+  })
   it('shows every theme without a disclosure and applies a selected palette', async () => {
     const wrapper = mountSettings('appearance')
     try {
@@ -57,16 +80,12 @@ describe('visual settings', () => {
         wrapper.findAll('.set-catitem').find((button) => button.text() === label)!
       await category('Ref labels').trigger('click')
       await flushPromises()
-      await wrapper
-        .get('[aria-label="compact format preset"] [data-format="{{.Branch}}"]')
-        .trigger('click')
-      await category('Appearance').trigger('click')
+      await wrapper.get('#ref-format-compact').setValue('{{.Branch}}')
+      await category('Themes').trigger('click')
       await category('Ref labels').trigger('click')
-      expect(
-        wrapper
-          .get('[aria-label="compact format preset"] [data-format="{{.Branch}}"]')
-          .attributes('aria-pressed'),
-      ).toBe('true')
+      expect((wrapper.get('#ref-format-compact').element as HTMLInputElement).value).toBe(
+        '{{.Branch}}',
+      )
       expect(usePreferences().values.value['graph.refLabels'].kinds.remote.compact).toBe(
         '{{.Name}}',
       )
