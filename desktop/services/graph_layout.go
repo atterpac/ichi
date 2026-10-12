@@ -339,20 +339,42 @@ func buildGraphLayout(graph *git.Graph, initialColumns int, compact bool) *Graph
 	return layout
 }
 
-// Stash rails occupy a clear lane to the right for their entire lifetime and
-// turn into the base on the base row, rather than pulling history onto their rail.
+// Stashes based on the same commit share one rail and one turn from the base.
+// Their nodes join that rail on their own rows, leaving real history in place.
 func placeStashRails(layout *GraphLayout, positions map[string]int, compact bool, nextColor *int) {
-	for start := range layout.Rows {
-		row := &layout.Rows[start]
+	type stashGroup struct {
+		baseHash string
+		starts   []int
+		end      int
+	}
+	groups := []*stashGroup{}
+	byBase := map[string]*stashGroup{}
+	for start, row := range layout.Rows {
 		if !row.Commit.IsStash {
 			continue
 		}
-		end := start
-		if len(row.Commit.Parents) > 0 {
-			if base, ok := positions[row.Commit.Parents[0]]; ok && base > start {
-				end = base
-			}
+		if len(row.Commit.Parents) == 0 {
+			groups = append(groups, &stashGroup{starts: []int{start}, end: start})
+			continue
 		}
+		baseHash := row.Commit.Parents[0]
+		end, ok := positions[baseHash]
+		if !ok || end <= start {
+			groups = append(groups, &stashGroup{starts: []int{start}, end: start})
+			continue
+		}
+		group := byBase[baseHash]
+		if group == nil {
+			group = &stashGroup{baseHash: baseHash, end: end}
+			byBase[baseHash] = group
+			groups = append(groups, group)
+		}
+		group.starts = append(group.starts, start)
+	}
+	type laneReservation struct{ lane, start, end int }
+	reservations := []laneReservation{}
+	for _, group := range groups {
+		start, end := group.starts[0], group.end
 		lane, baseLane := 1, 0
 		for i := start; i <= end; i++ {
 			for column, cell := range layout.Rows[i].Lanes {
@@ -377,36 +399,54 @@ func placeStashRails(layout *GraphLayout, positions map[string]int, compact bool
 				lane = max(lane, segment.Lane+1)
 			}
 		}
+		for _, reserved := range reservations {
+			if reserved.start <= end && reserved.end >= start {
+				lane = max(lane, reserved.lane+1)
+			}
+		}
+		stashLane := lane
+		if len(group.starts) > 1 {
+			stashLane++
+		}
+		reservations = append(reservations, laneReservation{lane, start, end})
+		if stashLane != lane {
+			reservations = append(reservations, laneReservation{stashLane, start, end})
+		}
 		color := *nextColor
 		*nextColor++
-		cell := emptyGraphLane()
-		cell.ColorID, cell.CommitHash = color, row.Commit.Hash
-		cell.Glyphs[1] = GraphGlyph{Kind: "stash-node", ColorID: color, CommitHash: row.Commit.Hash, ConnectBottom: end > start}
-		if compact {
-			cell.Column = &lane
-			row.Lanes = []GraphLane{cell}
-		} else {
-			for len(row.Lanes) <= lane {
-				row.Lanes = append(row.Lanes, emptyGraphLane())
+		for _, stashRow := range group.starts {
+			row := &layout.Rows[stashRow]
+			cell := emptyGraphLane()
+			cell.ColorID, cell.CommitHash = color, row.Commit.Hash
+			cell.Glyphs[1] = GraphGlyph{Kind: "stash-node", ColorID: color, CommitHash: row.Commit.Hash, ConnectBottom: stashLane == lane && end > start}
+			if compact {
+				column := stashLane
+				cell.Column = &column
+				row.Lanes = []GraphLane{cell}
+			} else {
+				for len(row.Lanes) <= stashLane {
+					row.Lanes = append(row.Lanes, emptyGraphLane())
+				}
+				row.Lanes[stashLane] = cell
 			}
-			row.Lanes[lane] = cell
+			if end > start {
+				row.Routes = append(row.Routes, GraphRoute{ParentHash: group.baseHash, FromLane: stashLane, ToLane: lane, ColorID: color, Dashed: true, Crossings: []int{}})
+			}
 		}
-		layout.LaneCount = max(layout.LaneCount, lane+1)
+		layout.LaneCount = max(layout.LaneCount, stashLane+1)
 		if end == start {
 			continue
 		}
-		baseHash := row.Commit.Parents[0]
-		row.Routes = append(row.Routes, GraphRoute{ParentHash: baseHash, FromLane: lane, ToLane: lane, ColorID: color, Dashed: true, Crossings: []int{}})
 		if compact && start+1 < end {
-			layout.Segments = append(layout.Segments, GraphRailSegment{Lane: lane, FromRow: start + 1, ToRow: end, ColorID: color, CommitHash: baseHash, Dashed: true})
+			layout.Segments = append(layout.Segments, GraphRailSegment{Lane: lane, FromRow: start + 1, ToRow: end, ColorID: color, CommitHash: group.baseHash, Dashed: true})
 		} else if !compact {
 			for i := start + 1; i < end; i++ {
 				for len(layout.Rows[i].Lanes) <= lane {
 					layout.Rows[i].Lanes = append(layout.Rows[i].Lanes, emptyGraphLane())
 				}
 				through := emptyGraphLane()
-				through.ColorID, through.CommitHash = color, baseHash
-				through.Glyphs[1] = GraphGlyph{Kind: "vertical", ColorID: color, CommitHash: baseHash}
+				through.ColorID, through.CommitHash = color, group.baseHash
+				through.Glyphs[1] = GraphGlyph{Kind: "vertical", ColorID: color, CommitHash: group.baseHash}
 				layout.Rows[i].Lanes[lane] = through
 			}
 		}
@@ -435,7 +475,7 @@ func placeStashRails(layout *GraphLayout, positions map[string]int, compact bool
 				crossings = append(crossings, column)
 			}
 		}
-		layout.Rows[end].Routes = append(layout.Rows[end].Routes, GraphRoute{ParentHash: row.Commit.Hash, FromLane: baseLane, ToLane: lane, ColorID: color, Dashed: true, Incoming: true, Crossings: crossings})
+		layout.Rows[end].Routes = append(layout.Rows[end].Routes, GraphRoute{ParentHash: layout.Rows[start].Commit.Hash, FromLane: baseLane, ToLane: lane, ColorID: color, Dashed: true, Incoming: true, Crossings: crossings})
 	}
 }
 

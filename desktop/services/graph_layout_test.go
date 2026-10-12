@@ -412,3 +412,87 @@ func TestStashesKeepHistoryStraightAndJoinAtTheirBases(t *testing.T) {
 		}
 	}
 }
+
+func TestStashesOnSameBaseShareOneAttachment(t *testing.T) {
+	graph := layoutFixture(
+		[]string{"stash-new", "base"},
+		[]string{"head", "middle"},
+		[]string{"stash-mid", "base"},
+		[]string{"middle", "base"},
+		[]string{"stash-old", "base"},
+		[]string{"base", "root"},
+		[]string{"root"},
+	)
+	for _, hash := range []string{"stash-new", "stash-mid", "stash-old"} {
+		graph.CommitMap[hash].IsStash = true
+	}
+	for _, compact := range []bool{false, true} {
+		layout := buildGraphLayout(graph, 12, compact)
+		base := layout.Rows[5]
+		attachments := 0
+		trunkLane := -1
+		for _, route := range base.Routes {
+			if !route.Incoming {
+				continue
+			}
+			attachments++
+			trunkLane = route.ToLane
+			if route.FromLane != 0 || !route.Dashed {
+				t.Fatalf("incorrect shared base attachment: %+v", route)
+			}
+		}
+		if attachments != 1 {
+			t.Fatalf("want one base attachment for three stashes, got %d", attachments)
+		}
+		stashLane := -1
+		for _, index := range []int{0, 2, 4} {
+			row := layout.Rows[index]
+			if len(row.Routes) != 1 || row.Routes[0].FromLane <= trunkLane || row.Routes[0].ToLane != trunkLane || !row.Routes[0].Dashed {
+				t.Fatalf("stash %s did not join the common rail: %+v", row.Commit.Hash, row.Routes)
+			}
+			if stashLane == -1 {
+				stashLane = row.Routes[0].FromLane
+			} else if stashLane != row.Routes[0].FromLane {
+				t.Fatalf("stashes use different node lanes: %d and %d", stashLane, row.Routes[0].FromLane)
+			}
+		}
+		if compact {
+			found := false
+			for _, segment := range layout.Segments {
+				if segment.Dashed && segment.Lane == trunkLane && segment.FromRow == 1 && segment.ToRow == 5 {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("missing continuous shared stash rail")
+			}
+		}
+		for _, index := range []int{1, 3, 5, 6} {
+			for column, lane := range layout.Rows[index].Lanes {
+				if lane.Column != nil {
+					column = *lane.Column
+				}
+				if isNodeGlyph(lane.Glyphs[1].Kind) && lane.CommitHash == layout.Rows[index].Commit.Hash && column != 0 {
+					t.Fatalf("stash group moved history commit %s to lane %d", layout.Rows[index].Commit.Hash, column)
+				}
+			}
+		}
+	}
+}
+
+func TestUnloadedStashBaseLeavesAStandaloneNode(t *testing.T) {
+	graph := layoutFixture([]string{"stash", "unloaded"}, []string{"head"})
+	graph.CommitMap["stash"].IsStash = true
+	for _, compact := range []bool{false, true} {
+		layout := buildGraphLayout(graph, 12, compact)
+		found := false
+		for _, lane := range layout.Rows[0].Lanes {
+			if lane.Glyphs[1].Kind == "stash-node" {
+				found = true
+			}
+		}
+		if !found || len(layout.Rows[0].Routes) != 0 {
+			t.Fatalf("stash with an unloaded base should remain unlinked: %+v", layout.Rows[0])
+		}
+	}
+}
