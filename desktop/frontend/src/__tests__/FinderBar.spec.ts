@@ -9,6 +9,9 @@ vi.mock('@wailsio/runtime', () => ({ Events: { On: vi.fn<(...args: unknown[]) =>
 vi.mock('../composables/useGitProfiles', () => { const state = { profiles: [], error: '' }; return { useGitProfiles: () => ({ state, ready: async () => {}, effective: async () => {} }) } })
 const openRepo = vi.fn<(path: string) => Promise<{ Path: string; Name: string | undefined }>>(async (path: string) => ({ Path: path, Name: path.split('/').pop() }))
 const checkoutBranch = vi.fn<(name: string, create: boolean) => Promise<void>>(() => Promise.resolve())
+const fetchAll = vi.fn<() => Promise<void>>(() => Promise.resolve())
+const pull = vi.fn<() => Promise<void>>(() => Promise.resolve())
+const push = vi.fn<() => Promise<void>>(() => Promise.resolve())
 const searchCommits = vi.fn<() => Promise<{ Hash: string; ShortHash: string; Message: string }[]>>(() =>
   Promise.resolve([{ Hash: '0ba44b3aaaa', ShortHash: '0ba44b3', Message: 'first iteration of the diff view' }]),
 )
@@ -38,6 +41,7 @@ vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
     CheckoutBranch: (name: string, create: boolean) => checkoutBranch(name, create),
     DeleteBranch: () => Promise.resolve(),
   },
+  RemoteService: { FetchAll: () => fetchAll(), Pull: () => pull(), Push: () => push(), HasUpstream: async () => true },
   GraphService: {
     SearchCommits: () => searchCommits(),
   },
@@ -85,6 +89,9 @@ describe('FinderBar', () => {
     useGitProfiles().state.profiles = []
     openRepo.mockClear()
     checkoutBranch.mockClear()
+    fetchAll.mockClear()
+    pull.mockClear()
+    push.mockClear()
     searchCommits.mockClear()
     listFiles.mockClear()
     finderHistory.searches = []
@@ -126,6 +133,26 @@ describe('FinderBar', () => {
       expect(checkoutBranch).not.toHaveBeenCalled()
       expect(wrapper.emitted('navigate')?.[0]).toEqual(['branches', 'feature/diff-view'])
       expect(wrapper.emitted('close')).toBeTruthy()
+    } finally { wrapper.unmount() }
+  })
+  it('finds remote commands and confirms pull before running it', async () => {
+    const wrapper = await mountBar('a:pull')
+    try {
+      expect(wrapper.text()).toContain('Pull current branch')
+      await wrapper.get('[aria-label^="action: Pull current branch"]').trigger('click')
+      expect(pull).not.toHaveBeenCalled()
+      expect(document.body.textContent).toContain('Pull main?')
+      ;(document.querySelector('.operation-primary') as HTMLButtonElement).click()
+      await flushPromises()
+      expect(pull).toHaveBeenCalledOnce()
+    } finally { wrapper.unmount() }
+  })
+  it('runs fetch from a finder command', async () => {
+    const wrapper = await mountBar('fetch')
+    try {
+      await wrapper.get('[aria-label^="action: Fetch all remotes"]').trigger('click')
+      await flushPromises()
+      expect(fetchAll).toHaveBeenCalledOnce()
     } finally { wrapper.unmount() }
   })
   it('suggests optional prefixes and previews files on demand', async () => {

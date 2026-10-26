@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { countLabel } from '../../composables/countLabel'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch, type Component } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch, type Component } from 'vue'
 import { NAV_GROUPS } from './nav'
 import { notify } from '../../composables/useToasts'
 import { setModeline, useModeline } from '../../composables/useModeline'
-import { PhMagnifyingGlass, PhFileText, PhGitBranch, PhGitCommit, PhSquaresFour, PhClockCounterClockwise, PhArrowElbowDownLeft, PhTag, PhArrowsClockwise, PhGitDiff, PhGraph, PhArchive, PhUserList, PhClock, PhWarningDiamond, PhGitPullRequest, PhCloud } from '@phosphor-icons/vue'
+import { PhMagnifyingGlass, PhFileText, PhGitBranch, PhGitCommit, PhSquaresFour, PhClockCounterClockwise, PhArrowElbowDownLeft, PhArrowLineDown, PhArrowLineUp, PhTag, PhArrowsClockwise, PhGitDiff, PhGraph, PhArchive, PhUserList, PhClock, PhWarningDiamond, PhGitPullRequest, PhCloud } from '@phosphor-icons/vue'
+import OperationConfirmModal, { type OperationConfirmRequest } from '../overlays/OperationConfirmModal.vue'
+import { useGitOperation } from '../../composables/useGitOperation'
+import { useRepoSwitchGuard } from '../../composables/useRepoSwitchGuard'
 import AuthorAvatar from '../common/AuthorAvatar.vue'
 import { useWorkspaces, type WorkspaceRepo } from '../../composables/useWorkspaces'
 import { useGitProfiles } from '../../composables/useGitProfiles'
 import { switchRepository } from '../../composables/useRepoStatus'
 import { repoSwitchBlocker } from '../../composables/useRepoSwitchGuard'
 import { finderHistory, rememberFind } from './finderHistory'
-import { SearchService, GraphService, RefService, InspectService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
+import { SearchService, GraphService, RefService, InspectService, RemoteService } from '../../bindings/github.com/atterpac/ichi/desktop/services'
 import type { Branch, Commit } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
 const props = withDefaults(defineProps<{ initialQuery?: string }>(), { initialQuery: '' })
@@ -22,7 +25,7 @@ const workspaces = useWorkspaces()
 const profiles = useGitProfiles()
 const workspaceFilter = ref('')
 const openingRepo = ref(false)
-type Mode = 'root' | 'branch' | 'commit' | 'file' | 'content' | 'view' | 'repo' | 'workspace' | 'profile'
+type Mode = 'root' | 'branch' | 'commit' | 'file' | 'content' | 'view' | 'repo' | 'workspace' | 'profile' | 'action'
 const MODES: { key: string; mode: Mode; label: string }[] = [
   { key: '', mode: 'root', label: 'All' },
   { key: 'f:', mode: 'file', label: 'Files' },
@@ -33,11 +36,13 @@ const MODES: { key: string; mode: Mode; label: string }[] = [
   { key: 'r:', mode: 'repo', label: 'Repos' },
   { key: 'w:', mode: 'workspace', label: 'Workspaces' },
   { key: 'p:', mode: 'profile', label: 'Profiles' },
+  { key: 'a:', mode: 'action', label: 'Actions' },
 ]
 const input = ref<HTMLInputElement>()
 const list = ref<HTMLElement>()
 const finderId = useId()
-const icons = { repo: PhArchive, workspace: PhSquaresFour, profile: PhUserList, branch: PhGitBranch, commit: PhGitCommit, file: PhFileText, content: PhMagnifyingGlass, view: PhSquaresFour, search: PhClockCounterClockwise }
+const icons = { repo: PhArchive, workspace: PhSquaresFour, profile: PhUserList, branch: PhGitBranch, commit: PhGitCommit, file: PhFileText, content: PhMagnifyingGlass, view: PhSquaresFour, search: PhClockCounterClockwise, action: PhArrowsClockwise }
+const actionIcons: Record<string, Component> = { fetch: PhArrowsClockwise, pull: PhArrowLineDown, push: PhArrowLineUp }
 const viewIcons: Record<string, Component> = {
   graph: PhGraph,
   status: PhGitDiff,
@@ -62,6 +67,11 @@ const query = ref(props.initialQuery)
 const cursor = ref(0)
 
 const branches = ref<Branch[]>([])
+const pendingOperation = shallowRef<OperationConfirmRequest | null>(null)
+const { busy: remoteBusy, run: runRemoteOperation } = useGitOperation({
+  refresh: async () => { branches.value = await RefService.ListBranches() ?? [] },
+})
+useRepoSwitchGuard(() => remoteBusy.value ? 'Wait for the Git operation to finish.' : '')
 const files = ref<string[]>([])
 const commits = ref<Commit[]>([])
 const contentMatches = ref<{ Path: string; Line: number; Column: number; Text: string }[]>([])
@@ -76,7 +86,7 @@ type Row = {
   label: string
   segs: Seg[]
   sub?: string
-  kind: 'branch' | 'commit' | 'file' | 'content' | 'view' | 'search' | 'repo' | 'workspace' | 'profile'
+  kind: 'branch' | 'commit' | 'file' | 'content' | 'view' | 'search' | 'repo' | 'workspace' | 'profile' | 'action'
   detail?: string
   author?: string
   commit?: string
@@ -143,6 +153,17 @@ function viewRows(cap: number): Row[] {
     .map(({ item, hits }) => ({ id: item.id, label: item.label, segs: toSegs(item.label, hits), sub: item.group, kind: 'view' as const, data: item.id }))
 }
 
+function actionRows(cap: number): Row[] {
+  const actions = [
+    { id: 'fetch', label: 'Fetch all remotes', detail: 'Update remote refs' },
+    { id: 'pull', label: 'Pull current branch', detail: 'Integrate upstream changes' },
+    { id: 'push', label: 'Push current branch', detail: 'Publish local commits' },
+  ]
+  return match(actions, item => item.label).slice(0, cap).map(({ item, hits }) => ({
+    ...item, segs: toSegs(item.label, hits), kind: 'action' as const,
+  }))
+}
+
 function fileRows(cap: number, source = files.value): Row[] {
   return source.slice(0, cap).map(item => {
     const hits = subseqHits(item, query.value) ?? []
@@ -196,6 +217,43 @@ async function openRepository(repo: WorkspaceRepo) {
   } catch (e) { notify({ tone: 'danger', title: 'Cannot open repository', message: e instanceof Error ? e.message : String(e) }) }
   finally { openingRepo.value = false }
 }
+
+async function activateRemoteAction(action: string) {
+  if (remoteBusy.value || pendingOperation.value) return
+  if (action === 'fetch') {
+    if (await runRemoteOperation(() => RemoteService.FetchAll(), { success: 'Fetch complete', failure: 'Fetch failed' })) emit('close')
+    return
+  }
+  const branch = branches.value.find(item => item.IsCurrent && !item.IsRemote)?.Name
+  if (!branch) { notify({ tone: 'warning', title: 'No current branch' }); return }
+  if (action === 'pull') {
+    pendingOperation.value = {
+      title: `Pull ${branch}?`,
+      message: 'Fetch and integrate upstream changes into the current branch.',
+      confirmLabel: 'Pull', target: branch, icon: PhArrowLineDown,
+      onConfirm: async () => {
+        if (await runRemoteOperation(() => RemoteService.Pull(), { success: 'Pull complete', failure: 'Pull failed', rethrow: true })) emit('close')
+      },
+    }
+    return
+  }
+  if (action === 'push') {
+    const hasUpstream = await RemoteService.HasUpstream().catch(() => true)
+    pendingOperation.value = {
+      title: hasUpstream ? `Push ${branch}?` : 'Set upstream and push?',
+      message: hasUpstream ? 'Push local commits to the configured upstream remote.' : 'No upstream is configured. Enter the remote and branch to publish this branch.',
+      confirmLabel: hasUpstream ? 'Push' : 'Push with upstream', target: branch, icon: PhArrowLineUp,
+      inputs: hasUpstream ? undefined : [
+        { id: 'remote', label: 'Remote', value: 'origin', required: true, pattern: '^[^\\s]+$' },
+        { id: 'branch', label: 'Branch', value: branch, required: true, pattern: '^[^\\s]+$' },
+      ],
+      onConfirm: async ({ remote, branch: target }) => {
+        const op = remote && target ? () => RemoteService.PushSetUpstream(remote.trim(), target.trim()) : () => RemoteService.Push()
+        if (await runRemoteOperation(op, { success: 'Push complete', failure: 'Push failed', rethrow: true })) emit('close')
+      },
+    }
+  }
+}
 const results = computed<Row[]>(() => {
   if (mode.value === 'root') {
     if (query.value) {
@@ -205,6 +263,7 @@ const results = computed<Row[]>(() => {
         workspaceRows(UNIFIED_GROUP_LIMIT),
         profileRows(UNIFIED_GROUP_LIMIT),
         viewRows(UNIFIED_GROUP_LIMIT),
+        actionRows(UNIFIED_GROUP_LIMIT),
         branchRows(UNIFIED_GROUP_LIMIT),
         fileRows(UNIFIED_GROUP_LIMIT),
         query.value.trim().length >= 2 ? commitRows(UNIFIED_GROUP_LIMIT) : [],
@@ -232,6 +291,7 @@ const results = computed<Row[]>(() => {
   if (mode.value === 'file') return fileRows(LIMIT)
   if (mode.value === 'content') return contentRows()
   if (mode.value === 'commit') return commitRows(LIMIT)
+  if (mode.value === 'action') return actionRows(LIMIT)
   return viewRows(LIMIT)
 })
 
@@ -243,10 +303,10 @@ watch(results, (rows, previous) => {
 })
 
 // unified root: `b:` / `c:` / `f:` / `v:` prefixes lock a mode mid-typing
-const PREFIX_MODES: Record<string, Mode> = { g: 'content', b: 'branch', c: 'commit', f: 'file', v: 'view', r: 'repo', w: 'workspace', p: 'profile' }
+const PREFIX_MODES: Record<string, Mode> = { g: 'content', b: 'branch', c: 'commit', f: 'file', v: 'view', r: 'repo', w: 'workspace', p: 'profile', a: 'action' }
 watch(query, (q) => {
   if (mode.value !== 'root') return
-  const prefixed = /^([bcfgvrwp]):(.*)$/i.exec(q)
+  const prefixed = /^([abcfgvrwp]):(.*)$/i.exec(q)
   if (prefixed) {
     const rest = prefixed[2]!
     enterMode(PREFIX_MODES[prefixed[1]!.toLowerCase()]!)
@@ -327,9 +387,10 @@ function backToRoot() {
 }
 
 function activate(row: Row) {
-  if (openingRepo.value) return
+  if (openingRepo.value || remoteBusy.value) return
   if (row.kind !== 'search') rememberFind(query.value, mode.value, row.kind === 'file' ? row.id : undefined)
   switch (row.kind) {
+    case 'action': void activateRemoteAction(row.id); return
     case 'repo': void openRepository(row.data as WorkspaceRepo); return
     case 'workspace': workspaceFilter.value = row.id; query.value = ''; enterMode('repo'); return
     case 'profile': emit('profile', row.id); emit('close'); return
@@ -366,17 +427,17 @@ const selectedRow = computed(() => results.value[cursor.value])
 const actionHint = computed(() => {
   if (openingRepo.value) return 'Switching repository…'
   const kind = selectedRow.value?.kind
-  return ({ branch: 'Inspect branch', content: 'Open file blame', file: 'Open file history', commit: 'Open commit', repo: 'Switch repository', workspace: 'Browse repositories', profile: 'Configure profile', search: 'Repeat search', view: 'Open view' })[kind ?? 'view']
+  return ({ branch: 'Inspect branch', content: 'Open file blame', file: 'Open file history', commit: 'Open commit', repo: 'Switch repository', workspace: 'Browse repositories', profile: 'Configure profile', search: 'Repeat search', view: 'Open view', action: 'Run remote action' })[kind ?? 'view']
 })
 const activeScope = computed(() => MODES.find(item => item.mode === mode.value))
-const prefixSuggestions = computed(() => mode.value === 'root' && /^[fcbgvrwp]$/i.test(query.value) ? MODES.filter(item => item.key.startsWith(query.value.toLowerCase()) && (item.mode !== 'content' || contentAvailable.value)) : [])
+const prefixSuggestions = computed(() => mode.value === 'root' && /^[afcbgvrwp]$/i.test(query.value) ? MODES.filter(item => item.key.startsWith(query.value.toLowerCase()) && (item.mode !== 'content' || contentAvailable.value)) : [])
 function applyPrefix(next: Mode) { query.value = ''; enterMode(next) }
 const previewOpen = ref(false)
 const previewPane = ref<HTMLElement>()
 const previewLoading = ref(false)
 const previewError = ref('')
 const previewText = ref('')
-const canPreview = computed(() => !!selectedRow.value && !['search', 'view'].includes(selectedRow.value.kind))
+const canPreview = computed(() => !!selectedRow.value && !['search', 'view', 'action'].includes(selectedRow.value.kind))
 async function openPreview() {
   if (!canPreview.value) return
   previewOpen.value = true
@@ -431,7 +492,8 @@ watch([cursor, results], () => {
 })
 
 function onKey(event: KeyboardEvent) {
-  if (openingRepo.value) { event.preventDefault(); event.stopPropagation(); return }
+  if (openingRepo.value || remoteBusy.value) { event.preventDefault(); event.stopPropagation(); return }
+  if (pendingOperation.value) return
   event.stopPropagation()
   if (event.isComposing) return
   const k = event.key
@@ -512,7 +574,7 @@ onBeforeUnmount(() => {
       <div v-if="profiles.state.error && mode === 'profile'" class="fb-summary" role="alert">{{ profiles.state.error }}</div>
       <div class="fb-summary" aria-live="polite">
         <span>{{ !query && mode === 'root' ? 'Recent & suggested' : countLabel(results.length, 'result') }}</span>
-        <span>{{ searchLoading ? 'Searching…' : searchError ? searchError : contentTruncated ? 'More matches available; refine your search' : loadingCommits ? 'Searching commits…' : commitError ? 'Commit search unavailable' : mode === 'root' && !query ? 'Files · commits · branches · workspaces' : activeScope?.label ?? '' }}</span>
+          <span>{{ searchLoading ? 'Searching…' : searchError ? searchError : contentTruncated ? 'More matches available; refine your search' : loadingCommits ? 'Searching commits…' : commitError ? 'Commit search unavailable' : mode === 'root' && !query ? 'Files · commits · branches · a: actions' : activeScope?.label ?? '' }}</span>
       </div>
       <div class="fb-body">
       <div :id="`${finderId}-results`" ref="list" class="fb-rows" role="listbox" aria-label="Search results" :aria-busy="loadingCommits || searchLoading || openingRepo">
@@ -520,7 +582,7 @@ onBeforeUnmount(() => {
           class="fb-row" :class="{ sel: cursor === i }"
           role="option" :aria-selected="cursor === i" :aria-label="`${row.kind}: ${row.label}${row.detail ? ', ' + row.detail : ''}`"
           @mousemove="cursor = i" @mousedown.prevent @click="activate(row)">
-          <component :is="row.kind === 'view' ? viewIcons[row.id] ?? PhSquaresFour : icons[row.kind]" class="fb-icon" :size="19" aria-hidden="true" />
+          <component :is="row.kind === 'view' ? viewIcons[row.id] ?? PhSquaresFour : row.kind === 'action' ? actionIcons[row.id] : icons[row.kind]" class="fb-icon" :size="19" aria-hidden="true" />
           <span class="fb-content">
             <span class="fb-label"><template v-for="(seg, si) in row.segs" :key="si"><mark v-if="seg.hit">{{ seg.t }}</mark><template v-else>{{ seg.t }}</template></template></span>
             <span v-if="row.detail || row.author" class="fb-detail">
@@ -534,7 +596,7 @@ onBeforeUnmount(() => {
         <div v-if="!results.length" class="fb-empty">
           <PhMagnifyingGlass :size="28" aria-hidden="true" />
           <b>{{ searchLoading ? 'Searching…' : searchError || (loadingCommits ? 'Searching commits…' : mode === 'commit' && query.trim().length < 2 ? 'Find a commit' : 'No matches found') }}</b>
-          <span>{{ mode === 'commit' && query.trim().length < 2 ? 'Type at least two characters from a message or hash.' : 'Try a shorter search or a prefix such as f: or b:.' }}</span>
+          <span>{{ mode === 'commit' && query.trim().length < 2 ? 'Type at least two characters from a message or hash.' : 'Try a shorter search or a prefix such as f:, b:, or a:.' }}</span>
         </div>
       </div>
       <aside v-if="previewOpen" ref="previewPane" class="fb-preview" tabindex="0" aria-label="Result preview">
@@ -546,5 +608,6 @@ onBeforeUnmount(() => {
       </div>
       <footer class="fb-footer"><span v-if="results.length"><kbd>↵</kbd> {{ actionHint }}</span><button v-if="canPreview" class="fb-preview-toggle" @click="previewOpen ? closePreview() : openPreview()"><kbd>{{ previewOpen ? '←' : '→' }}</kbd> {{ previewOpen ? 'Back to results' : 'Preview' }}</button></footer>
     </section>
+    <OperationConfirmModal v-if="pendingOperation" :request="pendingOperation" @close="pendingOperation = null" />
   </div>
 </template>

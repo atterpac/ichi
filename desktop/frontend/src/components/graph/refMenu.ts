@@ -8,6 +8,9 @@ import {
   PhClockCounterClockwise,
   PhGitBranch,
   PhGitMerge,
+  PhArrowLineDown,
+  PhArrowLineUp,
+  PhArrowsClockwise,
   PhTag,
   PhTrash,
 } from '@phosphor-icons/vue'
@@ -23,6 +26,9 @@ export interface RefMenuDeps {
   run: (fn: () => Promise<void>) => void | Promise<void>
   /** opens the shared confirm modal (GraphView.openOperation). */
   confirm: (req: OperationConfirmRequest) => void
+  fetchBranch?: (name: string) => void
+  pullBranch?: (name: string) => void
+  pushBranch?: (name: string) => void
 }
 
 const shortRemote = (name: string) => {
@@ -206,6 +212,12 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
       const name = shortRemote(d.Name)
       items.push(
         { separator: true },
+        ...(deps.fetchBranch ? [{
+          id: `fetch:${d.Name}`,
+          label: `Fetch ${d.Name}`,
+          icon: PhArrowsClockwise,
+          action: () => deps.fetchBranch?.(d.Name),
+        }] : []),
         {
           id: `co-remote:${d.Name}`,
           label: `Checkout ${name}`,
@@ -216,7 +228,16 @@ export function commitRefActions(commit: Commit, deps: RefMenuDeps): ContextMenu
       )
       continue
     }
-    if (d.Kind !== 'branch' || isCurrent(d)) continue
+    if (d.Kind !== 'branch') continue
+    if (deps.fetchBranch || deps.pullBranch || deps.pushBranch) {
+      items.push(
+        { separator: true },
+        ...(deps.fetchBranch ? [{ id: `fetch:${d.Name}`, label: `Fetch for ${d.Name}`, icon: PhArrowsClockwise, action: () => deps.fetchBranch?.(d.Name) }] : []),
+        ...(deps.pullBranch ? [{ id: `pull:${d.Name}`, label: isCurrent(d) ? `Pull ${d.Name}` : `Checkout & pull ${d.Name}…`, icon: PhArrowLineDown, action: () => deps.pullBranch?.(d.Name) }] : []),
+        ...(deps.pushBranch ? [{ id: `push:${d.Name}`, label: `Push ${d.Name}…`, icon: PhArrowLineUp, action: () => deps.pushBranch?.(d.Name) }] : []),
+      )
+    }
+    if (isCurrent(d)) continue
     items.push(
       { separator: true },
       {

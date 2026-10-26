@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import RefLabel from '../common/RefLabel.vue'
 import type { RefDecoration } from '../../bindings/github.com/atterpac/ichi/internal/git'
+const emit = defineEmits<{ 'ref-contextmenu': [event: MouseEvent, ref: RefDecoration] }>()
 const props = withDefaults(
   defineProps<{
     decorations: RefDecoration[]
@@ -68,6 +69,7 @@ const description = computed(
         :kind="primary.Kind"
         :current="primary.IsHead"
         :title="description"
+        @contextmenu.stop.prevent="emit('ref-contextmenu', $event, primary!)"
       />
       <span
         v-if="decorations.length > 1"
@@ -87,6 +89,7 @@ const description = computed(
           :name="decoration.Name"
           :kind="decoration.Kind"
           :current="decoration.IsHead"
+          @contextmenu.stop.prevent="emit('ref-contextmenu', $event, decoration)"
         />
       </span>
     </span>

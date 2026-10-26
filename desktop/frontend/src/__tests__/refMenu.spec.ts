@@ -154,6 +154,25 @@ describe('commitRefActions', () => {
     byId(items, 'co-remote:origin/main')!.action!()
     expect(checkoutBranch).toHaveBeenCalledWith('main', false)
   })
+  it('exposes remote actions on local branch heads and fetch on remote refs', () => {
+    const fetchBranch = vi.fn<(name: string) => void>()
+    const pullBranch = vi.fn<(name: string) => void>()
+    const pushBranch = vi.fn<(name: string) => void>()
+    const items = commitRefActions(commit({ Decorations: [
+      { Name: 'main', Kind: 'branch', IsHead: true },
+      { Name: 'topic', Kind: 'branch', IsHead: false },
+      { Name: 'origin/topic', Kind: 'remote', IsHead: false },
+    ] }), { ...deps, fetchBranch, pullBranch, pushBranch })
+    byId(items, 'fetch:main')?.action?.()
+    byId(items, 'pull:topic')?.action?.()
+    byId(items, 'push:topic')?.action?.()
+    byId(items, 'fetch:origin/topic')?.action?.()
+    expect(fetchBranch.mock.calls).toEqual([['main'], ['origin/topic']])
+    expect(pullBranch).toHaveBeenCalledWith('topic')
+    expect(pushBranch).toHaveBeenCalledWith('topic')
+    expect(byId(items, 'pull:topic')?.label).toContain('Checkout & pull')
+    expect(byId(items, 'pull:origin/topic')).toBeUndefined()
+  })
   it('requires confirmation before reverting a commit', () => {
     revert.mockClear()
     const item = byId(commitRefActions(commit(), deps), 'revert')!

@@ -614,6 +614,9 @@
 .navigation-bar .header-context { margin-left: auto; min-width: 0; overflow: hidden; }
 .window-sync-context { display: flex; align-items: center; gap: 6px; }
 .window-sync-context:empty { display: none; }
+.header-remote-actions { display: inline-flex; align-items: center; gap: 3px; }
+.header-remote-actions .ui-button { white-space: nowrap; }
+.remote-action-count { color: var(--accent-text); font: var(--fs-xs) var(--font-mono); }
 .header-sync-menu, .view-more { position: relative; font-size: var(--fs-sm); }
 .header-sync-menu summary, .view-more summary { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 5px; color: var(--text-dim); cursor: pointer; list-style: none; white-space: nowrap; }
 .header-sync-menu summary::-webkit-details-marker, .view-more summary::-webkit-details-marker { display: none; }

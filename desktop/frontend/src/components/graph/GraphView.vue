@@ -31,6 +31,7 @@ import { isEditable, isModified } from '../../composables/keyboard'
 import { useVimList } from '../../composables/useVimList'
 import {
   GraphService,
+  RefService,
   RemoteService,
   StashService,
   WorktreeService,
@@ -38,7 +39,7 @@ import {
   type GraphLayoutRow,
   type RepoInfo,
 } from '../../bindings/github.com/atterpac/ichi/desktop/services'
-import { PhArchive, PhArrowLineUp, PhCopy, PhDownloadSimple, PhTrash } from '@phosphor-icons/vue'
+import { PhArchive, PhArrowLineDown, PhArrowLineUp, PhArrowsClockwise, PhCopy, PhDownloadSimple, PhTrash } from '@phosphor-icons/vue'
 import { invalidateChangesSnapshots } from '../status/changesSnapshotCache'
 import PaneSplitter from '../common/PaneSplitter.vue'
 import { workingDraft } from './workingDraft'
@@ -46,6 +47,7 @@ import {
   Commit,
   type CommitDetail,
   type CommitMetadata,
+  type RefDecoration,
   type StatusEntry,
 } from '../../bindings/github.com/atterpac/ichi/internal/git'
 
@@ -610,6 +612,50 @@ async function openPushConfirm() {
   })
 }
 
+function fetchBranch(name?: string) {
+  void runOperation(async () => {
+    if (name) {
+      const branches = await RefService.ListBranches()
+      const branch = branches?.find(item => !item.IsRemote && item.Name === name)
+      const remote = branch?.Upstream?.split('/')[0] || branches?.find(item => item.IsRemote && item.Name === name)?.Name.split('/')[0]
+      if (remote) { await RemoteService.Fetch(remote); return }
+    }
+    await RemoteService.FetchAll()
+  }, { success: 'Fetch complete', failure: 'Fetch failed' })
+}
+
+function pullBranch(name: string) {
+  const checkout = name !== repo.value?.Branch
+  openOperation({
+    title: checkout ? `Checkout and pull ${name}?` : `Pull ${name}?`,
+    message: checkout
+      ? `Checkout ${name}, then fetch and integrate its upstream changes. This changes the current branch.`
+      : 'Fetch and integrate upstream changes into the current branch.',
+    confirmLabel: checkout ? 'Checkout and pull' : 'Pull',
+    target: name,
+    icon: PhArrowLineDown,
+    onConfirm: () => runRef(async () => {
+      if (checkout) await RefService.CheckoutBranch(name, false)
+      await RemoteService.Pull()
+    }),
+  })
+}
+
+async function pushBranch(name: string) {
+  if (name === repo.value?.Branch) { await openPushConfirm(); return }
+  const branches = await RefService.ListBranches().catch(() => [])
+  const upstream = branches?.find(item => !item.IsRemote && item.Name === name)?.Upstream || ''
+  openOperation({
+    title: `Push ${name}?`,
+    message: `Push this local branch without checking it out. Set its upstream to the chosen remote.`,
+    confirmLabel: 'Push branch',
+    target: name,
+    icon: PhArrowLineUp,
+    inputs: [{ id: 'remote', label: 'Remote', value: upstream.split('/')[0] || 'origin', required: true, pattern: '^[^\\s]+$' }],
+    onConfirm: ({ remote }) => runRef(() => RemoteService.PushSetUpstream((remote ?? '').trim(), name)),
+  })
+}
+
 // Copy rows + (for real commits) the shared branch/reset/ref action set. Same
 // list feeds the right-click menu and the `r` keybind.
 function rowMenuItems(commit: Commit): ContextMenuItem[] {
@@ -642,6 +688,9 @@ function rowMenuItems(commit: Commit): ContextMenuItem[] {
         },
         run: runRef,
         confirm: openOperation,
+        fetchBranch,
+        pullBranch,
+        pushBranch: (name) => { void pushBranch(name) },
       }),
     )
   }
@@ -732,6 +781,16 @@ function openRowMenu(event: MouseEvent, commit: Commit) {
   menu.value?.open(event, rowMenuItems(commit))
 }
 
+function openRefMenu(event: MouseEvent, commit: Commit, ref: RefDecoration) {
+  selectCommit(commit)
+  const items = rowMenuItems(commit)
+  const actionIds = new Set([`fetch:${ref.Name}`, `pull:${ref.Name}`, `push:${ref.Name}`])
+  const remoteActions = items.filter(item => item.id && actionIds.has(item.id))
+  menu.value?.open(event, remoteActions.length
+    ? [...remoteActions, { separator: true }, ...items.filter(item => !item.id || !actionIds.has(item.id))]
+    : items)
+}
+
 // `r` opens the same menu for the selected commit, anchored to its row so it
 // reads as a commit action and stays keyboard-drivable (j/k, shortcuts, ⏎).
 async function openRowMenuKey() {
@@ -818,15 +877,11 @@ onUnmounted(() => {
 <template>
   <div class="graph-view">
     <Teleport defer to="#window-sync-context">
-      <details class="header-sync-menu" @keydown.esc.stop.prevent="($event.currentTarget as HTMLDetailsElement).open = false">
-        <summary aria-label="Sync actions">Sync <span v-if="repo?.Ahead">↑{{ repo.Ahead }}</span><span v-if="repo?.Behind">↓{{ repo.Behind }}</span><span aria-hidden="true">⌄</span></summary>
-        <div class="sync-menu-actions" @click="($event.currentTarget as HTMLElement).closest('details')?.removeAttribute('open')">
-          <UiButton size="sm" :disabled="graphRefreshing || activeOperations" @click="runOperation(() => RemoteService.FetchAll(), { success: 'Fetch complete' })">Fetch</UiButton>
-          <UiButton size="sm" :disabled="graphRefreshing || activeOperations" @click="openOperation({ title: 'Pull current branch?', message: 'Fetch and integrate upstream changes into the current branch.', confirmLabel: 'Pull', target: repo?.Branch, onConfirm: () => runRef(() => RemoteService.Pull()) })">Pull</UiButton>
-          <UiButton size="sm" title="Push current branch" :disabled="graphRefreshing || activeOperations" @click="openPushConfirm">Push</UiButton>
-        </div>
-      </details>
-      <UiButton v-if="repo?.Ahead" size="sm" title="Push ahead commits" :disabled="graphRefreshing || activeOperations" @click="openPushConfirm"><PhArrowLineUp :size="16" weight="bold" />Push {{ repo.Ahead }}</UiButton>
+      <div class="header-remote-actions" role="group" aria-label="Remote actions">
+        <UiButton size="sm" title="Fetch all remotes" aria-label="Fetch all remotes" :disabled="graphRefreshing || activeOperations" @click="fetchBranch()"><PhArrowsClockwise :size="16" weight="bold" /><span>Fetch</span></UiButton>
+        <UiButton size="sm" :title="`Pull ${repo?.Branch || 'current branch'}`" :aria-label="`Pull ${repo?.Branch || 'current branch'}`" :disabled="graphRefreshing || activeOperations || !repo?.Branch" @click="pullBranch(repo!.Branch)"><PhArrowLineDown :size="16" weight="bold" /><span>Pull</span><span v-if="repo?.Behind" class="remote-action-count">{{ repo.Behind }}</span></UiButton>
+        <UiButton size="sm" title="Push current branch" :aria-label="`Push ${repo?.Branch || 'current branch'}`" :disabled="graphRefreshing || activeOperations || !repo?.Branch" @click="openPushConfirm"><PhArrowLineUp :size="16" weight="bold" /><span>Push</span><span v-if="repo?.Ahead" class="remote-action-count">{{ repo.Ahead }}</span></UiButton>
+      </div>
     </Teleport>
 
     <SurfaceState
@@ -918,6 +973,7 @@ onUnmounted(() => {
                   :row-hovered="hoveredCommit === row.Commit.Hash"
                   :hover-enabled="!keyboardNavigation"
                   @click.stop="openRowMenu($event, row.Commit)"
+                  @ref-contextmenu="(event, ref) => openRefMenu(event, row.Commit, ref)"
                 />
                 <RefLabel
                   v-else-if="commitBranches.get(row.Commit.Hash)"

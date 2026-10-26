@@ -14,11 +14,15 @@ const worktree = vi.hoisted(() => ({ stagedFiles: 0 }))
 const { loadCommit, loadMetadata, push, repoInfo, layoutStarted, summary, customLayout } = vi.hoisted(() => ({
   customLayout: vi.fn<() => unknown>(), loadMetadata: vi.fn<(...args: unknown[]) => Promise<unknown>>(), loadCommit: vi.fn<(...args: unknown[]) => Promise<unknown>>(), push: vi.fn<() => Promise<void>>(), repoInfo: vi.fn<() => Promise<unknown>>(), layoutStarted: vi.fn<() => void>(), summary: vi.fn<() => Promise<unknown>>(),
 }))
+const { fetchAll, pull, checkoutBranch, pushSetUpstream } = vi.hoisted(() => ({
+  fetchAll: vi.fn<() => Promise<void>>(), pull: vi.fn<() => Promise<void>>(), checkoutBranch: vi.fn<(name: string, create: boolean) => Promise<void>>(), pushSetUpstream: vi.fn<(remote: string, branch: string) => Promise<void>>(),
+}))
 vi.mock('../bindings/github.com/atterpac/ichi/desktop/services', () => ({
   RepoService: { Info: repoInfo },
   StashService: { StashPush: stashOps.push, StashApplyIndex: stashOps.apply, StashPopIndex: stashOps.pop, StashDropIndex: stashOps.drop },
   WorktreeService: { Commit: stashOps.commit, Summary: async () => ({ Summary: await summary(), Info: { Branch: 'main', Ahead: 0, Behind: 0, Staged: { Files: worktree.stagedFiles, Insertions: 0, Deletions: 0 }, Unstaged: { Insertions: 7, Deletions: 2 } } }) },
-  RemoteService: { HasUpstream: async () => true, Push: push },
+  RemoteService: { HasUpstream: async () => true, Push: push, FetchAll: fetchAll, Pull: pull, PushSetUpstream: pushSetUpstream },
+  RefService: { CheckoutBranch: checkoutBranch, ListBranches: async () => [] },
   GraphService: {
     LoadGraphLayout: async () => {
       layoutStarted()
@@ -84,6 +88,10 @@ beforeEach(() => {
   customLayout.mockReset()
   loadCommit.mockReset().mockResolvedValue(detail)
   push.mockReset().mockResolvedValue(undefined)
+  fetchAll.mockReset().mockResolvedValue(undefined)
+  pull.mockReset().mockResolvedValue(undefined)
+  checkoutBranch.mockReset().mockResolvedValue(undefined)
+  pushSetUpstream.mockReset().mockResolvedValue(undefined)
   Object.assign(usePreferenceBindings(), {
     'graph.detailPosition': 'right',
     'graph.detailShowAuthorDate': true,
@@ -491,6 +499,44 @@ describe('Graph inspector refresh', () => {
     expect(wrapper.text()).toContain('Push current branch?')
     expect(push).not.toHaveBeenCalled()
     wrapper.unmount()
+  })
+  it('shows direct remote actions in the header and confirms pull', async () => {
+    const wrapper = await mountView()
+    try {
+      expect(wrapper.find('.header-sync-menu').exists()).toBe(false)
+      await wrapper.get('[aria-label="Fetch all remotes"]').trigger('click')
+      await flushPromises()
+      expect(fetchAll).toHaveBeenCalledOnce()
+      await wrapper.get('[aria-label="Pull main"]').trigger('click')
+      expect(pull).not.toHaveBeenCalled()
+      await wrapper.get('.operation-primary').trigger('click')
+      await flushPromises()
+      expect(pull).toHaveBeenCalledOnce()
+    } finally { wrapper.unmount() }
+  })
+  it('puts fetch, pull, and push first when right-clicking a branch head', async () => {
+    const wrapper = await mountView()
+    try {
+      await wrapper.get('.commit-row .ref-compact .ref-label').trigger('contextmenu')
+      await flushPromises()
+      const labels = [...document.querySelectorAll('.ctx-item .ctx-label')].map(item => item.textContent?.trim())
+      expect(labels.slice(0, 3)).toEqual(['Fetch for main', 'Pull main', 'Push main…'])
+    } finally { wrapper.unmount() }
+  })
+  it('pushes a selected non-current branch without checking it out', async () => {
+    const wrapper = await mountView()
+    try {
+      await wrapper.get('.commit-row').trigger('contextmenu')
+      const pushRelease = [...document.querySelectorAll<HTMLButtonElement>('.ctx-item')].find(item => item.textContent?.includes('Push release'))
+      expect(pushRelease).toBeTruthy()
+      pushRelease!.click()
+      await flushPromises()
+      expect(document.body.textContent).toContain('Push release?')
+      ;(document.querySelector('.operation-primary') as HTMLButtonElement).click()
+      await flushPromises()
+      expect(pushSetUpstream).toHaveBeenCalledWith('origin', 'release')
+      expect(checkoutBranch).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
   })
   it('refreshes the graph after failed push and retains the confirmation error for retry', async () => {
     const wrapper = await mountView()
